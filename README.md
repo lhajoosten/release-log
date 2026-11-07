@@ -43,7 +43,11 @@ Exact policies for tag ancestry, supported merge strategies, PR association, mis
 
 ## Status
 
-Project initialization only. The CLI, GitHub integration, validation rules, and AI integration are not implemented. No installation or usage commands are available yet.
+Repository tooling is configured: Oxfmt, type-aware Oxlint, strict TypeScript, Lefthook, conventional commit/PR-title checks, and GitHub Actions CI. The CLI, GitHub integration, release validation rules, and AI integration are not implemented.
+
+## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the pinned toolchain, installation, commands, hooks, and CI. [AGENTS.md](AGENTS.md) defines guidance for coding agents.
 
 ## License
 

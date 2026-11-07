@@ -1,0 +1,8 @@
+packages:
+  - .
+
+engineStrict: true
+saveExact: true
+
+allowBuilds:
+  lefthook: false

@@ -1,0 +1,9 @@
+pre-commit:
+  commands:
+    check:
+      run: pnpm check
+
+commit-msg:
+  commands:
+    conventional-commit:
+      run: pnpm check:commits --edit "{1}"
