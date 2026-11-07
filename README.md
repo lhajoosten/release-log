@@ -29,7 +29,7 @@ AI does not determine release membership, change classification, or breaking-cha
 
 AI-written notes should explain supported user impact, preserve warnings and required actions, reference source PRs, and omit changes explicitly marked as internal. They must not invent capabilities or benefits absent from the supplied context.
 
-AI output is not guaranteed to be reproducible. It is a separate artifact, and a provider failure must not prevent deterministic changelog generation. The provider, model, and exact context and output schemas remain to be selected.
+AI output is not guaranteed to be reproducible. It is a separate artifact, and a provider failure must not prevent deterministic changelog generation. The AI provider, model, and AI input/output schemas remain to be selected.
 
 ## Initial scope
 
@@ -39,7 +39,7 @@ AI output is not guaranteed to be reproducible. It is a separate artifact, and a
 - Structured release context extracted from PR descriptions.
 - Deterministic changelog generation before optional AI-assisted writing.
 
-Exact policies for tag ancestry, supported merge strategies, PR association, missing context, and conventional syntax need concrete examples and tests before implementation.
+Release generation still needs explicit policies for tag ancestry, supported merge strategies, PR association, and historical or missing context. The [version 1 PR release-context format](docs/release-context.md) defines how new descriptions supply structured explanations.
 
 ## Status
 
