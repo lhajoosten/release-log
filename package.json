@@ -13,7 +13,8 @@
     "check:types": "tsc --noEmit",
     "check:commits": "commitlint",
     "check": "pnpm check:format && pnpm check:lint && pnpm check:types",
-    "verify": "pnpm check"
+    "test": "node --test --experimental-test-coverage tests/*.test.ts",
+    "verify": "pnpm check && pnpm test"
   },
   "devDependencies": {
     "@commitlint/cli": "21.2.4",
