@@ -27,8 +27,8 @@ The current request defines authorized scope. Do not implement future roadmap it
 
 ## Verification
 
-- Run `pnpm verify` for formatting, type-aware lint, and TypeScript checks.
-- This initial repository has no application behavior or automated application tests. Add meaningful tests and a canonical test command with the first implementation; do not add dummy tests or a passing empty test command.
+- Run `pnpm verify` for formatting, type-aware lint, TypeScript checks, and the Node.js tests with coverage reporting.
+- Run `pnpm test` for focused behavioral verification. Keep tests meaningful; do not add dummy tests or a passing empty test command.
 - Derive expected results from agreed behavior, not from whatever an implementation returns. Cover failure cases, deterministic output, and external boundaries where relevant.
 - Validate an affected integration with fixtures and controlled failures; make network calls explicit. Never require real credentials for ordinary unit tests.
 - Review the final diff. Report actual commands and outcomes, unrun checks, limitations, and any external services used. Do not claim CI passed without observing its result.

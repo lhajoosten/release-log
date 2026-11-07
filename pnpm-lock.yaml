@@ -165,13 +165,26 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@commitlint/config-conventional':
+        specifier: 21.2.4
+        version: 21.2.4
+      '@commitlint/lint':
+        specifier: 21.2.4
+        version: 21.2.4
+      '@commitlint/load':
+        specifier: 21.2.4
+        version: 21.2.4(typescript@7.0.2)
+      '@commitlint/parse':
+        specifier: 21.2.3
+        version: 21.2.3
     devDependencies:
       '@commitlint/cli':
         specifier: 21.2.4
         version: 21.2.4(conventional-commits-parser@7.1.4)(typescript@7.0.2)
-      '@commitlint/config-conventional':
-        specifier: 21.2.4
-        version: 21.2.4
+      '@commitlint/types':
+        specifier: 21.2.3
+        version: 21.2.3
       '@types/node':
         specifier: 26.6.6
         version: 26.6.6
