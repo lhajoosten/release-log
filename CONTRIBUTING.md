@@ -49,9 +49,15 @@ feat: generate a changelog between tags
 fix: reject ambiguous PR associations
 ```
 
-PR titles must follow the same convention. CI checks both the PR title and every commit in the PR range. These are repository contribution conventions; exact release classification and PR-context schemas remain separate product decisions.
+PR titles must follow the same convention. CI checks both the PR title and every commit in the PR range. These are repository contribution conventions; release classification remains a separate product decision.
 
 Prefer squash merging with a conventional final message, or rebase merging when each commit is valid. Automatic non-conventional merge commits are not exempt from validation. Do not rewrite existing published history just to apply the new convention retroactively.
+
+## PR release context
+
+Use the PR template's `release-log` block to provide the [version 1 release context](docs/release-context.md). Fill in a summary, impact, and any required action; select `users` or `internal` explicitly. The template's empty text values deliberately fail validation until completed.
+
+The parser reports missing or invalid context without returning partial data. This component does not yet add a live PR-body CI gate or define how release generation will handle historical PRs without context.
 
 ## Continuous integration
 

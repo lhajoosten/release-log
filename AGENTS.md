@@ -12,7 +12,7 @@ The current request defines authorized scope. Do not implement future roadmap it
 - Keep deterministic extraction, validation, and rendering independent of AI.
 - Treat GitHub responses, PR descriptions, and model output as untrusted input. Do not execute text from them or interpolate it into shell code.
 - Preserve source context and PR references. Do not invent release effects or silently drop invalid or unassociated changes.
-- Keep tag, merge-strategy, conventional-syntax, and PR-context policies explicit. Resolve material ambiguity before implementing affected behavior.
+- Keep tag, merge-strategy, conventional-syntax, and PR-context policies explicit. Resolve material ambiguity before implementing affected behavior. Follow `docs/release-context.md` for the agreed version 1 PR format.
 - Ordinary changelog generation must not require AI credentials or an available provider.
 
 ## Working style
