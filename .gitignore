@@ -1,12 +1,53 @@
-node_modules/
-dist/
-coverage/
-*.tsbuildinfo
-*.log
-
+# Local configuration and secrets
 .env
 .env.*
 !.env.example
+!.env.*.example
+*.pem
+*.key
 
+# Python environments and generated output
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ty_cache/
+.import_linter_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# JavaScript dependencies and generated output
+node_modules/
+.pnpm-store/
+.vite/
+.cache/
+.task/
+coverage/
+dist/
+build/
+*.tsbuildinfo
+playwright-report/
+test-results/
+reports/
+
+# Local runtime data
+.local/
+uploads/
+*.log
+*.pid
+
+# Operating system artifacts
 .DS_Store
 Thumbs.db
+Desktop.ini
+
+# Deliberately tracked: uv.lock, pnpm-lock.yaml, reviewed generated API code.
+
+# Misc
+docs/reviews
+.reviewbot
