@@ -47,4 +47,4 @@ Project initialization only. The CLI, GitHub integration, validation rules, and 
 
 ## License
 
-see [LICENSE.md]
+Licensed under the [MIT License](LICENSE.md).
