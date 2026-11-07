@@ -26,7 +26,7 @@ CI uses `--ignore-scripts` because it runs checks directly and does not need loc
 | `pnpm check:format`                                    | Check formatting without changing files.                                |
 | `pnpm check:lint`                                      | Run type-aware Oxlint; warnings and unused suppression directives fail. |
 | `pnpm check:types`                                     | Run strict TypeScript checks without emitting files.                    |
-| `pnpm check`                                           | Run formatting, lint, and types sequentially.                           |
+| `pnpm check`                                           | Run formatting, lint, types, and tests sequentially.                    |
 | `pnpm test`                                            | Run Node.js tests with coverage reporting.                              |
 | `pnpm verify`                                          | Run formatting, lint, types, and tests.                                 |
 | `pnpm check:commits --from <base-sha> --to <head-sha>` | Validate a Git commit range with Commitlint.                            |
