@@ -43,7 +43,7 @@ Exact policies for tag ancestry, supported merge strategies, PR association, mis
 
 ## Status
 
-Repository tooling is configured: Oxfmt, type-aware Oxlint, strict TypeScript, Lefthook, conventional commit/PR-title checks, and GitHub Actions CI. The CLI, GitHub integration, release validation rules, and AI integration are not implemented.
+Repository tooling is configured, and core components are being implemented incrementally with tests. Component behavior and boundaries are documented in `docs/` alongside the source in `src/`. The end-to-end CLI, GitHub integration, and AI integration are not implemented.
 
 ## Development
 

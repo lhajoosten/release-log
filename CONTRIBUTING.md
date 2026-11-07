@@ -26,13 +26,16 @@ CI uses `--ignore-scripts` because it runs checks directly and does not need loc
 | `pnpm check:format`                                    | Check formatting without changing files.                                |
 | `pnpm check:lint`                                      | Run type-aware Oxlint; warnings and unused suppression directives fail. |
 | `pnpm check:types`                                     | Run strict TypeScript checks without emitting files.                    |
-| `pnpm check`                                           | Run formatting, lint, and types sequentially.                           |
-| `pnpm verify`                                          | Run the complete currently configured check suite.                      |
+| `pnpm check`                                           | Run formatting, lint, types, and tests sequentially.                    |
+| `pnpm test`                                            | Run Node.js tests with coverage reporting.                              |
+| `pnpm verify`                                          | Run formatting, lint, types, and tests.                                 |
 | `pnpm check:commits --from <base-sha> --to <head-sha>` | Validate a Git commit range with Commitlint.                            |
 
 Dependencies are exact-pinned and the pnpm lockfile is committed. Generated lockfile formatting is left to pnpm, not Oxfmt.
 
-Type checks currently cover the TypeScript and JavaScript tooling configuration. There is no CLI implementation or build yet. No application test command is provided: add real tests and include them in `verify` with the first implemented behavior.
+Type checks cover tooling configuration and maintained TypeScript source and tests. Tests run directly through Node.js 26's TypeScript support, without a transpiler or test-framework dependency. There is no packaged CLI or build yet.
+
+Run `pnpm test` for the behavioral suite or `pnpm verify` for all checks. Coverage is reported; no completeness claim or coverage threshold is implied.
 
 ## Hooks and conventional messages
 

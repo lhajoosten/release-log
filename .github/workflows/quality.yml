@@ -40,7 +40,7 @@ jobs:
       - name: Install locked dependencies without lifecycle scripts
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Verify formatting, lint, and types
+      - name: Verify formatting, lint, types, and tests
         run: pnpm verify
 
       - name: Validate PR title
