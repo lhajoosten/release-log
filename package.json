@@ -6,15 +6,15 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
+    "test": "node --test --experimental-test-coverage tests/*.test.ts",
     "prepare": "lefthook install",
     "format": "oxfmt --write .",
     "check:format": "oxfmt --check .",
     "check:lint": "oxlint --deny-warnings .",
     "check:types": "tsc --noEmit",
     "check:commits": "commitlint",
-    "check": "pnpm check:format && pnpm check:lint && pnpm check:types",
-    "test": "node --test --experimental-test-coverage tests/*.test.ts",
-    "verify": "pnpm check && pnpm test"
+    "check": "pnpm check:format && pnpm check:lint && pnpm check:types && pnpm test",
+    "verify": "pnpm check"
   },
   "dependencies": {
     "@commitlint/config-conventional": "21.2.4",
