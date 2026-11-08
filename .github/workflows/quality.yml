@@ -47,18 +47,18 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
-        run: printf '%s\n' "$PR_TITLE" | pnpm check:commits
+        run: printf '%s\n' "$PR_TITLE" | pnpm check:pr-title
 
-      - name: Validate PR commits
+      - name: Validate non-merge PR commits
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: pnpm check:commits --from "$BASE_SHA" --to "$HEAD_SHA"
+        run: pnpm check:commit-range --from "$BASE_SHA" --to "$HEAD_SHA"
 
-      - name: Validate commits pushed to main
+      - name: Validate non-merge commits pushed to main
         if: github.event_name == 'push'
         env:
           BASE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.sha }}
-        run: pnpm check:commits --from "$BASE_SHA" --to "$HEAD_SHA"
+        run: pnpm check:commit-range --from "$BASE_SHA" --to "$HEAD_SHA"

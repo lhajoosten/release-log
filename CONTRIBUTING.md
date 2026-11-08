@@ -20,16 +20,18 @@ CI uses `--ignore-scripts` because it runs checks directly and does not need loc
 
 ## Commands
 
-| Command                                                | Purpose                                                                 |
-| ------------------------------------------------------ | ----------------------------------------------------------------------- |
-| `pnpm format`                                          | Format supported maintained files with Oxfmt.                           |
-| `pnpm check:format`                                    | Check formatting without changing files.                                |
-| `pnpm check:lint`                                      | Run type-aware Oxlint; warnings and unused suppression directives fail. |
-| `pnpm check:types`                                     | Run strict TypeScript checks without emitting files.                    |
-| `pnpm check`                                           | Run formatting, lint, types, and tests sequentially.                    |
-| `pnpm test`                                            | Run Node.js tests with coverage reporting.                              |
-| `pnpm verify`                                          | Run formatting, lint, types, and tests.                                 |
-| `pnpm check:commits --from <base-sha> --to <head-sha>` | Validate a Git commit range with Commitlint.                            |
+| Command                                                     | Purpose                                                                 |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `pnpm format`                                               | Format supported maintained files with Oxfmt.                           |
+| `pnpm check:format`                                         | Check formatting without changing files.                                |
+| `pnpm check:lint`                                           | Run type-aware Oxlint; warnings and unused suppression directives fail. |
+| `pnpm check:types`                                          | Run strict TypeScript checks without emitting files.                    |
+| `pnpm check`                                                | Run formatting, lint, types, and tests sequentially.                    |
+| `pnpm test`                                                 | Run Node.js tests with coverage reporting.                              |
+| `pnpm verify`                                               | Run formatting, lint, types, and tests.                                 |
+| `pnpm check:commits`                                        | Validate a single unscoped commit message from stdin.                   |
+| `pnpm check:commit-range --from <base-sha> --to <head-sha>` | Validate non-merge commits in a Git range with Commitlint.              |
+| `pnpm check:pr-title`                                       | Validate a scoped PR title from stdin.                                  |
 
 Dependencies are exact-pinned and the pnpm lockfile is committed. Generated lockfile formatting is left to pnpm, not Oxfmt.
 
@@ -41,7 +43,7 @@ Run `pnpm test` for the behavioral suite or `pnpm verify` for all checks. Covera
 
 Lefthook runs the same `pnpm check` command before a commit. The hook checks the whole working tree without rewriting or automatically staging files. Unstaged changes can therefore block a commit; resolve the issue rather than bypassing the hook.
 
-The `commit-msg` hook uses Commitlint's conventional configuration. For example:
+The `commit-msg` hook requires an unscoped conventional message (`type: description`). For example:
 
 ```text
 chore: configure repository tooling
@@ -49,9 +51,19 @@ feat: generate a changelog between tags
 fix: reject ambiguous PR associations
 ```
 
-PR titles must follow the same convention. CI checks both the PR title and every commit in the PR range. These are repository contribution conventions; release classification remains a separate product decision.
+PR titles require a scope (`type(scope): description`) identifying the affected feature or component, for example:
 
-Prefer squash merging with a conventional final message, or rebase merging when each commit is valid. Automatic non-conventional merge commits are not exempt from validation. Do not rewrite existing published history just to apply the new convention retroactively.
+```text
+feat(exports): support selected rows
+fix(ci): validate merged commit ranges
+refactor(release-context): simplify field validation
+```
+
+Both policies accept the conventional types `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, and `test`. CI checks the scoped PR title and every unscoped non-merge commit in the PR range. These are repository contribution conventions; release classification remains a separate product decision.
+
+`pnpm check:commit-range` uses Git's `--no-merges` filter so GitHub-generated merge commits do not fail after an otherwise valid PR is merged. It invokes the same Commitlint configuration as the commit hook for each selected message; the pinned Commitlint version does not reliably forward `--git-log-args` filters. This excludes commits with multiple parents, not messages matching a pattern. Commits from merged branches are still checked; the traversal is not restricted to the first parent. Direct message validation (including PR titles and the `commit-msg` hook) remains strict.
+
+Merge commits, squash merges, and rebase merges are supported by this CI policy. Squash messages and ordinary commits must remain unscoped and conventional. When squash merging, edit the generated commit subject to remove the PR title's scope (for example, `feat(exports): add CSV output` becomes `feat: add CSV output`). The release metadata validator still rejects non-conventional merge messages; this CI exception does not define a release classification or PR-association policy. Do not rewrite existing published history just to apply the convention retroactively.
 
 ## PR release context
 
@@ -63,7 +75,7 @@ The parser reports missing or invalid context without returning partial data. Th
 
 The `verify` job runs on PRs, pushes to `main`, and manual dispatch. PR title edits retrigger validation. Feature-branch pushes rely on the PR event rather than starting duplicate push workflows.
 
-CI installs frozen dependencies, runs the same `pnpm verify` command as local development, and validates the applicable commit range and PR title. GitHub event text is passed through environment variables, not interpolated into shell source. Actions are pinned to immutable SHAs and the workflow has read-only repository permissions.
+CI installs frozen dependencies, runs the same `pnpm verify` command as local development, and validates non-merge commits in the applicable range and the PR title. GitHub event text is passed through environment variables, not interpolated into shell source. Actions are pinned to immutable SHAs and the workflow has read-only repository permissions.
 
 Requiring `verify` through branch protection and selecting allowed merge methods are separate repository-settings operations. This tooling does not configure either setting, deploy artifacts, or publish a package.
 

@@ -35,7 +35,7 @@ The current request defines authorized scope. Do not implement future roadmap it
 
 ## Git and publication
 
-- Use conventional commit messages and PR titles, such as `chore: configure repository tooling` or `feat: generate a changelog`.
+- Use unscoped conventional commit messages (`type: description`), such as `chore: configure repository tooling` or `feat: generate a changelog`. PR titles must include a feature or component scope (`type(scope): description`), such as `fix(ci): validate merged commit ranges`.
 - Do not commit, push, create a PR, change branches, merge, or deploy unless the current request authorizes it.
 - Do not rewrite history, force-push, or bypass hooks to make checks pass. Report blockers and fix their causes.
 - Keep unrelated changes out of commits. A request to publish is not approval to merge or release.
