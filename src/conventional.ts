@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import lint from "@commitlint/lint";
@@ -46,6 +47,22 @@ const parserOptions = policy.parserPreset?.parserOpts;
 if (!isParserOptions(parserOptions)) {
   throw new Error("The configured conventional parser preset has unsupported options.");
 }
+
+export const conventionalPolicyId = createHash("sha256")
+  .update(
+    JSON.stringify({
+      rules: Object.entries(policy.rules).toSorted(([left], [right]) =>
+        left < right ? -1 : left > right ? 1 : 0,
+      ),
+      parser: Object.entries(parserOptions)
+        .toSorted(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+        .map(([key, value]) => [
+          key,
+          value instanceof RegExp ? { source: value.source, flags: value.flags } : value,
+        ]),
+    }),
+  )
+  .digest("hex");
 
 const lintOptions: LintOptions = {
   defaultIgnores: false,
