@@ -1,4 +1,6 @@
 export default {
-  extends: ["@commitlint/config-conventional"],
-  defaultIgnores: false,
+  extends: ["./commitlint.base.config.mjs"],
+  rules: {
+    "scope-empty": [2, "always"],
+  },
 };

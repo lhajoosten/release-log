@@ -8,7 +8,7 @@ import type { LintOptions } from "@commitlint/types";
 const policy = await load(
   {},
   {
-    file: fileURLToPath(new URL("../commitlint.config.mjs", import.meta.url)),
+    file: fileURLToPath(new URL("../commitlint.base.config.mjs", import.meta.url)),
   },
 );
 
