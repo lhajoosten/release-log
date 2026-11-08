@@ -9,9 +9,10 @@ on:
         options: [bootstrap, released]
         required: true
       baseline:
-        description: Owner-reviewed full bootstrap commit SHA, or stable vMAJOR.MINOR.PATCH tag
+        description: Bootstrap SHA matching release-log.config.json, or stable vMAJOR.MINOR.PATCH tag
         type: string
         required: true
+
       current_version:
         description: Required in released mode, matching the baseline tag without v
         type: string

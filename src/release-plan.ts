@@ -1,5 +1,9 @@
 import { replayReleaseSnapshot } from "./release-snapshot.ts";
-import type { ReleaseInputConfiguration, ReleaseSnapshot } from "./release-snapshot.ts";
+import type {
+  HistoricalReleaseEntry,
+  ReleaseInputConfiguration,
+  ReleaseSnapshot,
+} from "./release-snapshot.ts";
 
 export class ReleasePlanError extends Error {
   constructor(message: string) {
@@ -15,7 +19,7 @@ export type ReleaseVersionConfiguration =
 export type ReleaseBump = "none" | "patch" | "minor" | "major";
 
 export interface ReleasePlan {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly policy: "release-policy-v1";
   readonly snapshotId: string;
   readonly baselineCommitSha: string;
@@ -25,6 +29,12 @@ export interface ReleasePlan {
   readonly nextVersion: string | null;
   readonly release: boolean;
   readonly bump: ReleaseBump | "initial";
+  readonly onboardingSha: string | null;
+  readonly historicalContributions: readonly {
+    readonly source: HistoricalReleaseEntry["source"];
+    readonly breaking: boolean;
+    readonly warnings: HistoricalReleaseEntry["warnings"];
+  }[];
   readonly bootstrapContributions: readonly {
     readonly sha: string;
     readonly url: string;
@@ -147,10 +157,20 @@ export async function createReleasePlan(
     }),
   );
 
+  const adopting = version.kind === "bootstrap" && snapshot.configuration.schemaVersion === 2;
+  const historicalContributions = snapshot.normalized.historicalEntries.map((entry) => ({
+    source: entry.source,
+    breaking: entry.breakingChanges.length > 0,
+    warnings: entry.warnings,
+  }));
+
   let nextVersion: string | null = null;
   let bump: ReleasePlan["bump"] = highest;
 
-  if (highest !== "none") {
+  if (adopting) {
+    nextVersion = "0.1.0";
+    bump = "initial";
+  } else if (highest !== "none") {
     if (version.kind === "bootstrap") {
       nextVersion = version.initialVersion;
       bump = "initial";
@@ -167,7 +187,7 @@ export async function createReleasePlan(
   }
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     policy: "release-policy-v1",
     snapshotId: snapshot.snapshotId,
     baselineCommitSha: snapshot.normalized.baselineCommitSha,
@@ -179,5 +199,10 @@ export async function createReleasePlan(
     bump,
     contributions,
     bootstrapContributions,
+    onboardingSha:
+      adopting && snapshot.configuration.schemaVersion === 2
+        ? snapshot.configuration.bootstrap.onboardingSha
+        : null,
+    historicalContributions,
   };
 }

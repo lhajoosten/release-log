@@ -22,9 +22,9 @@ Explicit online collection:
 release-log collect --config release-config.json --repository . --source FULL_COMMIT_SHA --baseline-tag v1.2.3
 ```
 
-Supply `GITHUB_TOKEN` through the environment, never arguments or configuration. Collection writes the validated snapshot JSON to stdout and makes bounded read-only GitHub requests. For bootstrap, replace `--baseline-tag` with `--bootstrap-sha FULL_COMMIT_SHA`. It does not fetch Git history, infer a baseline, write local files, or mutate GitHub. See [association limitations](github-association.md), especially unverified automation-only exclusion.
+Supply `GITHUB_TOKEN` through the environment, never arguments or configuration. Collection writes the validated snapshot JSON to stdout and makes bounded read-only GitHub requests. For initial adoption, use a [version 2 configuration with a fixed onboarding record](initial-adoption.md), and replace `--baseline-tag` with `--bootstrap-sha FULL_COMMIT_SHA` matching that record. It does not fetch Git history, infer a baseline, write local files, or mutate GitHub. See [association limitations](github-association.md), especially unverified automation-only exclusion.
 
-With an explicit bootstrap baseline, collection retains eligible unassociated single-parent commits as real commit-only entries; tagged cycles remain PR-only. Known PRs still require valid metadata. Snapshot and plan output now use schema version 2; recapture version 1 snapshots with the new tool rather than relabeling or silently migrating them. See [bootstrap association rules](github-association.md#explicit-bootstrap-commit-evidence).
+Initial adoption retains pre-onboarding PRs/commits that lack modern metadata as historical entries and review warnings, without editing old PRs. New changes after the pinned cutoff and all tagged cycles stay strict. The initial `0.1.0` proposal does not depend on old feature/fix labels. Snapshot and plan output use schema version 3; recapture old snapshots with the new tool rather than relabeling or silently migrating them. Configuration version 1 remains supported for established releases; version 2 adds the required trusted onboarding record for initial collection.
 
 Offline operations:
 

@@ -96,6 +96,20 @@ export type MessageValidation =
       readonly warnings: readonly MessageIssue[];
     };
 
+export async function readHistoricalBreakingChanges(message: string): Promise<readonly string[]> {
+  if (!message.trim()) return [];
+
+  const parsed = await parse(message, undefined, lintOptions.parserOpts);
+
+  return [
+    ...new Set(
+      parsed.notes
+        .filter(({ title }) => title === "BREAKING CHANGE" || title === "BREAKING-CHANGE")
+        .map(({ text }) => text),
+    ),
+  ].toSorted();
+}
+
 export async function validateConventionalMessage(message: string): Promise<MessageValidation> {
   if (message.trim().length === 0) {
     return {

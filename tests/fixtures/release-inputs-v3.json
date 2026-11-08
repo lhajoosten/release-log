@@ -4,6 +4,7 @@
   "baselineCommitSha": "0000000000000000000000000000000000000000",
   "sourceCommitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "bootstrapCommits": [],
+  "historicalEntries": [],
   "pullRequests": [
     {
       "number": 101,

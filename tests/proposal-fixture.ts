@@ -29,7 +29,12 @@ export async function fixture(
   context: TestContext,
   mode: "node" | "python" | "both" = "node",
   title = "feat(api): export rows",
-  setup: { bootstrap?: boolean; bootstrapCommit?: boolean; objectFormat?: "sha1" | "sha256" } = {},
+  setup: {
+    bootstrap?: boolean;
+    adoption?: boolean;
+    bootstrapCommit?: boolean;
+    objectFormat?: "sha1" | "sha256";
+  } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "release-proposal-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
@@ -84,7 +89,12 @@ export async function fixture(
   if (setup.bootstrapCommit) {
     assert.ok(setup.bootstrap);
 
-    git(["commit", "--allow-empty", "-m", "feat: retain historical commit evidence"]);
+    git([
+      "commit",
+      "--allow-empty",
+      "-m",
+      setup.adoption ? "Create the initial application" : "feat: retain historical commit evidence",
+    ]);
     bootstrapCommits.push(await inspectCommit(directory, git(["rev-parse", "HEAD"]).trim()));
   }
 
@@ -97,6 +107,17 @@ export async function fixture(
     changes.push({ sha: git(["rev-parse", "HEAD"]).trim(), title: selectedTitle });
   }
   await advance();
+
+  if (setup.adoption) assert.ok(setup.bootstrap);
+
+  const configuration = setup.adoption
+    ? {
+        ...fixtureConfiguration,
+        schemaVersion: 2 as const,
+        bootstrap: { baselineSha: baseline, onboardingSha: git(["rev-parse", "HEAD"]).trim() },
+      }
+    : fixtureConfiguration;
+
   async function snapshot() {
     const source = git(["rev-parse", "refs/heads/main"]).trim();
     const range = await inspectPendingRelease(
@@ -140,7 +161,7 @@ export async function fixture(
           pullRequests: pulls,
           bootstrapCommits,
         },
-        fixtureConfiguration,
+        configuration,
       ),
     );
   }
@@ -319,7 +340,7 @@ export async function fixture(
     async request(write?: boolean) {
       return {
         snapshot: await snapshot(),
-        configuration: fixtureConfiguration,
+        configuration,
         version: setup.bootstrap
           ? { kind: "bootstrap" as const, initialVersion: "0.1.0" as const }
           : version,

@@ -50,6 +50,15 @@ export async function renderChangelog(
   const snapshot = await replayReleaseSnapshot(serializedSnapshot, expected);
   const lines = [`## v${plan.nextVersion}`, ""];
 
+  if (plan.onboardingSha !== null)
+    lines.push("Initial release of the captured repository state.", "");
+
+  if (snapshot.normalized.historicalEntries.length)
+    lines.push(
+      "> Historical entries predate onboarding and may lack current release metadata. Review their sources and breaking warnings; no missing impact or migration instructions are inferred.",
+      "",
+    );
+
   if (snapshot.normalized.bootstrapCommits.length)
     lines.push(
       "> Bootstrap history includes commit-only entries without structured PR impact or migration actions.",
@@ -101,6 +110,42 @@ export async function renderChangelog(
         lines.push(
           `  - **Breaking change:** ${entry.metadata.breakingChanges.map(escapeText).join("; ")}`,
         );
+    }
+
+    lines.push("");
+  }
+
+  if (snapshot.normalized.historicalEntries.length) {
+    lines.push("### Historical changes", "");
+
+    for (const entry of snapshot.normalized.historicalEntries) {
+      const reference =
+        entry.source.kind === "pull-request"
+          ? `#${entry.source.number}`
+          : entry.source.sha.slice(0, 12);
+      const kind = entry.source.kind === "pull-request" ? "historical PR" : "historical commit";
+      const audience = entry.context?.audience === "internal" ? " [internal]" : "";
+
+      lines.push(
+        `- [${kind}]${audience}: ${escapeText(entry.title)} ([${reference}](${entry.source.url}))`,
+      );
+
+      if (entry.context !== null) {
+        lines.push(`  - Summary: ${escapeText(entry.context.summary)}`);
+        lines.push(`  - Impact: ${escapeText(entry.context.impact)}`);
+
+        if (entry.context.requiredAction !== null)
+          lines.push(`  - **Required action:** ${escapeText(entry.context.requiredAction)}`);
+      } else {
+        lines.push("  - Release context: unavailable; review the linked historical source.");
+      }
+
+      if (entry.breakingChanges.length)
+        lines.push(`  - **Breaking change:** ${entry.breakingChanges.map(escapeText).join("; ")}`);
+
+      lines.push(
+        `  - Metadata review: ${entry.warnings.map((issue) => escapeText(issue.code)).join(", ")}`,
+      );
     }
 
     lines.push("");

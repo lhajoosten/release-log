@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-import { conventionalPolicyId, validateConventionalMessage } from "./conventional.ts";
+import {
+  conventionalPolicyId,
+  readHistoricalBreakingChanges,
+  validateConventionalMessage,
+} from "./conventional.ts";
 import type { ConventionalMetadata } from "./conventional.ts";
 import type { AssociatedPullRequest, PullRequestAssociation } from "./github-association.ts";
 import type {
@@ -37,18 +41,39 @@ export class ReleaseSnapshotError extends Error {
   }
 }
 
-export interface ReleaseInputConfiguration {
-  readonly schemaVersion: 1;
+interface ReleaseRepositoryConfiguration {
   readonly repository: string;
   readonly repositoryId: number;
   readonly releaseBranch: string;
   readonly releasePolicy: "release-policy-v1";
 }
 
+export type ReleaseInputConfiguration = ReleaseRepositoryConfiguration &
+  (
+    | { readonly schemaVersion: 1 }
+    | {
+        readonly schemaVersion: 2;
+        readonly bootstrap: {
+          readonly baselineSha: string;
+          readonly onboardingSha: string;
+        };
+      }
+  );
+
 export interface NormalizedBootstrapCommit {
   readonly sha: string;
   readonly url: string;
   readonly metadata: ConventionalMetadata;
+}
+
+export interface HistoricalReleaseEntry {
+  readonly source:
+    | { readonly kind: "pull-request"; readonly number: number; readonly url: string }
+    | { readonly kind: "commit"; readonly sha: string; readonly url: string };
+  readonly title: string;
+  readonly context: ReleaseContextV1 | null;
+  readonly breakingChanges: readonly string[];
+  readonly warnings: readonly ReadinessIssue[];
 }
 
 export interface NormalizedReleaseInputs {
@@ -57,6 +82,7 @@ export interface NormalizedReleaseInputs {
   readonly baselineCommitSha: string;
   readonly sourceCommitSha: string;
   readonly bootstrapCommits: readonly NormalizedBootstrapCommit[];
+  readonly historicalEntries: readonly HistoricalReleaseEntry[];
   readonly pullRequests: readonly {
     readonly number: number;
     readonly url: string;
@@ -74,7 +100,7 @@ export interface NormalizedReleaseInputs {
 }
 
 export interface ReleaseSnapshot {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly tool: { readonly version: string; readonly normalizerId: string };
   readonly configuration: ReleaseInputConfiguration;
   readonly configurationId: string;
@@ -220,7 +246,7 @@ function runtimeIdentity(): { version: string; normalizerId: string } {
   return {
     version: manifest.version,
     normalizerId: digest({
-      normalizationVersion: 2,
+      normalizationVersion: 3,
       conventionalPolicyId,
       dependencies: manifest.dependencies,
       lockfileId: createHash("sha256")
@@ -242,12 +268,23 @@ const tool = runtimeIdentity();
 export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConfiguration {
   const item = object(
     value,
-    ["schemaVersion", "repository", "repositoryId", "releaseBranch", "releasePolicy"],
+    [
+      "schemaVersion",
+      "repository",
+      "repositoryId",
+      "releaseBranch",
+      "releasePolicy",
+      ...(isObject(value) && value.schemaVersion === 2 ? ["bootstrap"] : []),
+    ],
     "release configuration",
   );
   const repository = text(item.repository, "repository", 256);
   const releaseBranch = text(item.releaseBranch, "release branch", 1024);
-  if (item.schemaVersion !== 1 || item.releasePolicy !== "release-policy-v1")
+
+  if (
+    (item.schemaVersion !== 1 && item.schemaVersion !== 2) ||
+    item.releasePolicy !== "release-policy-v1"
+  )
     return invalid("Unsupported release configuration schema or policy revision.");
   if (
     !/^[a-zA-Z0-9][a-zA-Z0-9-]*\/[a-zA-Z0-9_.-]+$/u.test(repository) ||
@@ -257,13 +294,31 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
     /[\0\r\n]/u.test(releaseBranch)
   )
     return invalid("Invalid repository identity or release branch in configuration.");
-  return {
-    schemaVersion: 1,
+  const common: ReleaseRepositoryConfiguration = {
     repository,
     repositoryId: positive(item.repositoryId, "repository ID"),
     releaseBranch,
     releasePolicy: "release-policy-v1",
   };
+
+  if (item.schemaVersion === 2) {
+    const bootstrap = object(
+      item.bootstrap,
+      ["baselineSha", "onboardingSha"],
+      "trusted onboarding record",
+    );
+
+    return {
+      ...common,
+      schemaVersion: 2,
+      bootstrap: {
+        baselineSha: sha(bootstrap.baselineSha),
+        onboardingSha: sha(bootstrap.onboardingSha),
+      },
+    };
+  }
+
+  return { ...common, schemaVersion: 1 };
 }
 
 function commitEvidence(value: unknown): GitCommitEvidence {
@@ -492,7 +547,9 @@ function association(value: unknown, config: ReleaseInputConfiguration): Release
   }
 
   for (const entry of bootstrapCommits) {
-    if (entry.parentShas.length !== 1 || graph.has(entry.sha))
+    const adopting = config.schemaVersion === 2 && range.baseline.kind === "bootstrap";
+
+    if ((!adopting && entry.parentShas.length !== 1) || graph.has(entry.sha))
       return invalid(
         "Bootstrap commit evidence must be single-parent and must not overlap a PR footprint.",
       );
@@ -546,13 +603,69 @@ function association(value: unknown, config: ReleaseInputConfiguration): Release
     return invalid(
       "Captured graph does not reach the baseline or contains commits outside the source history.",
     );
-  return {
+  const captured = {
     repository: config.repository,
     releaseBranch: config.releaseBranch,
     range,
     pullRequests,
     bootstrapCommits,
   };
+  const historical = onboardingCommits(captured, config);
+
+  if (
+    config.schemaVersion === 2 &&
+    range.baseline.kind === "bootstrap" &&
+    bootstrapCommits.some((entry) => !historical.has(entry.sha))
+  )
+    return invalid("New changes after onboarding require verified merged-PR evidence.");
+
+  return captured;
+}
+
+function onboardingCommits(
+  input: ReleaseSnapshot["input"],
+  config: ReleaseInputConfiguration,
+): ReadonlySet<string> {
+  if (config.schemaVersion !== 2 || input.range.baseline.kind !== "bootstrap") return new Set();
+
+  const { baselineSha, onboardingSha } = config.bootstrap;
+
+  if (baselineSha !== input.range.baseline.commitSha)
+    return invalid("The captured bootstrap baseline differs from the trusted onboarding record.");
+
+  const historical = new Set<string>();
+  const graph = new Map(
+    [...input.pullRequests.flatMap((pull) => pull.landedCommits), ...input.bootstrapCommits].map(
+      (entry) => [entry.sha, entry],
+    ),
+  );
+  const stack = [onboardingSha];
+  let reachedBaseline = onboardingSha === baselineSha;
+
+  while (stack.length) {
+    const current = stack.pop();
+
+    if (!current || current === baselineSha || historical.has(current)) continue;
+
+    const entry = graph.get(current);
+
+    if (!entry)
+      return invalid(
+        "The pinned onboarding SHA must belong to the captured baseline-to-source graph.",
+      );
+
+    historical.add(current);
+
+    for (const parent of entry.parentShas) {
+      if (parent === baselineSha) reachedBaseline = true;
+      if (graph.has(parent)) stack.push(parent);
+    }
+  }
+
+  if (!reachedBaseline)
+    return invalid("The pinned onboarding SHA must descend from the approved bootstrap baseline.");
+
+  return historical;
 }
 
 export async function captureReleaseSnapshot(
@@ -563,6 +676,9 @@ export async function captureReleaseSnapshot(
   const selected = parseReleaseInputConfiguration(config);
   const captured = association(input, selected);
   const pullRequests: NormalizedReleaseInputs["pullRequests"][number][] = [];
+  const historicalEntries: HistoricalReleaseEntry[] = [];
+  const historical = onboardingCommits(captured, selected);
+
   for (const pull of captured.pullRequests) {
     const sourceCommits = [
       ...pull.originalCommits.map((entry) => ({ source: "original" as const, ...entry })),
@@ -577,6 +693,26 @@ export async function captureReleaseSnapshot(
         parentCount: entry.parentShas.length,
       })),
     );
+    if (!readiness.valid && pull.landedCommits.every((entry) => historical.has(entry.sha))) {
+      const context = parseReleaseContext(pull.body);
+      const explanations = await Promise.all([
+        readHistoricalBreakingChanges(pull.title),
+        ...sourceCommits
+          .filter((entry) => entry.parentShas.length < 2)
+          .map((entry) => readHistoricalBreakingChanges(entry.message)),
+      ]);
+
+      historicalEntries.push({
+        source: { kind: "pull-request", number: pull.number, url: pull.url },
+        title: pull.title,
+        context: context.valid ? context.context : null,
+        breakingChanges: [...new Set(explanations.flat())].toSorted(),
+        warnings: [...readiness.errors, ...readiness.warnings],
+      });
+
+      continue;
+    }
+
     if (!readiness.valid)
       throw new ReleaseSnapshotError(
         "metadata-invalid",
@@ -621,6 +757,30 @@ export async function captureReleaseSnapshot(
   const bootstrapCommits: NormalizedBootstrapCommit[] = [];
 
   for (const entry of captured.bootstrapCommits) {
+    if (historical.has(entry.sha)) {
+      historicalEntries.push({
+        source: {
+          kind: "commit",
+          sha: entry.sha,
+          url: `https://github.com/${selected.repository}/commit/${entry.sha}`,
+        },
+        title: entry.message.split(/\r\n|\n|\r/u)[0] || "(empty historical commit message)",
+        context: null,
+        breakingChanges: await readHistoricalBreakingChanges(entry.message),
+        warnings: [
+          {
+            location: "commit",
+            sha: entry.sha,
+            code: entry.parentShas.length > 1 ? "historical-merge" : "historical-commit",
+            message:
+              "Retained historical Git evidence without structured PR release context; review before the initial release.",
+          },
+        ],
+      });
+
+      continue;
+    }
+
     const metadata = await validateConventionalMessage(entry.message);
 
     if (!metadata.valid)
@@ -643,7 +803,7 @@ export async function captureReleaseSnapshot(
   }
 
   const payload = {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     tool: { ...tool },
     configuration: selected,
     configurationId: digest(selected),
@@ -655,6 +815,7 @@ export async function captureReleaseSnapshot(
       sourceCommitSha: captured.range.sourceCommitSha,
       pullRequests,
       bootstrapCommits,
+      historicalEntries,
     },
   };
   const snapshot = { ...payload, snapshotId: digest(payload) };
@@ -680,7 +841,7 @@ async function validateSnapshot(
     ],
     "snapshot envelope",
   );
-  if (item.schemaVersion !== 2)
+  if (item.schemaVersion !== 3)
     return invalid(
       "Unsupported release snapshot schema version; no automatic migration is performed.",
     );
@@ -702,7 +863,7 @@ async function validateSnapshot(
   object(
     item.input,
     ["repository", "releaseBranch", "range", "pullRequests", "bootstrapCommits"],
-    "version 2 association evidence",
+    "version 3 association evidence",
   );
 
   const captured = association(item.input, config);
