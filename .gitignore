@@ -25,6 +25,7 @@ htmlcov/
 node_modules/
 .pnpm-store/
 .vite/
+docs/.vitepress/cache/
 .cache/
 .task/
 coverage/

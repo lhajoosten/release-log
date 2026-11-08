@@ -45,6 +45,10 @@ Release generation still needs explicit policies for tag ancestry, supported mer
 
 Repository tooling is configured, and core components are being implemented incrementally with tests. Component behavior and boundaries are documented in `docs/` alongside the source in `src/`. The end-to-end CLI, GitHub integration, and AI integration are not implemented.
 
+## Documentation
+
+Start with the [documentation overview](docs/index.md) for component guides and current implementation status. The [documentation site guide](docs/github-pages.md) covers local previewing and GitHub Pages setup; deployment requires a separate repository-settings step.
+
 ## Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the pinned toolchain, installation, commands, hooks, and CI. [AGENTS.md](AGENTS.md) defines guidance for coding agents.
