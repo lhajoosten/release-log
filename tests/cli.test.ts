@@ -184,12 +184,94 @@ void test(
         error.stderr.includes("GitHub read failed") &&
         !error.stderr.includes("synthetic-secret-never-print"),
     );
+    const approvalPath = join(path, "approval.json");
+    const policyPath = join(path, "policy.json");
+    const approval = {
+      schemaVersion: 1,
+      repositoryId: 17,
+      pullNumber: 1,
+      approverUserId: 7,
+      sourceSha: "a".repeat(40),
+      headSha: "b".repeat(40),
+      landingSha: "c".repeat(40),
+      mergeKind: "merge",
+      baseline: { kind: "bootstrap", commitSha: "d".repeat(40) },
+      snapshotId: "e".repeat(64),
+      proposalId: "f".repeat(64),
+    };
+    await writeFile(approvalPath, JSON.stringify(approval));
+    await writeFile(
+      policyPath,
+      JSON.stringify({ schemaVersion: 1, botUserId: 42, approverUserIds: [7] }),
+    );
+    const approvalArgs = [
+      "verify-approval",
+      "--config",
+      configPath,
+      "--approval",
+      approvalPath,
+      "--policy",
+      policyPath,
+      "--repository",
+      consumer,
+    ];
+    await assert.rejects(
+      run([...approvalArgs, "--write"]),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === 2,
+    );
+    await assert.rejects(
+      run(approvalArgs),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 2 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("GITHUB_TOKEN"),
+    );
+    await assert.rejects(
+      run(approvalArgs, "synthetic-secret-never-print"),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 1 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("GitHub read failed") &&
+        !error.stderr.includes("synthetic-secret-never-print"),
+    );
+    await writeFile(approvalPath, JSON.stringify({ ...approval, valid: true }));
+    await assert.rejects(
+      run(approvalArgs),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 1 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("supported schema fields"),
+    );
+    await writeFile(approvalPath, JSON.stringify(approval));
+    await writeFile(
+      policyPath,
+      '{"schemaVersion":1,"botUserId":42,"approverUserIds":[7],"approverUserIds":[9]}',
+    );
+    await assert.rejects(
+      run(approvalArgs),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 1 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("repeat property names"),
+    );
     await execute(
       process.execPath,
       [
         "--input-type=module",
         "-e",
-        'import { reconcileReleaseProposal } from "release-log/proposals"; if (typeof reconcileReleaseProposal !== "function") throw new Error("Missing packaged proposal API");',
+        'import { reconcileReleaseProposal } from "release-log/proposals"; import { verifyReleaseApproval, parseReleaseApproval } from "release-log/approval"; if ([reconcileReleaseProposal, verifyReleaseApproval, parseReleaseApproval].some(value => typeof value !== "function")) throw new Error("Missing packaged proposal/approval API");',
       ],
       { cwd: consumer, timeout: 10_000 },
     );

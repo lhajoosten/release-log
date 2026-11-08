@@ -39,6 +39,7 @@ export default {
           { text: "Deterministic CLI", link: "/cli" },
           { text: "Read-only release rehearsal", link: "/release-rehearsal" },
           { text: "Release proposal controller", link: "/release-proposal" },
+          { text: "Release approval verification", link: "/release-approval" },
         ],
       },
     ],

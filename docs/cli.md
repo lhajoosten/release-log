@@ -1,6 +1,6 @@
 # Deterministic release CLI
 
-Build with `pnpm build`; run `node dist/src/cli.js --help`. `pnpm pack` builds a local tarball through `prepack`. No registry publication or visibility change is performed. The executable requires Node.js `>=26.13.0 <27`; only online collection requires Git with complete local history and GitHub.com repository/PR read access.
+Build with `pnpm build`; run `node dist/src/cli.js --help`. `pnpm pack` builds a local tarball through `prepack`. No registry publication or visibility change is performed. The executable requires Node.js `>=26.13.0 <27`; online collection and approval verification require Git with complete local history and GitHub.com repository/PR read access.
 
 ## Configuration and commands
 
@@ -35,6 +35,14 @@ release-log prepare --config release-config.json --snapshot inputs.json --curren
 `plan` emits version-decision JSON. `render` emits the deterministic Markdown section, or empty stdout for no release. `prepare` emits `{ mode, plan, files }` JSON with each fixed output path and exact before/after text. It defaults to dry-run, without creating files/directories. Only explicit `--write` replaces local proposal files. `--write` and `--dry-run` are mutually exclusive. Bootstrap planning replaces `--current-version` with `--initial-version 0.1.0` and must match a captured bootstrap baseline.
 
 The commands above do not commit, push or open PRs. The separate explicit [proposal controller](release-proposal.md) command performs online reads by default and only `propose --write` creates/refreshes a reserved remote branch and draft PR. It requires separate automation configuration, credentials and execution approval; no workflow enables it automatically. No command merges, publishes, calls AI, installs consumer dependencies, executes consumer lifecycle scripts, or runs a Python build backend. `prepare` output contains raw snapshot context: use approved storage and do not publish stdout indiscriminately. Exit codes are 0 for success (including no release), 1 for operation/validation failures, and 2 for usage errors. Errors omit raw bodies, tokens, and unexpected exception details.
+
+The explicit read-only [approval verifier](release-approval.md) checks an independently trusted reviewed-head/landing record using GitHub reads and immutable local Git objects:
+
+```sh
+release-log verify-approval --config release-config.json --approval approved-release.json --policy approval-policy.json --repository .
+```
+
+It requires `GITHUB_TOKEN` with repository/PR read access, accepts no write flag, and emits verification evidence rather than publication permission. Approval/policy storage and the recorded merge method must be independently trusted; do not source them from the proposal branch.
 
 ## Node and Python version files
 

@@ -40,6 +40,8 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 
 - [Rolling release proposal controller](release-proposal.md): preview or explicitly create/refresh a draft proposal, with conflict checks and remaining safety gates.
 
+- [Read-only approval verification](release-approval.md): verify an independently recorded reviewed proposal against its actual merge/squash landing, without publishing.
+
 ## Maintaining these docs
 
 The site renders the Markdown files in `docs/` with VitePress. See [Documentation site](github-pages.md) for preview commands, deployment setup, and publication limitations.

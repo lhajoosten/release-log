@@ -40,6 +40,8 @@ export interface ProposalPullRequest {
   readonly headSha: string;
   readonly state: "open" | "closed";
   readonly merged: boolean;
+  readonly mergeCommitSha: string | null;
+  readonly mergedByUserId: number | null;
 }
 
 export class GitHubProposalRepository {
@@ -244,6 +246,22 @@ export class GitHubProposalRepository {
       );
     if (raw.state !== "open" && raw.state !== "closed")
       throw new ProposalConflictError("Unsupported proposal state.");
+    let mergeCommitSha: string | null = null;
+    let mergedByUserId: number | null = null;
+    if (raw.merged_at !== null) {
+      const merger = proposalObject(raw.merged_by);
+      if (
+        merger.type !== "User" ||
+        typeof merger.id !== "number" ||
+        !Number.isSafeInteger(merger.id) ||
+        merger.id <= 0
+      )
+        throw new ProposalConflictError(
+          "Merged release approval requires an identifiable human merger.",
+        );
+      mergeCommitSha = proposalSha(raw.merge_commit_sha);
+      mergedByUserId = merger.id;
+    }
     return {
       number: raw.number,
       title: raw.title,
@@ -251,6 +269,8 @@ export class GitHubProposalRepository {
       headSha: proposalSha(head.sha),
       state: raw.state,
       merged: raw.merged_at !== null,
+      mergeCommitSha,
+      mergedByUserId,
     };
   }
   async pulls(): Promise<readonly ProposalPullRequest[]> {

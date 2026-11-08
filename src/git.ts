@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 
 const execute = promisify(execFile);
@@ -365,4 +366,94 @@ export async function inspectPendingRelease(
     baselineIsAncestor: true,
     commitShas: await commitsBetween(repository, resolved.commitSha, source),
   };
+}
+
+export interface GitTreeInspection {
+  readonly commitSha: string;
+  readonly treeSha: string;
+  readonly entries: ReadonlyMap<
+    string,
+    { readonly sha: string; readonly mode: string; readonly type: string }
+  >;
+}
+
+export async function inspectGitTree(
+  repository: string,
+  commitSha: string,
+): Promise<GitTreeInspection> {
+  const commit = await resolveCommit(repository, commitSha);
+  const raw = requireSuccess(
+    await runGit(repository, ["cat-file", "commit", commit]),
+    "Could not read the immutable commit tree header.",
+  );
+  const match = /^tree ([a-f0-9]{40}|[a-f0-9]{64})\n/u.exec(raw);
+  if (!match?.[1])
+    throw new GitInspectionError("git-command-failed", "Malformed Git commit tree header.");
+  const treeSha = requireObjectSha(match[1]);
+  const listing = requireSuccess(
+    await runGit(repository, ["ls-tree", "--full-tree", "-r", "-t", "-z", treeSha]),
+    "Could not read the complete captured Git tree.",
+  );
+  const entries = new Map<string, { sha: string; mode: string; type: string }>();
+  for (const row of listing.split("\0").filter(Boolean)) {
+    const entry = /^([0-9]{6}) (blob|tree|commit) ([a-f0-9]{40}|[a-f0-9]{64})\t([\s\S]+)$/u.exec(
+      row,
+    );
+    const [, mode, type, sha, path] = entry ?? [];
+    if (
+      !mode ||
+      !type ||
+      !sha ||
+      !path ||
+      path.includes("\uFFFD") ||
+      path.length > 4096 ||
+      entries.has(path) ||
+      entries.size >= 50_000
+    )
+      throw new GitInspectionError(
+        "git-command-failed",
+        "Git tree paths must be unique, bounded UTF-8 with at most 50000 entries.",
+      );
+    entries.set(path, { sha: requireObjectSha(sha), mode, type });
+  }
+  return { commitSha: commit, treeSha, entries };
+}
+
+export async function readGitBlob(repository: string, blobSha: string): Promise<string> {
+  const sha = requireObjectSha(blobSha);
+  const kind = requireSuccess(
+    await runGit(repository, ["cat-file", "-t", sha]),
+    "Could not read the expected Git blob object.",
+  ).trim();
+  if (kind !== "blob")
+    throw new GitInspectionError(
+      "git-command-failed",
+      "Expected a Git blob, not another object type.",
+    );
+  const size = Number(
+    requireSuccess(
+      await runGit(repository, ["cat-file", "-s", sha]),
+      "Could not determine the Git blob size.",
+    ).trim(),
+  );
+  if (!Number.isSafeInteger(size) || size < 0 || size > 2 * 1024 * 1024)
+    throw new GitInspectionError(
+      "git-command-failed",
+      "Approval input blobs must not exceed 2 MiB.",
+    );
+  const text = requireSuccess(
+    await runGit(repository, ["cat-file", "blob", sha]),
+    "Could not read the complete Git blob contents.",
+  );
+  const bytes = Buffer.from(text, "utf8");
+  const actual = createHash(sha.length === 40 ? "sha1" : "sha256")
+    .update(`blob ${bytes.length}\0`)
+    .update(bytes)
+    .digest("hex");
+  if (bytes.length !== size || actual !== sha)
+    throw new GitInspectionError(
+      "git-command-failed",
+      "Approval input blobs must be complete, hash-matching UTF-8 text.",
+    );
+  return text;
 }
