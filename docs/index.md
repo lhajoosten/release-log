@@ -26,7 +26,7 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 - [PR metadata readiness](pr-readiness.md): understand the read-only gate, diagnostics, and rollout limitations.
 - [PR release context](release-context.md): author the version 1 `release-log` block and understand its validation rules.
 - [Conventional metadata](conventional-metadata.md): understand commit and PR-title parsing, including breaking-change declarations.
-- [Git tag inspection](git-tag-range.md): inspect exact tag endpoints and commit membership without network calls.
+- [Git range inspection](git-tag-range.md): inspect tag-to-tag or baseline-to-SHA commit membership, including explicit bootstrap, without network calls.
 
 ## Maintaining these docs
 

@@ -31,7 +31,7 @@ export default {
           { text: "PR metadata readiness", link: "/pr-readiness" },
           { text: "PR release context", link: "/release-context" },
           { text: "Conventional metadata", link: "/conventional-metadata" },
-          { text: "Git tag inspection", link: "/git-tag-range" },
+          { text: "Git range inspection", link: "/git-tag-range" },
         ],
       },
     ],
