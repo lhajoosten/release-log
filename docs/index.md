@@ -42,6 +42,8 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 
 - [Read-only approval verification](release-approval.md): verify an independently recorded reviewed proposal against its actual merge/squash landing, without publishing.
 
+- [Local OCI distribution](container.md): build and smoke-test the packaged CLI in a pinned Linux/amd64 image without publishing it.
+
 ## Maintaining these docs
 
 The site renders the Markdown files in `docs/` with VitePress. See [Documentation site](github-pages.md) for preview commands, deployment setup, and publication limitations.

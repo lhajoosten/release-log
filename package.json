@@ -21,6 +21,8 @@
   "scripts": {
     "build": "node scripts/build.ts",
     "prepack": "pnpm build",
+    "container:build": "node scripts/build-container.ts",
+    "check:container": "node scripts/check-container.ts",
     "test": "node --test --experimental-test-coverage tests/*.test.ts",
     "prepare": "lefthook install",
     "format": "oxfmt --write .",
