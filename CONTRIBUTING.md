@@ -26,9 +26,12 @@ CI uses `--ignore-scripts` because it runs checks directly and does not need loc
 | `pnpm check:format`                                         | Check formatting without changing files.                                |
 | `pnpm check:lint`                                           | Run type-aware Oxlint; warnings and unused suppression directives fail. |
 | `pnpm check:types`                                          | Run strict TypeScript checks without emitting files.                    |
-| `pnpm check`                                                | Run formatting, lint, types, and tests sequentially.                    |
+| `pnpm check`                                                | Run formatting, lint, types, tests, and the documentation build.        |
 | `pnpm test`                                                 | Run Node.js tests with coverage reporting.                              |
-| `pnpm verify`                                               | Run formatting, lint, types, and tests.                                 |
+| `pnpm verify`                                               | Run the same checks as `pnpm check`.                                    |
+| `pnpm docs:dev`                                             | Start the documentation development server.                             |
+| `pnpm docs:build`                                           | Build documentation and check internal page links.                      |
+| `pnpm docs:preview`                                         | Preview the built documentation site locally.                           |
 | `pnpm check:commits`                                        | Validate a single unscoped commit message from stdin.                   |
 | `pnpm check:commit-range --from <base-sha> --to <head-sha>` | Validate non-merge commits in a Git range with Commitlint.              |
 | `pnpm check:pr-title`                                       | Validate a scoped PR title from stdin.                                  |
@@ -37,13 +40,15 @@ CI uses `--ignore-scripts` because it runs checks directly and does not need loc
 
 Dependencies are exact-pinned and the pnpm lockfile is committed. Generated lockfile formatting is left to pnpm, not Oxfmt.
 
-Type checks cover tooling configuration and maintained TypeScript source and tests. Tests run directly through Node.js 26's TypeScript support, without a transpiler or test-framework dependency. There is no packaged CLI or build yet.
+Type checks cover tooling configuration and maintained TypeScript source and tests. Tests run directly through Node.js 26's TypeScript support, without a transpiler or test-framework dependency. There is no packaged CLI or CLI build yet. The separate documentation build uses VitePress; its configuration is included in type checks.
 
-Run `pnpm test` for the behavioral suite or `pnpm verify` for all checks. Coverage is reported; no completeness claim or coverage threshold is implied.
+Run `pnpm test` for the behavioral suite or `pnpm verify` for all checks, including the production documentation build. Coverage is reported; no completeness claim or coverage threshold is implied.
+
+The [documentation site guide](docs/github-pages.md) explains local previewing, adding pages, and the manual GitHub Pages settings and visibility review required before deployment.
 
 ## Hooks and conventional messages
 
-Lefthook runs the same `pnpm check` command before a commit. The hook checks the whole working tree without rewriting or automatically staging files. Unstaged changes can therefore block a commit; resolve the issue rather than bypassing the hook.
+Lefthook runs the same `pnpm check` command before a commit. The hook checks maintained files across the working tree without rewriting or automatically staging them; the documentation build writes ignored output and cache files. Unstaged changes can therefore block a commit; resolve the issue rather than bypassing the hook.
 
 The `commit-msg` hook requires an unscoped conventional message (`type: description`). For example:
 
@@ -81,7 +86,7 @@ CI installs frozen dependencies, runs the same `pnpm verify` command as local de
 
 The separate `PR metadata` workflow runs trusted base-SHA validator code under a metadata-only, explicitly read-only `pull_request_target` event. It never executes PR source; keep source testing in the unprivileged Quality workflow. Its rollout and controlled-run limitations are documented in [PR metadata readiness](docs/pr-readiness.md).
 
-Requiring `verify` or `metadata` through branch protection and selecting allowed merge methods are separate repository-settings operations. This tooling does not configure either setting, deploy artifacts, or publish a package.
+Requiring `verify` or `metadata` through branch protection and selecting allowed merge methods are separate repository-settings operations. The Quality workflow does not configure either setting or publish a package. A separate Documentation workflow builds and deploys the static site from `main` after Pages is configured; it does not deploy PRs. See the [documentation site guide](docs/github-pages.md) for permissions, environment protection, and visibility prerequisites.
 
 ## Changes and reviews
 
