@@ -30,6 +30,8 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 - [GitHub PR association](github-association.md): collect merged PR evidence for a captured range, verify landing footprints, and understand failure/automation boundaries.
 - [Release input snapshots](release-snapshot.md): validate and serialize captured inputs, then replay them offline under the same configuration and normalization policy.
 
+- [Release version planning](release-plan.md): calculate the next version or an explicit no-release result from validated snapshots.
+
 ## Maintaining these docs
 
 The site renders the Markdown files in `docs/` with VitePress. See [Documentation site](github-pages.md) for preview commands, deployment setup, and publication limitations.
