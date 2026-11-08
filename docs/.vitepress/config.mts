@@ -34,6 +34,7 @@ export default {
           { text: "Git range inspection", link: "/git-tag-range" },
           { text: "GitHub PR association", link: "/github-association" },
           { text: "Release input snapshots", link: "/release-snapshot" },
+          { text: "Release version planning", link: "/release-plan" },
         ],
       },
     ],
