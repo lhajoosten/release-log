@@ -17,6 +17,13 @@
     "checkJs": true,
     "noEmit": true
   },
-  "include": ["*.ts", "*.mjs", "src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"],
+  "include": [
+    "*.ts",
+    "*.mjs",
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "scripts/**/*.ts",
+    "docs/.vitepress/config.mts"
+  ],
   "exclude": ["node_modules", "dist", "coverage"]
 }
