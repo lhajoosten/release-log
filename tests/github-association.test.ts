@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -14,6 +14,9 @@ import {
 import { inspectCommit, inspectPendingRelease } from "../src/git.ts";
 import { GitHubReadError, readGitHubJson } from "../src/github.ts";
 import type { GitHubRead } from "../src/github.ts";
+import { createReleasePlan } from "../src/release-plan.ts";
+import { renderChangelog } from "../src/changelog.ts";
+import { prepareReleaseFiles } from "../src/proposal-files.ts";
 import {
   captureReleaseSnapshot,
   replayReleaseSnapshot,
@@ -342,11 +345,17 @@ void test("rejects rebase membership split by the baseline", async (context) => 
   );
 });
 
-void test("fails when rewritten commit mapping leaves an in-range change unexplained", async (context) => {
+void test("tagged cycles fail when rewritten commit mapping leaves an in-range change unexplained", async (context) => {
   const fixture = await rebase(context);
   fixture.api.links.delete(fixture.first);
+  await git(fixture.directory, ["tag", "v1.2.3", fixture.request.range.baseline.commitSha]);
+  const range = await inspectPendingRelease(
+    fixture.directory,
+    { kind: "tag", name: "v1.2.3" },
+    fixture.source,
+  );
   await assert.rejects(
-    collectMergedPullRequests(fixture.request, fixture.api.read),
+    collectMergedPullRequests({ ...fixture.request, range }, fixture.api.read),
     hasCode("unassociated-commit"),
   );
 });
@@ -392,12 +401,192 @@ void test("excludes open, closed-unmerged, wrong-branch, wrong-repository, and l
   );
 });
 
-void test("direct commits and unexplained structural history cannot produce partial success", async (context) => {
+void test("tagged cycles reject direct commits without producing partial success", async (context) => {
   const fixture = await linear(context);
   fixture.api.links.clear();
+  await git(fixture.directory, ["tag", "v1.2.3", fixture.base]);
+  const range = await inspectPendingRelease(
+    fixture.directory,
+    { kind: "tag", name: "v1.2.3" },
+    fixture.source,
+  );
+  await assert.rejects(
+    collectMergedPullRequests({ ...fixture.request, range }, fixture.api.read),
+    hasCode("unassociated-commit"),
+  );
+});
+
+for (const format of ["sha1", "sha256"]) {
+  void test(`${format}: bootstrap preserves direct commits alongside PRs through planning, rendering and Node/Python preparation`, async (context) => {
+    const directory = await repository(context, format);
+    const nodeManifest = '{"version":"0.0.0"}\n';
+    const pythonManifest = '[project]\nversion="0.0.0" # retain\n';
+
+    await writeFile(join(directory, "package.json"), nodeManifest);
+    await writeFile(join(directory, "pyproject.toml"), pythonManifest);
+    await git(directory, ["add", "."]);
+
+    const base = await createCommit(directory, "Initial repository state");
+    const maintenance = await createCommit(directory, "chore: add the license");
+    const feature = await createCommit(directory, "feat: add exports");
+    const source = await createCommit(directory, "fix: retain selected rows");
+
+    const range = await inspectPendingRelease(
+      directory,
+      { kind: "bootstrap", commitSha: base },
+      source,
+    );
+
+    const api = http();
+    const pull = pullFixture(1, source, source, 1, {
+      title: "fix(api): retain selected rows",
+      body: "```release-log\nversion: 1\naudience: users\nsummary: Retain selected rows.\nimpact: Keep the selection.\nrequired_action: null\n```",
+    });
+    api.links.set(source, [pull]);
+    api.pulls.set(1, pull);
+    api.originals.set(1, [await original(directory, source)]);
+
+    const associated = await collectMergedPullRequests(
+      {
+        repository: "example/project",
+        releaseBranch: "main",
+        localRepository: directory,
+        range,
+        token,
+      },
+      api.read,
+    );
+
+    assert.deepEqual(
+      associated.bootstrapCommits?.map((entry) => entry.sha),
+      [maintenance, feature].toSorted(),
+    );
+    assert.deepEqual(
+      associated.pullRequests.map((entry) => entry.number),
+      [1],
+    );
+
+    const config = {
+      schemaVersion: 1 as const,
+      repository: "example/project",
+      repositoryId: 1,
+      releaseBranch: "main",
+      releasePolicy: "release-policy-v1" as const,
+    };
+    const reads = api.calls.length;
+    const snapshot = await captureReleaseSnapshot(associated, config);
+    const serialized = await serializeReleaseSnapshot(snapshot);
+
+    assert.equal(snapshot.schemaVersion, 2);
+    assert.deepEqual(await replayReleaseSnapshot(serialized, config), snapshot);
+
+    const version = { kind: "bootstrap", initialVersion: "0.1.0" } as const;
+    const plan = await createReleasePlan(serialized, config, version);
+
+    assert.equal(plan.schemaVersion, 2);
+    assert.equal(plan.nextVersion, "0.1.0");
+    assert.equal(plan.bump, "initial");
+    assert.equal(plan.contributions.length, 1);
+    assert.deepEqual(
+      plan.bootstrapContributions.find((entry) => entry.sha === feature),
+      {
+        sha: feature,
+        url: `https://github.com/example/project/commit/${feature}`,
+        type: "feat",
+        scope: null,
+        breaking: false,
+        bump: "minor",
+      },
+    );
+
+    const changelog = await renderChangelog(serialized, config, version);
+
+    assert.ok(changelog);
+    assert.ok(
+      changelog.includes(
+        `- [bootstrap commit]: add exports ([${feature.slice(0, 12)}](https://github.com/example/project/commit/${feature}))`,
+      ),
+    );
+    assert.ok(changelog.includes("([#1](https://github.com/example/project/pull/1))"));
+    assert.ok(changelog.includes("without structured PR impact or migration actions"));
+    assert.equal(changelog, await renderChangelog(serialized, config, version));
+
+    const prepared = await prepareReleaseFiles(directory, serialized, config, version);
+
+    assert.deepEqual(
+      prepared.files.map((entry) => entry.path),
+      ["package.json", "pyproject.toml", "CHANGELOG.md", ".release-log/inputs.json"],
+    );
+    assert.equal(
+      prepared.files.find((entry) => entry.path === "package.json")?.after,
+      '{"version":"0.1.0"}\n',
+    );
+    assert.equal(
+      prepared.files.find((entry) => entry.path === "pyproject.toml")?.after,
+      '[project]\nversion="0.1.0" # retain\n',
+    );
+
+    assert.equal(await readFile(join(directory, "package.json"), "utf8"), nodeManifest);
+    assert.equal(api.calls.length, reads);
+    assert.ok(!serialized.includes(token));
+  });
+}
+
+void test("bootstrap does not reclassify unexplained structural merges as direct commits", async (context) => {
+  const directory = await repository(context);
+  const base = await createCommit(directory, "chore: bootstrap");
+
+  await git(directory, ["switch", "-c", "feature"]);
+  await createCommit(directory, "feat: add exports");
+  await git(directory, ["switch", "main"]);
+  await git(directory, ["merge", "--no-ff", "feature", "-m", "Merge unexplained feature"]);
+
+  const source = await git(directory, ["rev-parse", "HEAD"]);
+  const range = await inspectPendingRelease(
+    directory,
+    { kind: "bootstrap", commitSha: base },
+    source,
+  );
+  await assert.rejects(
+    collectMergedPullRequests(
+      {
+        repository: "example/project",
+        releaseBranch: "main",
+        localRepository: directory,
+        range,
+        token,
+      },
+      http().read,
+    ),
+    hasCode("unassociated-commit"),
+  );
+});
+
+void test("a bootstrap commit acquiring a qualifying PR during collection requires a fresh capture", async (context) => {
+  const fixture = await linear(context);
+  fixture.api.links.clear();
+  let reads = 0;
+  fixture.api.overrides.set(`/commits/${fixture.source}/pulls?per_page=100&page=1`, () =>
+    Response.json(++reads === 1 ? [] : [fixture.metadata]),
+  );
   await assert.rejects(
     collectMergedPullRequests(fixture.request, fixture.api.read),
-    hasCode("unassociated-commit"),
+    hasCode("metadata-changed"),
+  );
+});
+
+void test("bootstrap commit support does not bypass known PR metadata checks", async (context) => {
+  const fixture = await linear(context);
+  const associated = await collectMergedPullRequests(fixture.request, fixture.api.read);
+  await assert.rejects(
+    captureReleaseSnapshot(associated, {
+      schemaVersion: 1,
+      repository: "example/project",
+      repositoryId: 1,
+      releaseBranch: "main",
+      releasePolicy: "release-policy-v1",
+    }),
+    /metadata must be repaired/u,
   );
 });
 

@@ -19,16 +19,25 @@ export async function releaseFixture(
     impact?: string;
   }[],
   releasedVersion: string | null = "1.2.3",
+  bootstrapMessages: readonly string[] = [],
 ) {
   const baseline = "0".repeat(40);
+  const bootstrapCommits = bootstrapMessages.map((message, index) => ({
+    sha: (index + 1).toString(16).padStart(40, "0"),
+    parentShas: [index.toString(16).padStart(40, "0")],
+    message,
+  }));
+
   const pulls = changes.map((change, index) => {
-    const sha = (index + 1).toString(16).padStart(40, "0");
-    const parent = index.toString(16).padStart(40, "0");
+    const sha = (bootstrapCommits.length + index + 1).toString(16).padStart(40, "0");
+    const parent = (bootstrapCommits.length + index).toString(16).padStart(40, "0");
+
     const commit = {
       sha,
       parentShas: [parent],
       message: change.message ?? "chore: retain source evidence\n",
     };
+
     return {
       number: index + 1,
       id: index + 1001,
@@ -58,6 +67,7 @@ export async function releaseFixture(
       landedCommits: [commit],
     };
   });
+
   const snapshot = await captureReleaseSnapshot(
     {
       repository: "example/project",
@@ -72,13 +82,18 @@ export async function releaseFixture(
                 objectSha: baseline,
                 commitSha: baseline,
               },
-        sourceCommitSha: pulls.at(-1)?.mergeCommitSha ?? baseline,
+        sourceCommitSha: pulls.at(-1)?.mergeCommitSha ?? bootstrapCommits.at(-1)?.sha ?? baseline,
         baselineIsAncestor: true,
-        commitShas: pulls.map((pull) => pull.mergeCommitSha),
+        commitShas: [
+          ...bootstrapCommits.map((entry) => entry.sha),
+          ...pulls.map((pull) => pull.mergeCommitSha),
+        ],
       },
       pullRequests: pulls,
+      bootstrapCommits,
     },
     fixtureConfiguration,
   );
+
   return { snapshot, serialized: await serializeReleaseSnapshot(snapshot) };
 }

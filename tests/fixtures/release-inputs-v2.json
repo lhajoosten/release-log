@@ -3,6 +3,7 @@
   "releaseBranch": "main",
   "baselineCommitSha": "0000000000000000000000000000000000000000",
   "sourceCommitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "bootstrapCommits": [],
   "pullRequests": [
     {
       "number": 101,

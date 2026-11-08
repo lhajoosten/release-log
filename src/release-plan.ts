@@ -15,7 +15,7 @@ export type ReleaseVersionConfiguration =
 export type ReleaseBump = "none" | "patch" | "minor" | "major";
 
 export interface ReleasePlan {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly policy: "release-policy-v1";
   readonly snapshotId: string;
   readonly baselineCommitSha: string;
@@ -25,6 +25,14 @@ export interface ReleasePlan {
   readonly nextVersion: string | null;
   readonly release: boolean;
   readonly bump: ReleaseBump | "initial";
+  readonly bootstrapContributions: readonly {
+    readonly sha: string;
+    readonly url: string;
+    readonly type: string;
+    readonly scope: string | null;
+    readonly breaking: boolean;
+    readonly bump: ReleaseBump;
+  }[];
   readonly contributions: readonly {
     readonly number: number;
     readonly url: string;
@@ -96,19 +104,28 @@ export async function createReleasePlan(
   const currentVersion = version.kind === "released" ? version.currentVersion : null;
   const current = parseVersion(currentVersion ?? "0.1.0");
   let highest: ReleaseBump = "none";
+
+  function classify(type: string, breaking: boolean): ReleaseBump {
+    let bump: ReleaseBump;
+
+    if (breaking) bump = current[0] === 0n ? "minor" : "major";
+    else if (type === "feat") bump = "minor";
+    else if (["fix", "perf", "revert"].includes(type)) bump = "patch";
+    else if (["build", "chore", "ci", "docs", "refactor", "style", "test"].includes(type))
+      bump = "none";
+    else throw new ReleasePlanError("The captured change type is not part of release-policy-v1.");
+
+    if (ranks[bump] > ranks[highest]) highest = bump;
+
+    return bump;
+  }
+
   const contributions = snapshot.normalized.pullRequests.map((pull) => {
     const breaking = pull.title.breaking || pull.commits.some((entry) => entry.metadata.breaking);
-    let bump: ReleaseBump;
-    if (breaking) bump = current[0] === 0n ? "minor" : "major";
-    else if (pull.title.type === "feat") bump = "minor";
-    else if (["fix", "perf", "revert"].includes(pull.title.type)) bump = "patch";
-    else if (
-      ["build", "chore", "ci", "docs", "refactor", "style", "test"].includes(pull.title.type)
-    )
-      bump = "none";
-    else throw new ReleasePlanError("The captured PR type is not part of release-policy-v1.");
-    if (ranks[bump] > ranks[highest]) highest = bump;
+    const bump = classify(pull.title.type, breaking);
+
     if (!pull.title.scope) throw new ReleasePlanError("Release entries require a scoped PR title.");
+
     return {
       number: pull.number,
       url: pull.url,
@@ -118,8 +135,21 @@ export async function createReleasePlan(
       bump,
     };
   });
+
+  const bootstrapContributions = snapshot.normalized.bootstrapCommits.map(
+    ({ sha, url, metadata }) => ({
+      sha,
+      url,
+      type: metadata.type,
+      scope: metadata.scope,
+      breaking: metadata.breaking,
+      bump: classify(metadata.type, metadata.breaking),
+    }),
+  );
+
   let nextVersion: string | null = null;
   let bump: ReleasePlan["bump"] = highest;
+
   if (highest !== "none") {
     if (version.kind === "bootstrap") {
       nextVersion = version.initialVersion;
@@ -135,8 +165,9 @@ export async function createReleasePlan(
       parseVersion(nextVersion);
     }
   }
+
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     policy: "release-policy-v1",
     snapshotId: snapshot.snapshotId,
     baselineCommitSha: snapshot.normalized.baselineCommitSha,
@@ -147,5 +178,6 @@ export async function createReleasePlan(
     release: nextVersion !== null,
     bump,
     contributions,
+    bootstrapContributions,
   };
 }

@@ -49,6 +49,13 @@ export async function renderChangelog(
   if (!plan.release) return null;
   const snapshot = await replayReleaseSnapshot(serializedSnapshot, expected);
   const lines = [`## v${plan.nextVersion}`, ""];
+
+  if (snapshot.normalized.bootstrapCommits.length)
+    lines.push(
+      "> Bootstrap history includes commit-only entries without structured PR impact or migration actions.",
+      "",
+    );
+
   for (const [type, heading] of groups) {
     const entries = snapshot.normalized.pullRequests
       .filter((pull) => pull.title.type === type)
@@ -57,8 +64,19 @@ export async function renderChangelog(
         const b = right.title.scope ?? "";
         return a < b ? -1 : a > b ? 1 : left.number - right.number;
       });
-    if (!entries.length) continue;
+
+    const bootstrapEntries = snapshot.normalized.bootstrapCommits
+      .filter((entry) => entry.metadata.type === type)
+      .toSorted((left, right) => {
+        const a = left.metadata.scope ?? "";
+        const b = right.metadata.scope ?? "";
+        return a < b ? -1 : a > b ? 1 : left.sha < right.sha ? -1 : left.sha > right.sha ? 1 : 0;
+      });
+
+    if (!entries.length && !bootstrapEntries.length) continue;
+
     lines.push(`### ${heading}`, "");
+
     for (const pull of entries) {
       const label = pull.context.audience === "internal" ? " [internal]" : "";
       lines.push(
@@ -71,8 +89,23 @@ export async function renderChangelog(
       if (pull.context.requiredAction !== null)
         lines.push(`  - **Required action:** ${escapeText(pull.context.requiredAction)}`);
     }
+
+    for (const entry of bootstrapEntries) {
+      const scope = entry.metadata.scope ? `**${escapeText(entry.metadata.scope)}** ` : "";
+
+      lines.push(
+        `- ${scope}[bootstrap commit]: ${escapeText(entry.metadata.description)} ([${entry.sha.slice(0, 12)}](${entry.url}))`,
+      );
+
+      if (entry.metadata.breaking)
+        lines.push(
+          `  - **Breaking change:** ${entry.metadata.breakingChanges.map(escapeText).join("; ")}`,
+        );
+    }
+
     lines.push("");
   }
+
   const rendered = lines.join("\n");
   bounded(rendered);
   return rendered;

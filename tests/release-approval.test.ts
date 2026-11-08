@@ -22,7 +22,11 @@ async function approved(
   mergeKind: "merge" | "squash" = "merge",
   mode: "node" | "python" | "both" = "node",
   refresh = false,
-  options: { bootstrap?: boolean; objectFormat?: "sha1" | "sha256" } = {},
+  options: {
+    bootstrap?: boolean;
+    bootstrapCommit?: boolean;
+    objectFormat?: "sha1" | "sha256";
+  } = {},
 ) {
   const f = await fixture(context, mode, "feat(api): export rows", options);
   const request = await f.request(true);
@@ -117,6 +121,32 @@ for (const mergeKind of ["merge", "squash"] as const) {
     assert.deepEqual(verified.baseline, { kind: "bootstrap", commitSha: state.f.baseline });
     assert.equal(verified.landingSha, state.landing);
   });
+
+  void test(`${mergeKind}: refreshed bootstrap proposals and approval retain commit-only history`, async (context) => {
+    const state = await approved(context, mergeKind, "both", true, {
+      bootstrap: true,
+      bootstrapCommit: true,
+    });
+
+    const verified = await verifyReleaseApproval(state.request, state.f.transport);
+
+    assert.equal(verified.version, "0.1.0");
+    assert.equal(verified.landingSha, state.landing);
+
+    const snapshot: unknown = JSON.parse(
+      state.f.git(["show", `${state.head}:.release-log/inputs.json`]),
+    );
+    const normalized = object(object(snapshot).normalized);
+
+    assert.ok(Array.isArray(normalized.bootstrapCommits));
+    assert.equal(normalized.bootstrapCommits.length, 1);
+    assert.ok(
+      state.f
+        .git(["show", `${state.head}:CHANGELOG.md`])
+        .includes("[bootstrap commit]: retain historical commit evidence"),
+    );
+  });
+
   void test(`${mergeKind}: SHA-256 object repositories preserve full immutable IDs`, async (context) => {
     const state = await approved(context, mergeKind, "both", true, { objectFormat: "sha256" });
     const verified = await verifyReleaseApproval(state.request, state.f.transport);
