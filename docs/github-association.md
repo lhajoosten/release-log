@@ -4,7 +4,7 @@
 
 ## Inputs and network boundary
 
-Supply the GitHub `repository` (`owner/repo`), `releaseBranch`, `localRepository` directory, the `range` returned by [pending-release inspection](git-tag-range.md), and a runtime read-only `token`. Calling this collection function explicitly enables GitHub.com API reads; offline replay belongs to #16. The optional `GitHubRead` callback replaces only HTTP for fixture tests.
+Supply the GitHub `repository` (`owner/repo`), `releaseBranch`, `localRepository` directory, the `range` returned by [pending-release inspection](git-tag-range.md), and a runtime read-only `token`. Initial adoption also supplies the `onboardingSha` pinned in trusted version 2 configuration; collection verifies baseline-to-onboarding-to-source ancestry before reads. Calling this collection function explicitly enables GitHub.com API reads; offline replay belongs to #16. The optional `GitHubRead` callback replaces only HTTP for fixture tests.
 
 Before sending credentials, collection re-inspects the immutable baseline/source IDs locally and requires the supplied commit set to match exactly. This does not re-resolve a tag or refresh a source ref. A bootstrap projection verifies graph membership without reinterpreting the captured tag evidence. The original range remains in the result.
 
@@ -40,9 +40,9 @@ These guarantees depend on complete, consistent GitHub association evidence. The
 
 ## Explicit bootstrap commit evidence
 
-For an owner-selected `bootstrap` baseline only, a single-parent range commit outside all verified PR footprints may be retained in `bootstrapCommits` if complete association reads return zero qualifying PRs. Re-read that association before returning; newly qualifying metadata requires a fresh collection. Keep exact local SHA, parents and message, sorted by full SHA. This is not proof that a historical commit was directly pushed: the API may lack old mapping. Do not invent a PR association or use message/patch heuristics.
+For explicit initial adoption with a pinned onboarding SHA, a pre-onboarding range commit outside all verified PR footprints may be retained in `bootstrapCommits` if complete association reads return zero qualifying PRs. This includes manual merges as historical graph evidence; newly introduced unassociated commits after onboarding still fail. The strict lower-level version-1 bootstrap path retains only its earlier single-parent/conventional-message behavior. Re-read that association before returning; newly qualifying metadata requires a fresh collection. Keep exact local SHA, parents and message, sorted by full SHA. This is not proof that a historical commit was directly pushed: the API may lack old mapping. Do not invent a PR association or use message/patch heuristics.
 
-Tagged cycles remain PR-only. The exception does not absorb malformed/ambiguous responses, incomplete known PR footprints, unexplained merges, partial baselines or unverified release automation. Known PR metadata still passes the normal readiness validator during snapshot capture. A bootstrap commit's own conventional message is validated there; invalid metadata is not silently assigned a type.
+Tagged cycles remain PR-only. The exception does not absorb malformed/ambiguous responses, incomplete known PR footprints, unexplained post-onboarding merges, partial baselines or unverified release automation. During snapshot capture, legacy PR readiness errors become explicit historical review warnings; new PRs still pass the normal validator. Old unstructured messages are retained, not silently assigned a type. See [initial adoption](initial-adoption.md) for the fixed configuration and warning contract.
 
 ## Output and failures
 
@@ -52,7 +52,7 @@ Tagged cycles remain PR-only. The exception does not absorb malformed/ambiguous 
 - Captured original head and landing IDs, original commit count, and the verified `merge` or `linear` footprint kind.
 - `originalCommits` in the captured API order and `landedCommits` sorted by full SHA, with raw messages and parent IDs.
 
-The result also has a `bootstrapCommits` array (empty outside bootstrap); library-supplied associations may omit it to mean empty, but serialized version 2 snapshots require it explicitly. Its entries have only SHA, parents and message—not PR/context fields.
+The result also has a `bootstrapCommits` array (empty outside bootstrap); library-supplied associations may omit it to mean empty, but serialized version 3 snapshots require it explicitly. Its entries have only SHA, parents and message—not PR/context fields.
 
 The result is raw association evidence, not a schema-versioned release plan or a factual validation of PR prose. #16 must validate required conventional/context data before producing a usable snapshot. Repeated captured inputs and remote responses produce stable output; live PR metadata remains mutable until captured.
 

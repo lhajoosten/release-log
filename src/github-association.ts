@@ -202,6 +202,7 @@ export async function collectMergedPullRequests(
     readonly localRepository: string;
     readonly range: PendingReleaseInspection;
     readonly token: string;
+    readonly onboardingSha?: string;
   },
   read: GitHubRead = fetch,
 ): Promise<PullRequestAssociation> {
@@ -235,6 +236,30 @@ export async function collectMergedPullRequests(
       "collection-limit",
       "Collection supports at most 1000 range commits; use an explicitly reviewed baseline rather than silently truncating history.",
     );
+  let historical: ReadonlySet<string> | null = null;
+
+  if (request.onboardingSha !== undefined) {
+    if (request.range.baseline.kind !== "bootstrap")
+      throw new PullRequestAssociationError(
+        "invalid-input",
+        "An onboarding SHA applies only to an explicit bootstrap range.",
+      );
+
+    const legacy = await inspectPendingRelease(
+      request.localRepository,
+      { kind: "bootstrap", commitSha: request.range.baseline.commitSha },
+      request.onboardingSha,
+    );
+
+    await inspectPendingRelease(
+      request.localRepository,
+      { kind: "bootstrap", commitSha: request.onboardingSha },
+      request.range.sourceCommitSha,
+    );
+
+    historical = new Set(legacy.commitShas);
+  }
+
   const inRange = new Set(verified.commitShas);
   const apiBase = `https://api.github.com/repos/${request.repository.split("/").map(encodeURIComponent).join("/")}`;
   const signal = AbortSignal.timeout(300_000);
@@ -468,7 +493,7 @@ export async function collectMergedPullRequests(
     const commit = await local(commitSha);
     if (
       request.range.baseline.kind === "bootstrap" &&
-      commit.parentShas.length === 1 &&
+      (historical === null ? commit.parentShas.length === 1 : historical.has(commitSha)) &&
       associations.get(commitSha)?.length === 0
     ) {
       bootstrapCommits.push(commit);

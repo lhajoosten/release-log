@@ -23,6 +23,7 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 ## Component guides
 
 - [Release policy](release-policy.md): review the accepted release contract and automation architecture.
+- [Initial adoption](initial-adoption.md): start a reviewed first release without rewriting legacy PRs, with a fixed cutoff and strict rules for new changes.
 - [PR metadata readiness](pr-readiness.md): understand the read-only gate, diagnostics, and rollout limitations.
 - [PR release context](release-context.md): author the version 1 `release-log` block and understand its validation rules.
 - [Conventional metadata](conventional-metadata.md): understand commit and PR-title parsing, including breaking-change declarations.

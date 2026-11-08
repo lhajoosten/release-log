@@ -28,6 +28,7 @@ export default {
       {
         text: "Components",
         items: [
+          { text: "Initial adoption", link: "/initial-adoption" },
           { text: "PR metadata readiness", link: "/pr-readiness" },
           { text: "PR release context", link: "/release-context" },
           { text: "Conventional metadata", link: "/conventional-metadata" },

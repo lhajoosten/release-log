@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { promisify } from "node:util";
 import { fixtureConfiguration, releaseFixture } from "./release-fixture.ts";
+import { captureReleaseSnapshot, serializeReleaseSnapshot } from "../src/release-snapshot.ts";
 
 const execute = promisify(execFile);
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -185,6 +186,91 @@ void test(
       '[project]\nversion="0.1.0"\n',
     );
 
+    const adoptionConfig = {
+      ...fixtureConfiguration,
+      schemaVersion: 2 as const,
+      bootstrap: {
+        baselineSha: bootstrap.snapshot.input.range.baseline.commitSha,
+        onboardingSha: bootstrap.snapshot.input.range.sourceCommitSha,
+      },
+    };
+    const adoptionSnapshot = await captureReleaseSnapshot(
+      {
+        ...bootstrap.snapshot.input,
+        bootstrapCommits: bootstrap.snapshot.input.bootstrapCommits.map((entry) => ({
+          ...entry,
+          message:
+            "Set up the old application\n\nBREAKING CHANGE: Select the new startup entry point",
+        })),
+      },
+      adoptionConfig,
+    );
+    const adoptionConfigPath = join(path, "adoption-config.json");
+    const adoptionSnapshotPath = join(path, "adoption-snapshot.json");
+
+    await writeFile(adoptionConfigPath, JSON.stringify(adoptionConfig));
+    await writeFile(adoptionSnapshotPath, await serializeReleaseSnapshot(adoptionSnapshot));
+
+    const adoptionArgs = [
+      "--config",
+      adoptionConfigPath,
+      "--snapshot",
+      adoptionSnapshotPath,
+      "--initial-version",
+      "0.1.0",
+    ];
+    const adoptionPlan: unknown = JSON.parse((await run(["plan", ...adoptionArgs])).stdout);
+
+    assert.ok(
+      typeof adoptionPlan === "object" &&
+        adoptionPlan !== null &&
+        "nextVersion" in adoptionPlan &&
+        "historicalContributions" in adoptionPlan,
+    );
+    assert.equal(adoptionPlan.nextVersion, "0.1.0");
+    assert.ok(Array.isArray(adoptionPlan.historicalContributions));
+    assert.equal(adoptionPlan.historicalContributions.length, 2);
+    assert.match((await run(["render", ...adoptionArgs])).stdout, /Historical changes/u);
+
+    const pythonAdoption = join(path, "python-initial-adoption");
+
+    await mkdir(pythonAdoption);
+    await writeFile(join(pythonAdoption, "pyproject.toml"), '[project]\nversion="0.0.0"\n');
+    await run(["prepare", ...adoptionArgs, "--repository", pythonAdoption, "--write"]);
+
+    assert.equal(
+      await readFile(join(pythonAdoption, "pyproject.toml"), "utf8"),
+      '[project]\nversion="0.1.0"\n',
+    );
+    assert.match(
+      await readFile(join(pythonAdoption, "CHANGELOG.md"), "utf8"),
+      /Select the new startup entry point/u,
+    );
+
+    await assert.rejects(
+      run(
+        [
+          "collect",
+          "--config",
+          configPath,
+          "--repository",
+          consumer,
+          "--source",
+          "a".repeat(40),
+          "--bootstrap-sha",
+          "0".repeat(40),
+        ],
+        "synthetic-read-token",
+      ),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 2 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("fixed bootstrap baselineSha/onboardingSha"),
+    );
+
     await assert.rejects(
       run(["plan", ...args, "--write"]),
       (error: unknown) => error instanceof Error && "code" in error && error.code === 2,
@@ -326,7 +412,7 @@ void test(
     );
     await writeFile(
       snapshotPath,
-      snapshot.serialized.replace('"schemaVersion":2', '"schemaVersion":99'),
+      snapshot.serialized.replace('"schemaVersion":3', '"schemaVersion":99'),
     );
     await assert.rejects(
       run(["plan", ...args], "synthetic-secret-never-print"),

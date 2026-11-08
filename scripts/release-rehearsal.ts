@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -139,6 +139,10 @@ export async function rehearseRelease(
           repository: config.repository,
           sourceSha: options.sourceSha,
           baseline,
+          onboardingSha:
+            config.schemaVersion === 2 && baseline.kind === "bootstrap"
+              ? config.bootstrap.onboardingSha
+              : null,
           snapshotId: plan.snapshotId,
           snapshotSha256: digest(snapshot),
           replayStable: true,
@@ -169,15 +173,45 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     const cli = environment("RELEASE_LOG_CLI");
     const token = environment("GITHUB_TOKEN");
     const execute = promisify(execFile);
+    const configJSON = await readFile(
+      join(environment("GITHUB_WORKSPACE"), "release-log.config.json"),
+      "utf8",
+    );
+
+    if (Buffer.byteLength(configJSON, "utf8") > 1024 * 1024)
+      throw new Error("Rehearsal configuration exceeds 1 MiB.");
+
+    let value: unknown;
+
+    try {
+      value = JSON.parse(configJSON);
+    } catch {
+      throw new Error("Rehearsal configuration must be valid JSON.");
+    }
+
+    const configuration = parseReleaseInputConfiguration(value);
+
+    if (
+      configuration.repository !== environment("GITHUB_REPOSITORY") ||
+      configuration.repositoryId !== Number(environment("GITHUB_REPOSITORY_ID")) ||
+      configuration.releaseBranch !== "main"
+    )
+      throw new Error(
+        "Rehearsal configuration must match the trusted repository identity and main branch.",
+      );
+
+    if (
+      mode === "bootstrap" &&
+      (configuration.schemaVersion !== 2 ||
+        configuration.bootstrap.baselineSha !== environment("REHEARSAL_BASELINE"))
+    )
+      throw new Error(
+        "Bootstrap rehearsal must use the baseline and fixed onboarding record from release-log.config.json.",
+      );
+
     await rehearseRelease(
       {
-        configuration: {
-          schemaVersion: 1,
-          repository: environment("GITHUB_REPOSITORY"),
-          repositoryId: Number(environment("GITHUB_REPOSITORY_ID")),
-          releaseBranch: "main",
-          releasePolicy: "release-policy-v1",
-        },
+        configuration,
         sourceSha: environment("GITHUB_SHA"),
         repositoryDirectory: environment("GITHUB_WORKSPACE"),
         outputDirectory: environment("REHEARSAL_OUTPUT"),

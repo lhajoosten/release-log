@@ -10,6 +10,7 @@ import { parse } from "yaml";
 import { rehearseRelease } from "../scripts/release-rehearsal.ts";
 import type { RehearsalOptions } from "../scripts/release-rehearsal.ts";
 import { fixtureConfiguration, releaseFixture } from "./release-fixture.ts";
+import { captureReleaseSnapshot, serializeReleaseSnapshot } from "../src/release-snapshot.ts";
 
 const execute = promisify(execFile);
 const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -95,6 +96,63 @@ for (const scenario of ["released", "bootstrap", "no-release"] as const) {
   );
 }
 
+void test(
+  "initial-adoption rehearsal emits a stable 0.1.0 preview for maintenance-only legacy history without writes",
+  { timeout: 30_000 },
+  async (context) => {
+    const directory = await mkdtemp(join(tmpdir(), "adoption-rehearsal-"));
+    context.after(() => rm(directory, { recursive: true, force: true }));
+
+    const manifest = '[project]\nversion="0.0.0"\n';
+
+    await writeFile(join(directory, "pyproject.toml"), manifest);
+
+    const fixture = await releaseFixture([], null, ["chore: initialize tooling"]);
+    const configuration = {
+      ...fixtureConfiguration,
+      schemaVersion: 2 as const,
+      bootstrap: {
+        baselineSha: fixture.snapshot.input.range.baseline.commitSha,
+        onboardingSha: fixture.snapshot.input.range.sourceCommitSha,
+      },
+    };
+    const snapshot = await captureReleaseSnapshot(fixture.snapshot.input, configuration);
+    const serialized = await serializeReleaseSnapshot(snapshot);
+    const output = join(directory, "preview");
+
+    await rehearseRelease(
+      {
+        configuration,
+        sourceSha: snapshot.input.range.sourceCommitSha,
+        baseline: { kind: "bootstrap", commitSha: configuration.bootstrap.baselineSha },
+        repositoryDirectory: directory,
+        outputDirectory: output,
+      },
+      async (args, phase) => {
+        if (phase === "collect") return serialized;
+
+        return (
+          await execute(process.execPath, [cli, ...args], {
+            timeout: 10_000,
+            env: { PATH: process.env.PATH },
+            maxBuffer: 16 * 1024 * 1024,
+          })
+        ).stdout;
+      },
+    );
+
+    const plan: unknown = JSON.parse(await readFile(join(output, "plan.json"), "utf8"));
+    const evidence: unknown = JSON.parse(await readFile(join(output, "evidence.json"), "utf8"));
+
+    assert.equal(record(plan).nextVersion, "0.1.0");
+    assert.equal(record(evidence).onboardingSha, configuration.bootstrap.onboardingSha);
+    assert.equal(record(evidence).replayStable, true);
+    assert.match(await readFile(join(output, "changelog.md"), "utf8"), /Historical changes/u);
+    assert.equal(await readFile(join(directory, "pyproject.toml"), "utf8"), manifest);
+    assert.deepEqual((await readdir(directory)).toSorted(), ["preview", "pyproject.toml"]);
+  },
+);
+
 void test("invalid baselines, changed replay results, and CLI failures fail without producing success evidence", async (context) => {
   const directory = await mkdtemp(join(tmpdir(), "rehearsal-failure-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
@@ -146,6 +204,15 @@ void test("manual entry point surfaces safe CLI failures without leaking tokens 
     fake,
     'console.error("private subprocess output"); console.error("release-log: synthetic-rehearsal-secret"); console.error("release-log: PR #9 release metadata must be repaired."); process.exitCode = 1;\n',
   );
+  await writeFile(
+    join(directory, "release-log.config.json"),
+    JSON.stringify({
+      ...fixtureConfiguration,
+      schemaVersion: 2,
+      bootstrap: { baselineSha: "0".repeat(40), onboardingSha: "a".repeat(40) },
+    }),
+  );
+
   const environment = {
     PATH: process.env.PATH,
     GITHUB_REF: "refs/heads/main",
@@ -181,7 +248,37 @@ void test("manual entry point surfaces safe CLI failures without leaking tokens 
       typeof error.stderr === "string" &&
       error.stderr.includes("trusted main only"),
   );
-  assert.deepEqual(await readdir(directory), ["fake-cli.mjs"]);
+  await assert.rejects(
+    execute(process.execPath, [script], {
+      env: { ...environment, REHEARSAL_BASELINE: "b".repeat(40) },
+      timeout: 10_000,
+    }),
+    (error: unknown) =>
+      error instanceof Error &&
+      "stderr" in error &&
+      typeof error.stderr === "string" &&
+      error.stderr.includes("fixed onboarding record"),
+  );
+
+  await writeFile(
+    join(directory, "release-log.config.json"),
+    '{"token":"synthetic-rehearsal-secret"',
+  );
+
+  await assert.rejects(
+    execute(process.execPath, [script], { env: environment, timeout: 10_000 }),
+    (error: unknown) =>
+      error instanceof Error &&
+      "stderr" in error &&
+      typeof error.stderr === "string" &&
+      error.stderr.includes("must be valid JSON") &&
+      !error.stderr.includes("synthetic-rehearsal-secret"),
+  );
+
+  assert.deepEqual((await readdir(directory)).toSorted(), [
+    "fake-cli.mjs",
+    "release-log.config.json",
+  ]);
 });
 
 function record(value: unknown): Record<string, unknown> {

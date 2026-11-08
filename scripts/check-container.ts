@@ -79,6 +79,16 @@ try {
   await git(["add", "."]);
   await git(["-c", "core.hooksPath=/dev/null", "commit", "-m", "fix: retain rows"]);
   const source = await git(["rev-parse", "HEAD"]);
+
+  await writeFile(
+    join(directory, "adoption-config.json"),
+    JSON.stringify({
+      ...fixtureConfiguration,
+      schemaVersion: 2,
+      bootstrap: { baselineSha: baseline, onboardingSha: source },
+    }),
+  );
+
   await writeFile(
     join(repository, ".git", "hooks", "post-checkout"),
     "#!/bin/sh\ntouch /workspace/executed\n",
@@ -233,7 +243,7 @@ try {
       [
         "collect",
         "--config",
-        "/workspace/config.json",
+        "/workspace/adoption-config.json",
         "--repository",
         "/workspace/repo",
         "--source",

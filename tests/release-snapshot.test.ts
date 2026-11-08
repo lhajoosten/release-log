@@ -115,11 +115,11 @@ void test("capture matches a hand-written normalized golden and retains raw asso
   const source = input();
   const snapshot = await captureReleaseSnapshot(source, config);
   const golden: unknown = JSON.parse(
-    await readFile(new URL("./fixtures/release-inputs-v2.json", import.meta.url), "utf8"),
+    await readFile(new URL("./fixtures/release-inputs-v3.json", import.meta.url), "utf8"),
   );
   assert.deepEqual(snapshot.normalized, golden);
   assert.deepEqual(snapshot.input, { ...source, bootstrapCommits: [] });
-  assert.equal(snapshot.schemaVersion, 2);
+  assert.equal(snapshot.schemaVersion, 3);
   const expectedConfigurationId = createHash("sha256")
     .update(
       '{"releaseBranch":"main","releasePolicy":"release-policy-v1","repository":"example/project","repositoryId":17,"schemaVersion":1}',

@@ -41,7 +41,9 @@ const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/ap
   release-log --help | --version
 
 collect makes bounded read-only GitHub.com requests using GITHUB_TOKEN and emits
-snapshot JSON. plan emits decision JSON; render emits Markdown (empty for no
+snapshot JSON. Initial adoption requires a version 2 config with a fixed
+bootstrap baselineSha/onboardingSha record; old metadata becomes review warnings.
+plan emits decision JSON; render emits Markdown (empty for no
 release). prepare defaults to dry-run and emits plan/files JSON; only --write
 changes fixed local proposal files. It supports package.json and pyproject.toml.
 propose makes explicit GitHub reads; only propose --write creates/refreshes the
@@ -122,6 +124,20 @@ async function runCLI(args: readonly string[]): Promise<string> {
     const baseline = options.has("baseline-tag")
       ? { kind: "tag" as const, name: required(options, "baseline-tag") }
       : { kind: "bootstrap" as const, commitSha: required(options, "bootstrap-sha") };
+    if (baseline.kind === "bootstrap" && config.schemaVersion !== 2)
+      throw new UsageError(
+        "Initial adoption requires a version 2 configuration with a fixed bootstrap baselineSha/onboardingSha record.",
+      );
+
+    if (
+      baseline.kind === "bootstrap" &&
+      config.schemaVersion === 2 &&
+      config.bootstrap.baselineSha !== baseline.commitSha
+    )
+      throw new UsageError(
+        "The bootstrap baseline must match the fixed onboarding record in configuration.",
+      );
+
     const range = await inspectPendingRelease(repository, baseline, required(options, "source"));
     return serializeReleaseSnapshot(
       await captureReleaseSnapshot(
@@ -131,6 +147,9 @@ async function runCLI(args: readonly string[]): Promise<string> {
           localRepository: repository,
           range,
           token,
+          ...(baseline.kind === "bootstrap" && config.schemaVersion === 2
+            ? { onboardingSha: config.bootstrap.onboardingSha }
+            : {}),
         }),
         config,
       ),

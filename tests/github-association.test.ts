@@ -477,13 +477,13 @@ for (const format of ["sha1", "sha256"]) {
     const snapshot = await captureReleaseSnapshot(associated, config);
     const serialized = await serializeReleaseSnapshot(snapshot);
 
-    assert.equal(snapshot.schemaVersion, 2);
+    assert.equal(snapshot.schemaVersion, 3);
     assert.deepEqual(await replayReleaseSnapshot(serialized, config), snapshot);
 
     const version = { kind: "bootstrap", initialVersion: "0.1.0" } as const;
     const plan = await createReleasePlan(serialized, config, version);
 
-    assert.equal(plan.schemaVersion, 2);
+    assert.equal(plan.schemaVersion, 3);
     assert.equal(plan.nextVersion, "0.1.0");
     assert.equal(plan.bump, "initial");
     assert.equal(plan.contributions.length, 1);
@@ -912,6 +912,165 @@ void test("real Git and mocked HTTP collection feed a validated offline snapshot
   assert.equal(replayed.normalized.sourceCommitSha, fixture.source);
   assert.equal(replayed.normalized.pullRequests[0]?.context.audience, "internal");
   assert.equal(await serializeReleaseSnapshot(replayed), encoded);
+});
+
+void test("a fixed onboarding SHA separates legacy PR/commit warnings from strict new changes through real Git collection", async (context) => {
+  const fixture = await linear(context);
+  fixture.metadata.title = "Initial application feature";
+  fixture.metadata.body = "An old PR without structured release metadata.";
+
+  await writeFile(join(fixture.directory, "package.json"), '{"version":"0.0.0"}\n');
+  await writeFile(join(fixture.directory, "pyproject.toml"), '[project]\nversion="0.0.0"\n');
+  await git(fixture.directory, ["add", "."]);
+
+  const onboardingSha = await createCommit(fixture.directory, "Configure the initial application");
+  const source = await createCommit(fixture.directory, "fix: retain selected rows");
+  const next = pullFixture(2, source, source, 1, {
+    title: "fix(app): retain selected rows",
+    body: "```release-log\nversion: 1\naudience: users\nsummary: Retain selected rows.\nimpact: Preserve the selection.\nrequired_action: null\n```",
+  });
+
+  fixture.api.pulls.set(2, next);
+  fixture.api.originals.set(2, [await original(fixture.directory, source)]);
+  fixture.api.links.set(source, [next]);
+
+  const range = await inspectPendingRelease(
+    fixture.directory,
+    { kind: "bootstrap", commitSha: fixture.base },
+    source,
+  );
+  const request = { ...fixture.request, range, onboardingSha };
+  const config = {
+    schemaVersion: 2 as const,
+    repository: "example/project",
+    repositoryId: 1,
+    releaseBranch: "main",
+    releasePolicy: "release-policy-v1" as const,
+    bootstrap: { baselineSha: fixture.base, onboardingSha },
+  };
+  const associated = await collectMergedPullRequests(request, fixture.api.read);
+  const snapshot = await captureReleaseSnapshot(associated, config);
+  const serialized = await serializeReleaseSnapshot(snapshot);
+  const version = { kind: "bootstrap", initialVersion: "0.1.0" } as const;
+  const plan = await createReleasePlan(serialized, config, version);
+
+  assert.equal(plan.nextVersion, "0.1.0");
+  assert.equal(plan.onboardingSha, onboardingSha);
+  assert.deepEqual(
+    plan.contributions.map((entry) => entry.number),
+    [2],
+  );
+  assert.equal(plan.historicalContributions.length, 2);
+  assert.ok(
+    snapshot.normalized.historicalEntries.some(
+      (entry) => entry.source.kind === "pull-request" && entry.source.number === 1,
+    ),
+  );
+  assert.ok(
+    snapshot.normalized.historicalEntries.some(
+      (entry) => entry.source.kind === "commit" && entry.source.sha === onboardingSha,
+    ),
+  );
+
+  const prepared = await prepareReleaseFiles(fixture.directory, serialized, config, version);
+
+  assert.equal(
+    prepared.files.find((entry) => entry.path === "package.json")?.after,
+    '{"version":"0.1.0"}\n',
+  );
+  assert.equal(
+    prepared.files.find((entry) => entry.path === "pyproject.toml")?.after,
+    '[project]\nversion="0.1.0"\n',
+  );
+  assert.ok((await renderChangelog(serialized, config, version))?.includes("Historical changes"));
+
+  next.body = "New PR missing required context";
+
+  await assert.rejects(
+    captureReleaseSnapshot(await collectMergedPullRequests(request, fixture.api.read), config),
+    /metadata must be repaired/u,
+  );
+
+  next.body =
+    "```release-log\nversion: 1\naudience: internal\nsummary: Retain rows.\nimpact: Preserve rows.\nrequired_action: null\n```";
+  const direct = await createCommit(fixture.directory, "fix: push a new direct change");
+  const advancedRange = await inspectPendingRelease(
+    fixture.directory,
+    { kind: "bootstrap", commitSha: fixture.base },
+    direct,
+  );
+
+  await assert.rejects(
+    collectMergedPullRequests({ ...request, range: advancedRange }, fixture.api.read),
+    hasCode("unassociated-commit"),
+  );
+  await assert.rejects(
+    collectMergedPullRequests({ ...request, onboardingSha: direct }, fixture.api.read),
+    /ancestor/u,
+  );
+});
+
+void test("explicit initial adoption retains unstructured manual-merge history without inventing PRs", async (context) => {
+  const directory = await repository(context);
+  const base = await createCommit(directory, "Initial repository state");
+
+  await git(directory, ["switch", "-c", "old-feature"]);
+  await createCommit(directory, "Start the old application feature");
+  await git(directory, ["switch", "main"]);
+  await createCommit(directory, "Configure the old application");
+  await git(directory, [
+    "merge",
+    "--no-ff",
+    "old-feature",
+    "-m",
+    "Merge the old feature\n\nBREAKING CHANGE: Select the new startup path",
+  ]);
+
+  const source = await git(directory, ["rev-parse", "HEAD"]);
+  const range = await inspectPendingRelease(
+    directory,
+    { kind: "bootstrap", commitSha: base },
+    source,
+  );
+  const associated = await collectMergedPullRequests(
+    {
+      repository: "example/project",
+      releaseBranch: "main",
+      localRepository: directory,
+      range,
+      token,
+      onboardingSha: source,
+    },
+    http().read,
+  );
+  const config = {
+    schemaVersion: 2 as const,
+    repository: "example/project",
+    repositoryId: 1,
+    releaseBranch: "main",
+    releasePolicy: "release-policy-v1" as const,
+    bootstrap: { baselineSha: base, onboardingSha: source },
+  };
+  const snapshot = await captureReleaseSnapshot(associated, config);
+  const plan = await createReleasePlan(await serializeReleaseSnapshot(snapshot), config, {
+    kind: "bootstrap",
+    initialVersion: "0.1.0",
+  });
+
+  assert.equal(plan.nextVersion, "0.1.0");
+  assert.equal(plan.contributions.length, 0);
+  assert.equal(plan.historicalContributions.length, 3);
+  assert.equal(
+    snapshot.normalized.historicalEntries.filter((entry) =>
+      entry.warnings.some((issue) => issue.code === "historical-merge"),
+    ).length,
+    1,
+  );
+  assert.ok(
+    snapshot.normalized.historicalEntries.some((entry) =>
+      entry.breakingChanges.includes("Select the new startup path"),
+    ),
+  );
 });
 
 void test("identical captured input and remote fixtures yield stable ordering and content", async (context) => {

@@ -14,7 +14,6 @@ import {
 } from "../src/release-approval.ts";
 import type { ReleaseApproval } from "../src/release-approval.ts";
 import { fixture, botId, json, object, text } from "./proposal-fixture.ts";
-import { fixtureConfiguration } from "./release-fixture.ts";
 
 const policy = { schemaVersion: 1 as const, botUserId: botId, approverUserIds: [7] };
 async function approved(
@@ -24,11 +23,17 @@ async function approved(
   refresh = false,
   options: {
     bootstrap?: boolean;
+    adoption?: boolean;
     bootstrapCommit?: boolean;
     objectFormat?: "sha1" | "sha256";
   } = {},
 ) {
-  const f = await fixture(context, mode, "feat(api): export rows", options);
+  const f = await fixture(
+    context,
+    mode,
+    options.adoption ? "Initialize the application" : "feat(api): export rows",
+    options,
+  );
   const request = await f.request(true);
   let result = await reconcileReleaseProposal(request, f.transport);
   if (refresh) {
@@ -83,7 +88,7 @@ async function approved(
     approval,
     request: {
       repository: f.directory,
-      configuration: fixtureConfiguration,
+      configuration: request.configuration,
       policy,
       approval,
       token: "synthetic-read-only-secret",
@@ -144,6 +149,45 @@ for (const mergeKind of ["merge", "squash"] as const) {
       state.f
         .git(["show", `${state.head}:CHANGELOG.md`])
         .includes("[bootstrap commit]: retain historical commit evidence"),
+    );
+  });
+
+  void test(`${mergeKind}: initial adoption preserves its pinned legacy cutoff through refresh and exact-landing approval`, async (context) => {
+    const state = await approved(context, mergeKind, "both", true, {
+      bootstrap: true,
+      adoption: true,
+      bootstrapCommit: true,
+    });
+    const verified = await verifyReleaseApproval(state.request, state.f.transport);
+
+    assert.equal(verified.version, "0.1.0");
+    assert.equal(verified.landingSha, state.landing);
+    assert.ok(state.f.git(["show", `${state.head}:CHANGELOG.md`]).includes("Historical changes"));
+    assert.ok(
+      state.f
+        .git(["show", `${state.head}:CHANGELOG.md`])
+        .includes("Create the initial application"),
+    );
+
+    const configuration = state.request.configuration;
+
+    assert.equal(configuration.schemaVersion, 2);
+
+    if (configuration.schemaVersion !== 2)
+      throw new Error("Expected pinned initial-adoption configuration");
+
+    await assert.rejects(
+      verifyReleaseApproval(
+        {
+          ...state.request,
+          configuration: {
+            ...configuration,
+            bootstrap: { ...configuration.bootstrap, onboardingSha: state.source },
+          },
+        },
+        state.f.transport,
+      ),
+      /configuration differs/u,
     );
   });
 
