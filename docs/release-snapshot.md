@@ -35,7 +35,7 @@ Schema version 1 permits exactly:
 
 `normalizerId` binds normalization format revision 1, the resolved conventional rules/parser patterns loaded by the validator, declared runtime dependency versions, and the complete checked-in pnpm lockfile digest. The lockfile includes development tooling, so even a lockfile-only tooling update conservatively invalidates compatibility. The tool version must also match. The current `0.0.0` tool version is a development placeholder, not evidence of a published artifact.
 
-The runtime package currently needs its trusted `package.json`, `pnpm-lock.yaml`, and existing Commitlint configuration/dependencies. #19 must preserve these assets or deliberately version a replacement identity manifest when packaging the CLI. Inspected consumer repository configuration is never loaded as validator code.
+The runtime package needs its trusted `package.json`, dependency lock bytes, and existing Commitlint configuration/dependencies. The [CLI build](cli.md) preserves the lock bytes as `dist/dependency-lock.txt` because package managers omit lockfile-named files, retaining the same digest as the source checkout's `pnpm-lock.yaml`. Inspected consumer repository configuration is never loaded as validator code.
 
 Checksums detect inconsistent/accidentally edited data. They are **not signatures or proof of approval**: someone who rewrites all inputs can recompute them. Snapshot/diff authenticity and freshness still need the trusted orchestration checks in #20/#22. A valid snapshot does not authenticate a bot or authorize a release.
 

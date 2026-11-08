@@ -43,7 +43,7 @@ The [accepted release-policy ADR](docs/release-policy.md) defines bootstrap, mem
 
 ## Status
 
-Repository tooling is configured, and core components are being implemented incrementally with tests. Component behavior and boundaries are documented in `docs/` alongside the source in `src/`. A read-only PR metadata workflow is defined, but the end-to-end CLI, release controller, publication, and AI integration are not implemented.
+Core Git/PR collection, snapshots, version planning, and changelog rendering are implemented with tests. A locally packable [CLI](docs/cli.md) exposes explicit online collection and offline planning/rendering, with dry-run or opt-in writes for root `package.json` and static `pyproject.toml` versions. Component boundaries are documented in `docs/` alongside `src/`. The read-only PR metadata workflow has documented rollout limitations; a deployed release controller, publication, and AI integration are not implemented.
 
 ## Documentation
 

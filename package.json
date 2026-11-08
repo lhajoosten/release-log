@@ -4,8 +4,21 @@
   "private": true,
   "description": "Deterministic PR-based changelogs and AI-assisted release notes",
   "license": "MIT",
+  "bin": {
+    "release-log": "dist/src/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE.md"
+  ],
   "type": "module",
+  "exports": {
+    ".": "./dist/src/release-plan.js"
+  },
   "scripts": {
+    "build": "node scripts/build.ts",
+    "prepack": "pnpm build",
     "test": "node --test --experimental-test-coverage tests/*.test.ts",
     "prepare": "lefthook install",
     "format": "oxfmt --write .",
@@ -28,11 +41,13 @@
     "@commitlint/load": "21.2.4",
     "@commitlint/parse": "21.2.3",
     "mdast-util-from-markdown": "2.1.0",
+    "toml-eslint-parser": "1.0.3",
     "yaml": "2.9.1"
   },
   "devDependencies": {
     "@commitlint/cli": "21.2.4",
     "@commitlint/types": "21.2.3",
+    "@types/eslint": "9.6.1",
     "@types/node": "26.6.6",
     "lefthook": "2.2.2",
     "oxfmt": "0.77.0",

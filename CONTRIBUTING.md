@@ -22,6 +22,8 @@ CI uses `--ignore-scripts` because it runs checks directly and does not need loc
 
 | Command                                                     | Purpose                                                                 |
 | ----------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `pnpm build`                                                | Compile the CLI/library and copy trusted replay runtime assets.         |
+| `pnpm pack`                                                 | Build and pack a local distributable tarball without publishing.        |
 | `pnpm format`                                               | Format supported maintained files with Oxfmt.                           |
 | `pnpm check:format`                                         | Check formatting without changing files.                                |
 | `pnpm check:lint`                                           | Run type-aware Oxlint; warnings and unused suppression directives fail. |
@@ -40,7 +42,7 @@ CI uses `--ignore-scripts` because it runs checks directly and does not need loc
 
 Dependencies are exact-pinned and the pnpm lockfile is committed. Generated lockfile formatting is left to pnpm, not Oxfmt.
 
-Type checks cover tooling configuration and maintained TypeScript source and tests. Tests run directly through Node.js 26's TypeScript support, without a transpiler or test-framework dependency. There is no packaged CLI or CLI build yet. The separate documentation build uses VitePress; its configuration is included in type checks.
+Type checks cover tooling configuration and maintained TypeScript source and tests. Tests run directly through Node.js 26's TypeScript support, without a transpiler or test-framework dependency. `pnpm build` compiles the distributable CLI/library; `pnpm pack` builds a local tarball. The package test installs it with only cached production dependencies in a temporary directory and exercises the executable without network access; project installation must populate the package-manager cache first. See the [CLI guide](docs/cli.md) for commands and Node/Python version-file support. The separate documentation build uses VitePress; its configuration is included in type checks.
 
 Run `pnpm test` for the behavioral suite or `pnpm verify` for all checks, including the production documentation build. Coverage is reported; no completeness claim or coverage threshold is implied.
 
