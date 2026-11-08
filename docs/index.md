@@ -36,6 +36,8 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 
 - [Deterministic CLI](cli.md): collect online, replay/plan/render offline, and prepare Node/Python proposal files with explicit opt-in writes.
 
+- [Read-only release rehearsal](release-rehearsal.md): exercise the installed CLI against an explicit main baseline without creating proposals or publishing.
+
 ## Maintaining these docs
 
 The site renders the Markdown files in `docs/` with VitePress. See [Documentation site](github-pages.md) for preview commands, deployment setup, and publication limitations.

@@ -1,0 +1,79 @@
+name: Read-only release rehearsal
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_mode:
+        description: Explicit baseline mode (no baseline is inferred)
+        type: choice
+        options: [bootstrap, released]
+        required: true
+      baseline:
+        description: Owner-reviewed full bootstrap commit SHA, or stable vMAJOR.MINOR.PATCH tag
+        type: string
+        required: true
+      current_version:
+        description: Required in released mode, matching the baseline tag without v
+        type: string
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: release-rehearsal-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rehearse:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out the captured trusted main revision and complete history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
+        with:
+          cache: false
+
+      - name: Install locked dependencies without lifecycle scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Pack and install the CLI with production dependencies only
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-package" "$RUNNER_TEMP/release-consumer"
+          pnpm pack --out "$RUNNER_TEMP/release-package/release-log.tgz"
+          tar -xzf "$RUNNER_TEMP/release-package/release-log.tgz" --strip-components=1 --directory "$RUNNER_TEMP/release-consumer"
+          cp "$RUNNER_TEMP/release-consumer/dist/dependency-lock.txt" "$RUNNER_TEMP/release-consumer/pnpm-lock.yaml"
+          pnpm --dir "$RUNNER_TEMP/release-consumer" install --offline --prod --frozen-lockfile --ignore-scripts
+
+      - name: Collect once and replay the packaged CLI without writes
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REHEARSAL_MODE: ${{ inputs.baseline_mode }}
+          REHEARSAL_BASELINE: ${{ inputs.baseline }}
+          REHEARSAL_CURRENT_VERSION: ${{ inputs.current_version }}
+          RELEASE_LOG_CLI: ${{ runner.temp }}/release-consumer/dist/src/cli.js
+          REHEARSAL_OUTPUT: ${{ runner.temp }}/release-preview
+        run: node scripts/release-rehearsal.ts
+
+      - name: Retain the decision and changelog preview (not raw snapshots or credentials)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-preview/
+          if-no-files-found: error
+          retention-days: 7
