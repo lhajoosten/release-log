@@ -59,6 +59,7 @@ export interface PullRequestAssociation {
   readonly releaseBranch: string;
   readonly range: PendingReleaseInspection;
   readonly pullRequests: readonly AssociatedPullRequest[];
+  readonly bootstrapCommits?: readonly GitCommitEvidence[];
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -458,13 +459,38 @@ export async function collectMergedPullRequests(
       "incomplete-evidence",
       "Landing boundary discovery introduced additional PR candidates; resolve the overlapping evidence before planning.",
     );
+
+  const bootstrapCommits: GitCommitEvidence[] = [];
+
   for (const commitSha of verified.commitShas) {
-    if (!owners.has(commitSha))
+    if (owners.has(commitSha)) continue;
+
+    const commit = await local(commitSha);
+    if (
+      request.range.baseline.kind === "bootstrap" &&
+      commit.parentShas.length === 1 &&
+      associations.get(commitSha)?.length === 0
+    ) {
+      bootstrapCommits.push(commit);
+      continue;
+    }
+
+    throw new PullRequestAssociationError(
+      "unassociated-commit",
+      `Commit ${commitSha} has no verified merged-PR landing footprint. Only unassociated single-parent commits in an explicit bootstrap range may use commit-only evidence.`,
+    );
+  }
+
+  for (const commit of bootstrapCommits) {
+    associations.delete(commit.sha);
+
+    if ((await candidates(commit.sha)).length !== 0)
       throw new PullRequestAssociationError(
-        "unassociated-commit",
-        `Commit ${commitSha} has no verified merged-PR landing footprint. Direct commits and missing associations must be resolved before planning.`,
+        "metadata-changed",
+        `Bootstrap commit ${commit.sha} acquired a qualifying PR association during collection; collect again.`,
       );
   }
+
   for (const pull of pulls.values()) {
     const final = capturePull(
       (await get(`/pulls/${pull.number}`)).data,
@@ -478,10 +504,12 @@ export async function collectMergedPullRequests(
         `PR #${pull.number} metadata changed during collection; retry explicitly rather than mixing snapshots.`,
       );
   }
+
   return {
     repository: request.repository,
     releaseBranch: request.releaseBranch,
     range: request.range,
     pullRequests: result,
+    bootstrapCommits,
   };
 }

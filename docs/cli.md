@@ -24,6 +24,8 @@ release-log collect --config release-config.json --repository . --source FULL_CO
 
 Supply `GITHUB_TOKEN` through the environment, never arguments or configuration. Collection writes the validated snapshot JSON to stdout and makes bounded read-only GitHub requests. For bootstrap, replace `--baseline-tag` with `--bootstrap-sha FULL_COMMIT_SHA`. It does not fetch Git history, infer a baseline, write local files, or mutate GitHub. See [association limitations](github-association.md), especially unverified automation-only exclusion.
 
+With an explicit bootstrap baseline, collection retains eligible unassociated single-parent commits as real commit-only entries; tagged cycles remain PR-only. Known PRs still require valid metadata. Snapshot and plan output now use schema version 2; recapture version 1 snapshots with the new tool rather than relabeling or silently migrating them. See [bootstrap association rules](github-association.md#explicit-bootstrap-commit-evidence).
+
 Offline operations:
 
 ```sh

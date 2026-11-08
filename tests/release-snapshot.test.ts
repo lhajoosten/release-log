@@ -12,6 +12,8 @@ import {
   ReleaseSnapshotError,
 } from "../src/release-snapshot.ts";
 import type { ReleaseInputConfiguration } from "../src/release-snapshot.ts";
+import { createReleasePlan } from "../src/release-plan.ts";
+import { renderChangelog } from "../src/changelog.ts";
 
 const execute = promisify(execFile);
 const base = "0".repeat(40);
@@ -74,6 +76,16 @@ function input() {
   };
 }
 
+function bootstrapInput(message = "feat: add historical exports\n") {
+  const source = input();
+
+  return {
+    ...source,
+    pullRequests: [],
+    bootstrapCommits: [{ sha: first, parentShas: [base], message }],
+  };
+}
+
 function object(value: unknown): Record<string, unknown> {
   assert.ok(typeof value === "object" && value !== null && !Array.isArray(value));
   return Object.fromEntries(Object.entries(value));
@@ -103,11 +115,11 @@ void test("capture matches a hand-written normalized golden and retains raw asso
   const source = input();
   const snapshot = await captureReleaseSnapshot(source, config);
   const golden: unknown = JSON.parse(
-    await readFile(new URL("./fixtures/release-inputs-v1.json", import.meta.url), "utf8"),
+    await readFile(new URL("./fixtures/release-inputs-v2.json", import.meta.url), "utf8"),
   );
   assert.deepEqual(snapshot.normalized, golden);
-  assert.deepEqual(snapshot.input, source);
-  assert.equal(snapshot.schemaVersion, 1);
+  assert.deepEqual(snapshot.input, { ...source, bootstrapCommits: [] });
+  assert.equal(snapshot.schemaVersion, 2);
   const expectedConfigurationId = createHash("sha256")
     .update(
       '{"releaseBranch":"main","releasePolicy":"release-policy-v1","repository":"example/project","repositoryId":17,"schemaVersion":1}',
@@ -116,6 +128,180 @@ void test("capture matches a hand-written normalized golden and retains raw asso
   assert.equal(snapshot.configurationId, expectedConfigurationId);
   assert.match(snapshot.snapshotId, /^[a-f0-9]{64}$/u);
   assert.match(snapshot.tool.normalizerId, /^[a-f0-9]{64}$/u);
+});
+
+void test("bootstrap commit snapshots retain typed commit evidence without inventing PR context", async () => {
+  const source = bootstrapInput();
+  const snapshot = await captureReleaseSnapshot(source, config);
+
+  assert.deepEqual(snapshot.normalized.pullRequests, []);
+  assert.deepEqual(snapshot.normalized.bootstrapCommits, [
+    {
+      sha: first,
+      url: `https://github.com/example/project/commit/${first}`,
+      metadata: {
+        raw: "feat: add historical exports\n",
+        type: "feat",
+        scope: null,
+        description: "add historical exports",
+        breaking: false,
+        breakingChanges: [],
+      },
+    },
+  ]);
+  assert.deepEqual(snapshot.input.bootstrapCommits, source.bootstrapCommits);
+
+  const serialized = await serializeReleaseSnapshot(snapshot);
+  assert.deepEqual(await replayReleaseSnapshot(serialized, config), snapshot);
+
+  const old = decoded(serialized);
+  old.schemaVersion = 1;
+
+  await assert.rejects(
+    replayReleaseSnapshot(JSON.stringify(old), config),
+    hasCode("schema-invalid"),
+  );
+});
+
+void test("bootstrap entry order is canonical and all conventional contributions retain no-release/initial semantics", async () => {
+  for (const [message, releases] of [
+    ["chore: add the license", false],
+    ["docs: describe the project", false],
+    ["feat(history): add exports", true],
+    ["fix: retain rows", true],
+    ["fix!: remove a legacy key\n\nBREAKING CHANGE: use the new key", true],
+  ] as const) {
+    const snapshot = await captureReleaseSnapshot(bootstrapInput(message), config);
+    const serialized = await serializeReleaseSnapshot(snapshot);
+    const plan = await createReleasePlan(serialized, config, {
+      kind: "bootstrap",
+      initialVersion: "0.1.0",
+    });
+
+    assert.equal(plan.release, releases);
+    assert.equal(plan.nextVersion, releases ? "0.1.0" : null);
+    assert.equal(plan.bump, releases ? "initial" : "none");
+    assert.equal(plan.contributions.length, 0);
+    assert.equal(plan.bootstrapContributions.length, 1);
+    assert.equal(plan.bootstrapContributions[0]?.breaking, message.includes("!"));
+  }
+
+  const source = bootstrapInput();
+  source.bootstrapCommits.push({ sha: second, parentShas: [first], message: "fix: retain rows" });
+  source.range.sourceCommitSha = second;
+  source.range.commitShas.push(second);
+  const initial = await serializeReleaseSnapshot(await captureReleaseSnapshot(source, config));
+
+  source.bootstrapCommits.reverse();
+  source.range.commitShas.reverse();
+
+  assert.equal(
+    await serializeReleaseSnapshot(await captureReleaseSnapshot(source, config)),
+    initial,
+  );
+});
+
+void test("bootstrap changelog escapes authored commit text and preserves breaking notes without fabricating impact", async () => {
+  const source = bootstrapInput("feat!: remove <old> keys\n\nBREAKING CHANGE: use <new> keys");
+  const serialized = await serializeReleaseSnapshot(await captureReleaseSnapshot(source, config));
+  const text = await renderChangelog(serialized, config, {
+    kind: "bootstrap",
+    initialVersion: "0.1.0",
+  });
+
+  assert.ok(text);
+  assert.equal(
+    text,
+    [
+      "## v0.1.0",
+      "",
+      "> Bootstrap history includes commit-only entries without structured PR impact or migration actions.",
+      "",
+      "### Features",
+      "",
+      `- [bootstrap commit]: remove &#60;old&#62; keys ([${first.slice(0, 12)}](https://github.com/example/project/commit/${first}))`,
+      "  - **Breaking change:** use &#60;new&#62; keys",
+      "",
+    ].join("\n"),
+  );
+
+  assert.ok(!text.includes("Impact:"));
+  assert.ok(!text.includes("Required action:"));
+  assert.ok(!text.includes("[#"));
+});
+
+void test("bootstrap evidence cannot enter a tagged cycle, overlap PRs, omit membership, or forge a merge", async () => {
+  const source = bootstrapInput();
+
+  await assert.rejects(
+    captureReleaseSnapshot(
+      {
+        ...source,
+        range: {
+          ...source.range,
+          baseline: { kind: "tag", name: "v1.2.3", commitSha: base, objectSha: base },
+        },
+      },
+      config,
+    ),
+    /only with an explicit bootstrap/u,
+  );
+
+  for (const invalidInput of [
+    { ...source, bootstrapCommits: null },
+    { ...source, bootstrapCommits: [...source.bootstrapCommits, ...source.bootstrapCommits] },
+    {
+      ...source,
+      bootstrapCommits: [{ sha: first, parentShas: [base, second], message: "Merge old changes" }],
+    },
+    { ...source, bootstrapCommits: [{ sha: first, parentShas: [], message: "chore: root" }] },
+    {
+      ...source,
+      bootstrapCommits: [
+        { sha: first, parentShas: [base], message: "feat: change", url: "https://evil.invalid" },
+      ],
+    },
+    {
+      ...source,
+      bootstrapCommits: [{ sha: first, parentShas: ["b".repeat(64)], message: "feat: change" }],
+    },
+    { ...source, bootstrapCommits: [] },
+    { ...source, pullRequests: [entry()] },
+  ])
+    await assert.rejects(
+      Reflect.apply(captureReleaseSnapshot, undefined, [invalidInput, config]),
+      hasCode("schema-invalid"),
+    );
+
+  await assert.rejects(
+    captureReleaseSnapshot(bootstrapInput("Unclassified historical prose"), config),
+    hasCode("metadata-invalid"),
+  );
+});
+
+void test("bootstrap normalized metadata and commit URLs are recomputed instead of trusting captured success", async () => {
+  const serialized = await serializeReleaseSnapshot(
+    await captureReleaseSnapshot(bootstrapInput(), config),
+  );
+
+  for (const property of ["url", "metadata"]) {
+    const changed = decoded(serialized);
+    const normalized = object(changed.normalized);
+    assert.ok(Array.isArray(normalized.bootstrapCommits));
+
+    const entries: unknown[] = normalized.bootstrapCommits;
+    const row = object(entries[0]);
+    row[property] =
+      property === "url" ? "https://evil.invalid" : { ...object(row.metadata), type: "fix" };
+    entries[0] = row;
+    normalized.bootstrapCommits = entries;
+    changed.normalized = normalized;
+
+    await assert.rejects(
+      replayReleaseSnapshot(JSON.stringify(changed), config),
+      hasCode("integrity-mismatch"),
+    );
+  }
 });
 
 void test("serialization/replay round-trip is byte-stable and revalidates normalized data", async () => {
@@ -359,7 +545,7 @@ for (const [name, change, expected] of [
   [
     "unknown snapshot version",
     (value: Record<string, unknown>) => {
-      value.schemaVersion = 2;
+      value.schemaVersion = 99;
     },
     "schema-invalid",
   ],

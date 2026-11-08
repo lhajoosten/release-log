@@ -15,7 +15,7 @@ Use a repository-limited token with PR read access. Only GET requests to constru
 1. For every captured commit, collect all pages from GitHub's commit-to-PR association endpoint. GitHub documents this as identifying the merged PR that introduced a default-branch commit; other histories may also return open/associated PRs. An association by itself is not release eligibility.
 2. Keep only merged PRs in the configured repository targeting the release branch, whose `merge_commit_sha` is in the captured local range. Open/closed-unmerged PRs, other targets, and later/out-of-range landings do not qualify. Merge dates are retained for audit but never used for membership.
 3. Fetch each qualifying PR's current details and complete original commit list once. Capture selected raw metadata, source identity, head/landing IDs, and commit messages/parents; do not retain authentication or unrelated response fields.
-4. Verify each PR's actual introduced footprint using the local commit graph and GitHub mapping, as described below. Deduplicate by PR number and require exactly one owner for every captured commit.
+4. Verify each PR's actual introduced footprint using the local commit graph and GitHub mapping, as described below. Deduplicate by PR number and require exactly one PR owner or eligible bootstrap commit entry for every captured commit.
 5. Re-read selected PR metadata before returning. Changed metadata or identity fails with an explicit refresh/retry instruction instead of mixing capture states.
 
 The local graph is read through `inspectCommit`, using actual commit objects and the existing hardened Git runner. It retains messages and parent IDs without running hooks, log-format configuration, signature verifiers, or message contents. Generated multi-parent merge messages remain structural evidence; they are not parsed as conventional product entries here.
@@ -34,9 +34,15 @@ Starting at the reported landing ID, walk backward through actual single-parent 
 
 - A single landed commit with a distinct preceding association supports a squash or single-commit linear landing. Original PR SHAs need not be reachable in the release range.
 - A longer mapped sequence must account for the complete original PR commit count. Keep the rewritten landed IDs separately from original IDs; never pretend pre-rebase IDs are the landed commits.
-- Missing in-range mappings, incomplete counts, non-linear structures, ambiguity, or a footprint crossing the baseline fail. There is no merge-date, commit-subject, or patch-text matching fallback.
+- Incomplete known footprints/counts, non-linear structures, ambiguity, or a footprint crossing the baseline fail. Missing in-range mapping fails in tagged cycles; the explicit bootstrap exception below can retain an otherwise unowned single-parent commit without claiming PR ownership. There is no merge-date, commit-subject, or patch-text matching fallback.
 
 These guarantees depend on complete, consistent GitHub association evidence. They do not independently reconstruct GitHub's historical rebase operation from patches. A live API pilot remains separately approved work; the implemented histories are verified with synthetic local graphs and mocked HTTP.
+
+## Explicit bootstrap commit evidence
+
+For an owner-selected `bootstrap` baseline only, a single-parent range commit outside all verified PR footprints may be retained in `bootstrapCommits` if complete association reads return zero qualifying PRs. Re-read that association before returning; newly qualifying metadata requires a fresh collection. Keep exact local SHA, parents and message, sorted by full SHA. This is not proof that a historical commit was directly pushed: the API may lack old mapping. Do not invent a PR association or use message/patch heuristics.
+
+Tagged cycles remain PR-only. The exception does not absorb malformed/ambiguous responses, incomplete known PR footprints, unexplained merges, partial baselines or unverified release automation. Known PR metadata still passes the normal readiness validator during snapshot capture. A bootstrap commit's own conventional message is validated there; invalid metadata is not silently assigned a type.
 
 ## Output and failures
 
@@ -45,6 +51,8 @@ These guarantees depend on complete, consistent GitHub association evidence. The
 - PR number/ID, constructed source URL, raw title/body, update/merge timestamps, and numeric author/repository identities.
 - Captured original head and landing IDs, original commit count, and the verified `merge` or `linear` footprint kind.
 - `originalCommits` in the captured API order and `landedCommits` sorted by full SHA, with raw messages and parent IDs.
+
+The result also has a `bootstrapCommits` array (empty outside bootstrap); library-supplied associations may omit it to mean empty, but serialized version 2 snapshots require it explicitly. Its entries have only SHA, parents and message—not PR/context fields.
 
 The result is raw association evidence, not a schema-versioned release plan or a factual validation of PR prose. #16 must validate required conventional/context data before producing a usable snapshot. Repeated captured inputs and remote responses produce stable output; live PR metadata remains mutable until captured.
 

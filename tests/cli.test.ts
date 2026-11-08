@@ -136,6 +136,55 @@ void test(
           '[project]\nversion="1.2.4" # keep\n',
         );
     }
+
+    const bootstrap = await releaseFixture([], null, [
+      "chore: add the license",
+      "feat: import historical exports",
+    ]);
+    const bootstrapPath = join(path, "bootstrap.json");
+    await writeFile(bootstrapPath, bootstrap.serialized);
+
+    const bootstrapArgs = [
+      "--config",
+      configPath,
+      "--snapshot",
+      bootstrapPath,
+      "--initial-version",
+      "0.1.0",
+    ];
+    const bootstrapPlan: unknown = JSON.parse((await run(["plan", ...bootstrapArgs])).stdout);
+
+    assert.ok(
+      typeof bootstrapPlan === "object" &&
+        bootstrapPlan !== null &&
+        "nextVersion" in bootstrapPlan &&
+        "bootstrapContributions" in bootstrapPlan,
+    );
+    assert.equal(bootstrapPlan.nextVersion, "0.1.0");
+    assert.ok(Array.isArray(bootstrapPlan.bootstrapContributions));
+    assert.equal(bootstrapPlan.bootstrapContributions.length, 2);
+
+    assert.match(
+      (await run(["render", ...bootstrapArgs])).stdout,
+      /\[bootstrap commit\]: import historical exports/u,
+    );
+
+    const bootstrapRepository = join(path, "bootstrap-repository");
+    await mkdir(bootstrapRepository);
+    await writeFile(join(bootstrapRepository, "package.json"), '{"version":"0.0.0"}\n');
+    await writeFile(join(bootstrapRepository, "pyproject.toml"), '[project]\nversion="0.0.0"\n');
+
+    await run(["prepare", ...bootstrapArgs, "--repository", bootstrapRepository, "--write"]);
+
+    assert.equal(
+      await readFile(join(bootstrapRepository, "package.json"), "utf8"),
+      '{"version":"0.1.0"}\n',
+    );
+    assert.equal(
+      await readFile(join(bootstrapRepository, "pyproject.toml"), "utf8"),
+      '[project]\nversion="0.1.0"\n',
+    );
+
     await assert.rejects(
       run(["plan", ...args, "--write"]),
       (error: unknown) => error instanceof Error && "code" in error && error.code === 2,
@@ -277,7 +326,7 @@ void test(
     );
     await writeFile(
       snapshotPath,
-      snapshot.serialized.replace('"schemaVersion":1', '"schemaVersion":99'),
+      snapshot.serialized.replace('"schemaVersion":2', '"schemaVersion":99'),
     );
     await assert.rejects(
       run(["plan", ...args], "synthetic-secret-never-print"),

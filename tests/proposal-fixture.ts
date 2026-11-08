@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TestContext } from "node:test";
 import { inspectCommit, inspectPendingRelease } from "../src/git.ts";
+import type { GitCommitEvidence } from "../src/git.ts";
 import { captureReleaseSnapshot, serializeReleaseSnapshot } from "../src/release-snapshot.ts";
 import type { GitHubRead } from "../src/github.ts";
 import { fixtureConfiguration } from "./release-fixture.ts";
@@ -28,7 +29,7 @@ export async function fixture(
   context: TestContext,
   mode: "node" | "python" | "both" = "node",
   title = "feat(api): export rows",
-  setup: { bootstrap?: boolean; objectFormat?: "sha1" | "sha256" } = {},
+  setup: { bootstrap?: boolean; bootstrapCommit?: boolean; objectFormat?: "sha1" | "sha256" } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "release-proposal-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
@@ -77,6 +78,16 @@ export async function fixture(
   git(["commit", "-m", "chore: initialize fixture"]);
   const baseline = git(["rev-parse", "HEAD"]).trim();
   git(["tag", "v1.2.3"]);
+
+  const bootstrapCommits: GitCommitEvidence[] = [];
+
+  if (setup.bootstrapCommit) {
+    assert.ok(setup.bootstrap);
+
+    git(["commit", "--allow-empty", "-m", "feat: retain historical commit evidence"]);
+    bootstrapCommits.push(await inspectCommit(directory, git(["rev-parse", "HEAD"]).trim()));
+  }
+
   const changes: { sha: string; title: string }[] = [];
   async function advance(selectedTitle = title) {
     const index = changes.length + 1;
@@ -122,7 +133,13 @@ export async function fixture(
     );
     return serializeReleaseSnapshot(
       await captureReleaseSnapshot(
-        { repository: "example/project", releaseBranch: "main", range, pullRequests: pulls },
+        {
+          repository: "example/project",
+          releaseBranch: "main",
+          range,
+          pullRequests: pulls,
+          bootstrapCommits,
+        },
         fixtureConfiguration,
       ),
     );

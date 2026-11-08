@@ -45,11 +45,18 @@ export interface ReleaseInputConfiguration {
   readonly releasePolicy: "release-policy-v1";
 }
 
+export interface NormalizedBootstrapCommit {
+  readonly sha: string;
+  readonly url: string;
+  readonly metadata: ConventionalMetadata;
+}
+
 export interface NormalizedReleaseInputs {
   readonly repository: string;
   readonly releaseBranch: string;
   readonly baselineCommitSha: string;
   readonly sourceCommitSha: string;
+  readonly bootstrapCommits: readonly NormalizedBootstrapCommit[];
   readonly pullRequests: readonly {
     readonly number: number;
     readonly url: string;
@@ -67,11 +74,13 @@ export interface NormalizedReleaseInputs {
 }
 
 export interface ReleaseSnapshot {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly tool: { readonly version: string; readonly normalizerId: string };
   readonly configuration: ReleaseInputConfiguration;
   readonly configurationId: string;
-  readonly input: PullRequestAssociation;
+  readonly input: PullRequestAssociation & {
+    readonly bootstrapCommits: readonly GitCommitEvidence[];
+  };
   readonly normalized: NormalizedReleaseInputs;
   readonly snapshotId: string;
 }
@@ -211,7 +220,7 @@ function runtimeIdentity(): { version: string; normalizerId: string } {
   return {
     version: manifest.version,
     normalizerId: digest({
-      normalizationVersion: 1,
+      normalizationVersion: 2,
       conventionalPolicyId,
       dependencies: manifest.dependencies,
       lockfileId: createHash("sha256")
@@ -375,21 +384,46 @@ function pullEvidence(value: unknown): AssociatedPullRequest {
   };
 }
 
-function association(value: unknown, config: ReleaseInputConfiguration): PullRequestAssociation {
+function association(value: unknown, config: ReleaseInputConfiguration): ReleaseSnapshot["input"] {
   const item = object(
     value,
-    ["repository", "releaseBranch", "range", "pullRequests"],
+    [
+      "repository",
+      "releaseBranch",
+      "range",
+      "pullRequests",
+      ...(isObject(value) && Object.hasOwn(value, "bootstrapCommits") ? ["bootstrapCommits"] : []),
+    ],
     "association evidence",
   );
+
   if (item.repository !== config.repository || item.releaseBranch !== config.releaseBranch)
     throw new ReleaseSnapshotError(
       "configuration-mismatch",
       "Collected repository/branch identity does not match the supplied configuration.",
     );
+
   const range = rangeEvidence(item.range);
   const pullRequests = array(item.pullRequests, 1000, "associated PRs")
     .map(pullEvidence)
     .toSorted((left, right) => left.number - right.number);
+
+  const bootstrapCommits = array(
+    Object.hasOwn(item, "bootstrapCommits") ? item.bootstrapCommits : [],
+    1000,
+    "bootstrap commits",
+  )
+    .map(commitEvidence)
+    .toSorted((left, right) => (left.sha < right.sha ? -1 : left.sha > right.sha ? 1 : 0));
+
+  unique(
+    bootstrapCommits.map((entry) => entry.sha),
+    "bootstrap commits",
+  );
+
+  if (bootstrapCommits.length && range.baseline.kind !== "bootstrap")
+    return invalid("Commit-only evidence is permitted only with an explicit bootstrap baseline.");
+
   unique(
     pullRequests.map((entry) => entry.number),
     "PR numbers",
@@ -456,6 +490,25 @@ function association(value: unknown, config: ReleaseInputConfiguration): PullReq
         return invalid("Snapshot commit IDs mix object formats.");
     }
   }
+
+  for (const entry of bootstrapCommits) {
+    if (entry.parentShas.length !== 1 || graph.has(entry.sha))
+      return invalid(
+        "Bootstrap commit evidence must be single-parent and must not overlap a PR footprint.",
+      );
+
+    const previousParents = parentsByCommit.get(entry.sha);
+    if (previousParents && canonical(previousParents) !== canonical(entry.parentShas))
+      return invalid("The same commit has contradictory original/bootstrap parent evidence.");
+
+    if ([entry.sha, ...entry.parentShas].some((id) => id.length !== range.sourceCommitSha.length))
+      return invalid("Snapshot commit IDs mix object formats.");
+
+    if (++evidenceCount > 5000) limit("Snapshot exceeds 5000 commit evidence entries.");
+
+    graph.set(entry.sha, entry);
+  }
+
   if (canonical([...graph.keys()].toSorted()) !== canonical(range.commitShas))
     return invalid("Associated footprints do not cover exactly the captured commit set.");
   if (
@@ -498,6 +551,7 @@ function association(value: unknown, config: ReleaseInputConfiguration): PullReq
     releaseBranch: config.releaseBranch,
     range,
     pullRequests,
+    bootstrapCommits,
   };
 }
 
@@ -563,8 +617,33 @@ export async function captureReleaseSnapshot(
       validation: { valid: true, warnings: readiness.warnings },
     });
   }
+
+  const bootstrapCommits: NormalizedBootstrapCommit[] = [];
+
+  for (const entry of captured.bootstrapCommits) {
+    const metadata = await validateConventionalMessage(entry.message);
+
+    if (!metadata.valid)
+      throw new ReleaseSnapshotError(
+        "metadata-invalid",
+        `Bootstrap commit ${entry.sha} requires a valid conventional message; no type or release context is inferred.`,
+        metadata.errors.map((issue) => ({
+          location: "commit",
+          sha: entry.sha,
+          code: issue.rule,
+          message: issue.message,
+        })),
+      );
+
+    bootstrapCommits.push({
+      sha: entry.sha,
+      url: `https://github.com/${selected.repository}/commit/${entry.sha}`,
+      metadata: metadata.commit,
+    });
+  }
+
   const payload = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     tool: { ...tool },
     configuration: selected,
     configurationId: digest(selected),
@@ -575,6 +654,7 @@ export async function captureReleaseSnapshot(
       baselineCommitSha: captured.range.baseline.commitSha,
       sourceCommitSha: captured.range.sourceCommitSha,
       pullRequests,
+      bootstrapCommits,
     },
   };
   const snapshot = { ...payload, snapshotId: digest(payload) };
@@ -600,7 +680,7 @@ async function validateSnapshot(
     ],
     "snapshot envelope",
   );
-  if (item.schemaVersion !== 1)
+  if (item.schemaVersion !== 2)
     return invalid(
       "Unsupported release snapshot schema version; no automatic migration is performed.",
     );
@@ -619,6 +699,12 @@ async function validateSnapshot(
       "configuration-mismatch",
       "Replay configuration differs from the captured configuration identity.",
     );
+  object(
+    item.input,
+    ["repository", "releaseBranch", "range", "pullRequests", "bootstrapCommits"],
+    "version 2 association evidence",
+  );
+
   const captured = association(item.input, config);
   const recomputed = await captureReleaseSnapshot(captured, config);
   if (
