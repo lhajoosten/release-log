@@ -4,7 +4,7 @@
 
 ## Current status
 
-The project is in development. Local Git tag inspection, conventional metadata validation, and PR release-context parsing are implemented as tested components. A read-only PR metadata workflow is defined, but controlled GitHub rollout validation is still required. There is no packaged CLI, end-to-end release generation, release controller, publication, or AI integration yet.
+The project is in development. Git inspection, PR association, validated snapshots, version planning, and deterministic changelog rendering are implemented as tested components, with a locally packable CLI. Node and Python version manifests are supported. A read-only PR metadata workflow is defined, but rollout limitations remain. There is no deployed release controller, publication, or AI integration yet.
 
 These docs describe the available components and their boundaries, not a released command-line interface. For development setup and repository checks, see the [contribution guide](https://github.com/lhajoosten/release-log/blob/main/CONTRIBUTING.md).
 
@@ -33,6 +33,8 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 - [Release version planning](release-plan.md): calculate the next version or an explicit no-release result from validated snapshots.
 
 - [Deterministic changelog](changelog.md): render escaped release entries and update a digest-checked pending section without rewriting released content.
+
+- [Deterministic CLI](cli.md): collect online, replay/plan/render offline, and prepare Node/Python proposal files with explicit opt-in writes.
 
 ## Maintaining these docs
 

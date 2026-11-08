@@ -36,6 +36,7 @@ export default {
           { text: "Release input snapshots", link: "/release-snapshot" },
           { text: "Release version planning", link: "/release-plan" },
           { text: "Deterministic changelog", link: "/changelog" },
+          { text: "Deterministic CLI", link: "/cli" },
         ],
       },
     ],

@@ -215,7 +215,14 @@ function runtimeIdentity(): { version: string; normalizerId: string } {
       conventionalPolicyId,
       dependencies: manifest.dependencies,
       lockfileId: createHash("sha256")
-        .update(readFileSync(new URL("../pnpm-lock.yaml", import.meta.url)))
+        .update(
+          readFileSync(
+            new URL(
+              import.meta.url.endsWith(".ts") ? "../pnpm-lock.yaml" : "../dependency-lock.txt",
+              import.meta.url,
+            ),
+          ),
+        )
         .digest("hex"),
     }),
   };
@@ -223,7 +230,7 @@ function runtimeIdentity(): { version: string; normalizerId: string } {
 
 const tool = runtimeIdentity();
 
-function configuration(value: unknown): ReleaseInputConfiguration {
+export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConfiguration {
   const item = object(
     value,
     ["schemaVersion", "repository", "repositoryId", "releaseBranch", "releasePolicy"],
@@ -499,7 +506,7 @@ export async function captureReleaseSnapshot(
   config: ReleaseInputConfiguration,
 ): Promise<ReleaseSnapshot> {
   canonical(input);
-  const selected = configuration(config);
+  const selected = parseReleaseInputConfiguration(config);
   const captured = association(input, selected);
   const pullRequests: NormalizedReleaseInputs["pullRequests"][number][] = [];
   for (const pull of captured.pullRequests) {
@@ -603,8 +610,11 @@ async function validateSnapshot(
       "normalizer-mismatch",
       "Replay requires the captured tool version, normalization policy, and runtime dependency versions.",
     );
-  const config = configuration(item.configuration);
-  if (digest(config) !== digest(configuration(expected)) || item.configurationId !== digest(config))
+  const config = parseReleaseInputConfiguration(item.configuration);
+  if (
+    digest(config) !== digest(parseReleaseInputConfiguration(expected)) ||
+    item.configurationId !== digest(config)
+  )
     throw new ReleaseSnapshotError(
       "configuration-mismatch",
       "Replay configuration differs from the captured configuration identity.",
