@@ -28,13 +28,25 @@ void test(
     assert.ok(archive);
     const consumer = join(path, "consumer");
     await mkdir(consumer);
-    await writeFile(join(consumer, "package.json"), '{"private":true,"name":"cli-smoke"}\n');
-    await execute("pnpm", ["add", "--offline", "--prod", "--ignore-scripts", join(path, archive)], {
-      cwd: consumer,
-      timeout: 30_000,
-      maxBuffer: 4 * 1024 * 1024,
-    });
-    const installed = join(consumer, "node_modules", "release-log");
+    await execute(
+      "tar",
+      ["-xzf", join(path, archive), "--strip-components=1", "--directory", consumer],
+      { timeout: 10_000 },
+    );
+    const installed = consumer;
+    await writeFile(
+      join(consumer, "pnpm-lock.yaml"),
+      await readFile(join(installed, "dist", "dependency-lock.txt")),
+    );
+    await execute(
+      "pnpm",
+      ["install", "--offline", "--prod", "--frozen-lockfile", "--ignore-scripts"],
+      {
+        cwd: consumer,
+        timeout: 30_000,
+        maxBuffer: 4 * 1024 * 1024,
+      },
+    );
     const entries = await readdir(installed);
     assert.ok(
       !entries.includes("tests") &&
