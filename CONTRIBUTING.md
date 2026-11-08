@@ -38,6 +38,8 @@ CI uses `--ignore-scripts` because it runs checks directly and does not need loc
 | `pnpm check:commit-range --from <base-sha> --to <head-sha>` | Validate non-merge commits in a Git range with Commitlint.              |
 | `pnpm check:pr-title`                                       | Validate a scoped PR title from stdin.                                  |
 
+`pnpm container:build --tag release-log-local:development` builds a local Linux/amd64 image from the packaged CLI. `pnpm check:container` runs real Docker smoke tests separately from `pnpm verify`; the Quality workflow also runs this integration gate. These commands need Docker and initial public base/snapshot downloads, not publishing credentials. See the [container guide](docs/container.md) for supported mounts/UIDs, cache requirements and remaining security/private-registry gates.
+
 `pnpm check:pr-metadata` validates current PR title/context and commit evidence through read-only API calls in the trusted metadata workflow; it requires the GitHub event environment described in [PR metadata readiness](docs/pr-readiness.md).
 
 Dependencies are exact-pinned and the pnpm lockfile is committed. Generated lockfile formatting is left to pnpm, not Oxfmt.

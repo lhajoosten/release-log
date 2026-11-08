@@ -40,6 +40,7 @@ export default {
           { text: "Read-only release rehearsal", link: "/release-rehearsal" },
           { text: "Release proposal controller", link: "/release-proposal" },
           { text: "Release approval verification", link: "/release-approval" },
+          { text: "Local OCI distribution", link: "/container" },
         ],
       },
     ],
