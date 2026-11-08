@@ -33,6 +33,7 @@ export default {
           { text: "Conventional metadata", link: "/conventional-metadata" },
           { text: "Git range inspection", link: "/git-tag-range" },
           { text: "GitHub PR association", link: "/github-association" },
+          { text: "Release input snapshots", link: "/release-snapshot" },
         ],
       },
     ],

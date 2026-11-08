@@ -1,0 +1,56 @@
+{
+  "repository": "example/project",
+  "releaseBranch": "main",
+  "baselineCommitSha": "0000000000000000000000000000000000000000",
+  "sourceCommitSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "pullRequests": [
+    {
+      "number": 101,
+      "url": "https://github.com/example/project/pull/101",
+      "title": {
+        "raw": "feat(api): add exports",
+        "type": "feat",
+        "scope": "api",
+        "description": "add exports",
+        "breaking": false,
+        "breakingChanges": []
+      },
+      "context": {
+        "version": 1,
+        "audience": "users",
+        "summary": "Export selected rows.",
+        "impact": "Keep the selection.",
+        "requiredAction": null
+      },
+      "rawBlock": "```release-log\nversion: 1\naudience: users\nsummary: Export selected rows.\nimpact: Keep the selection.\nrequired_action: null\n```",
+      "breakingChanges": [],
+      "commits": [
+        {
+          "source": "original",
+          "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "metadata": {
+            "raw": "feat: add exports\n",
+            "type": "feat",
+            "scope": null,
+            "description": "add exports",
+            "breaking": false,
+            "breakingChanges": []
+          }
+        },
+        {
+          "source": "landed",
+          "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "metadata": {
+            "raw": "feat: add exports\n",
+            "type": "feat",
+            "scope": null,
+            "description": "add exports",
+            "breaking": false,
+            "breakingChanges": []
+          }
+        }
+      ],
+      "validation": { "valid": true, "warnings": [] }
+    }
+  ]
+}

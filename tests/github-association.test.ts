@@ -14,6 +14,11 @@ import {
 import { inspectCommit, inspectPendingRelease } from "../src/git.ts";
 import { GitHubReadError, readGitHubJson } from "../src/github.ts";
 import type { GitHubRead } from "../src/github.ts";
+import {
+  captureReleaseSnapshot,
+  replayReleaseSnapshot,
+  serializeReleaseSnapshot,
+} from "../src/release-snapshot.ts";
 
 const execute = promisify(execFile);
 const apiBase = "https://api.github.com/repos/example/project";
@@ -685,6 +690,39 @@ void test("shared HTTP reader rejects untrusted origins and embedded URL credent
     await assert.rejects(readGitHubJson(url, token, read), GitHubReadError);
   }
   assert.deepEqual(calls, []);
+});
+
+void test("real Git and mocked HTTP collection feed a validated offline snapshot without more reads", async (context) => {
+  const fixture = await linear(context);
+  fixture.metadata.body = [
+    "```release-log",
+    "version: 1",
+    "audience: internal",
+    "summary: Collect release evidence.",
+    "impact: Preserve exact PR membership.",
+    "required_action: null",
+    "```",
+  ].join("\n");
+  const associated = await collectMergedPullRequests(fixture.request, fixture.api.read);
+  const config = {
+    schemaVersion: 1 as const,
+    repository: "example/project",
+    repositoryId: 1,
+    releaseBranch: "main",
+    releasePolicy: "release-policy-v1" as const,
+  };
+  const reads = fixture.api.calls.length;
+  const snapshot = await captureReleaseSnapshot(associated, config);
+  const encoded = await serializeReleaseSnapshot(snapshot);
+  const replayed = await replayReleaseSnapshot(encoded, config);
+  assert.equal(fixture.api.calls.length, reads);
+  assert.deepEqual(
+    replayed.normalized.pullRequests.map((entry) => entry.number),
+    [1],
+  );
+  assert.equal(replayed.normalized.sourceCommitSha, fixture.source);
+  assert.equal(replayed.normalized.pullRequests[0]?.context.audience, "internal");
+  assert.equal(await serializeReleaseSnapshot(replayed), encoded);
 });
 
 void test("identical captured input and remote fixtures yield stable ordering and content", async (context) => {
