@@ -8,6 +8,12 @@ import { renderChangelog } from "./changelog.ts";
 import { createReleasePlan } from "./release-plan.ts";
 import { reconcileReleaseProposal, parseReleaseAutomation } from "./release-proposal.ts";
 import type { ReleaseVersionConfiguration } from "./release-plan.ts";
+import {
+  parseReleaseApproval,
+  parseReleaseApprovalJSON,
+  parseReleaseApprovalPolicy,
+  verifyReleaseApproval,
+} from "./release-approval.ts";
 import { prepareReleaseFiles, writeReleaseFiles } from "./proposal-files.ts";
 import {
   captureReleaseSnapshot,
@@ -21,7 +27,7 @@ class UsageError extends Error {
     this.name = "UsageError";
   }
 }
-const help = `release-log (Node.js >=26.13.0 <27; Git required only for collection)
+const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/approval verification)
 
   release-log collect --config FILE --repository DIR --source SHA
       (--baseline-tag TAG | --bootstrap-sha SHA)
@@ -31,6 +37,7 @@ const help = `release-log (Node.js >=26.13.0 <27; Git required only for collecti
       (--current-version VERSION | --initial-version 0.1.0) [--dry-run | --write]
   release-log propose --config FILE --snapshot FILE --automation FILE
       (--current-version VERSION | --initial-version 0.1.0) [--dry-run | --write]
+  release-log verify-approval --config FILE --approval FILE --policy FILE --repository DIR
   release-log --help | --version
 
 collect makes bounded read-only GitHub.com requests using GITHUB_TOKEN and emits
@@ -39,7 +46,9 @@ release). prepare defaults to dry-run and emits plan/files JSON; only --write
 changes fixed local proposal files. It supports package.json and pyproject.toml.
 propose makes explicit GitHub reads; only propose --write creates/refreshes the
 reserved release branch and draft PR. It requires GITHUB_TOKEN and an expected
-numeric bot identity. No command merges, publishes, or runs consumer build scripts.
+numeric bot identity. verify-approval performs read-only GitHub/Git checks using
+GITHUB_TOKEN and independently trusted approval/policy files; it emits evidence,
+not publication permission. No command merges, publishes, or runs consumer build scripts.
 Exit codes: 0 success (including no release), 1 operation failure, 2 usage error.
 `;
 
@@ -75,33 +84,17 @@ async function runCLI(args: readonly string[]): Promise<string> {
   }
   if (!args.length || (args.length === 1 && args[0] === "--help")) return help;
   const command = args[0];
-  const allowed =
-    command === "collect"
-      ? ["config", "repository", "source", "baseline-tag", "bootstrap-sha"]
-      : command === "plan" || command === "render"
-        ? ["config", "snapshot", "current-version", "initial-version"]
-        : command === "prepare"
-          ? [
-              "config",
-              "snapshot",
-              "current-version",
-              "initial-version",
-              "repository",
-              "dry-run",
-              "write",
-            ]
-          : command === "propose"
-            ? [
-                "config",
-                "snapshot",
-                "current-version",
-                "initial-version",
-                "automation",
-                "dry-run",
-                "write",
-              ]
-            : [];
-  if (!allowed.length) throw new UsageError("Unknown command. Use --help for supported commands.");
+  const versionOptions = ["config", "snapshot", "current-version", "initial-version"];
+  const commandOptions = new Map<string, readonly string[]>([
+    ["collect", ["config", "repository", "source", "baseline-tag", "bootstrap-sha"]],
+    ["plan", versionOptions],
+    ["render", versionOptions],
+    ["prepare", [...versionOptions, "repository", "dry-run", "write"]],
+    ["propose", [...versionOptions, "automation", "dry-run", "write"]],
+    ["verify-approval", ["config", "approval", "policy", "repository"]],
+  ]);
+  const allowed = commandOptions.get(command ?? "");
+  if (!allowed) throw new UsageError("Unknown command. Use --help for supported commands.");
   const options = new Map<string, string | true>();
   for (let index = 1; index < args.length; index++) {
     const argument = args[index];
@@ -141,6 +134,25 @@ async function runCLI(args: readonly string[]): Promise<string> {
         }),
         config,
       ),
+    );
+  }
+  if (command === "verify-approval") {
+    const approval = parseReleaseApproval(
+      parseReleaseApprovalJSON(await readText(required(options, "approval"), 1024 * 1024)),
+    );
+    const policy = parseReleaseApprovalPolicy(
+      parseReleaseApprovalJSON(await readText(required(options, "policy"), 1024 * 1024)),
+    );
+    const repository = required(options, "repository");
+    const token = process.env.GITHUB_TOKEN;
+    if (!token?.trim())
+      throw new UsageError("verify-approval requires GITHUB_TOKEN with repository/PR read access.");
+    return (
+      JSON.stringify(
+        await verifyReleaseApproval({ repository, configuration: config, policy, approval, token }),
+        null,
+        2,
+      ) + "\n"
     );
   }
   if (options.has("current-version") === options.has("initial-version"))
@@ -204,6 +216,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
           "PullRequestAssociationError",
           "GitInspectionError",
           "ProposalConflictError",
+          "ReleaseApprovalError",
         ].includes(error.name));
     process.stderr.write(
       `release-log: ${supported ? error.message : "operation failed; check input files, permissions, and repository access."}\n`,
