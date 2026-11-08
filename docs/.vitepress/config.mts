@@ -35,6 +35,7 @@ export default {
           { text: "GitHub PR association", link: "/github-association" },
           { text: "Release input snapshots", link: "/release-snapshot" },
           { text: "Release version planning", link: "/release-plan" },
+          { text: "Deterministic changelog", link: "/changelog" },
         ],
       },
     ],

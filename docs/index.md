@@ -32,6 +32,8 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 
 - [Release version planning](release-plan.md): calculate the next version or an explicit no-release result from validated snapshots.
 
+- [Deterministic changelog](changelog.md): render escaped release entries and update a digest-checked pending section without rewriting released content.
+
 ## Maintaining these docs
 
 The site renders the Markdown files in `docs/` with VitePress. See [Documentation site](github-pages.md) for preview commands, deployment setup, and publication limitations.
