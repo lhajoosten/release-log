@@ -39,11 +39,11 @@ AI output is not guaranteed to be reproducible. It is a separate artifact, and a
 - Structured release context extracted from PR descriptions.
 - Deterministic changelog generation before optional AI-assisted writing.
 
-Release generation still needs explicit policies for tag ancestry, supported merge strategies, PR association, and historical or missing context. The [version 1 PR release-context format](docs/release-context.md) defines how new descriptions supply structured explanations.
+The [accepted release-policy ADR](docs/release-policy.md) defines bootstrap, membership, versioning, orchestration, and safety rules with worked acceptance examples. The [PR metadata gate](docs/pr-readiness.md) checks ordinary PR readiness using the [version 1 release-context format](docs/release-context.md); controlled GitHub rollout validation is still required.
 
 ## Status
 
-Repository tooling is configured, and core components are being implemented incrementally with tests. Component behavior and boundaries are documented in `docs/` alongside the source in `src/`. The end-to-end CLI, GitHub integration, and AI integration are not implemented.
+Repository tooling is configured, and core components are being implemented incrementally with tests. Component behavior and boundaries are documented in `docs/` alongside the source in `src/`. A read-only PR metadata workflow is defined, but the end-to-end CLI, release controller, publication, and AI integration are not implemented.
 
 ## Development
 

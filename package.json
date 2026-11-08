@@ -15,6 +15,7 @@
     "check:commits": "commitlint",
     "check:commit-range": "node scripts/check-commit-range.ts",
     "check:pr-title": "commitlint --config commitlint.pr.config.mjs",
+    "check:pr-metadata": "node scripts/check-pr-metadata.ts",
     "check": "pnpm check:format && pnpm check:lint && pnpm check:types && pnpm test",
     "verify": "pnpm check"
   },

@@ -33,6 +33,8 @@ CI uses `--ignore-scripts` because it runs checks directly and does not need loc
 | `pnpm check:commit-range --from <base-sha> --to <head-sha>` | Validate non-merge commits in a Git range with Commitlint.              |
 | `pnpm check:pr-title`                                       | Validate a scoped PR title from stdin.                                  |
 
+`pnpm check:pr-metadata` validates current PR title/context and commit evidence through read-only API calls in the trusted metadata workflow; it requires the GitHub event environment described in [PR metadata readiness](docs/pr-readiness.md).
+
 Dependencies are exact-pinned and the pnpm lockfile is committed. Generated lockfile formatting is left to pnpm, not Oxfmt.
 
 Type checks cover tooling configuration and maintained TypeScript source and tests. Tests run directly through Node.js 26's TypeScript support, without a transpiler or test-framework dependency. There is no packaged CLI or build yet.
@@ -59,7 +61,7 @@ fix(ci): validate merged commit ranges
 refactor(release-context): simplify field validation
 ```
 
-Both policies accept the conventional types `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, and `test`. CI checks the scoped PR title and every unscoped non-merge commit in the PR range. These are repository contribution conventions; release classification remains a separate product decision.
+Both policies accept the conventional types `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, and `test`. CI checks the scoped PR title and every unscoped non-merge commit in the PR range. Release classification follows the [accepted release policy](docs/release-policy.md).
 
 `pnpm check:commit-range` uses Git's `--no-merges` filter so GitHub-generated merge commits do not fail after an otherwise valid PR is merged. It invokes the same Commitlint configuration as the commit hook for each selected message; the pinned Commitlint version does not reliably forward `--git-log-args` filters. This excludes commits with multiple parents, not messages matching a pattern. Commits from merged branches are still checked; the traversal is not restricted to the first parent. Direct message validation (including PR titles and the `commit-msg` hook) remains strict.
 
@@ -69,7 +71,7 @@ Merge commits, squash merges, and rebase merges are supported by this CI policy.
 
 Use the PR template's `release-log` block to provide the [version 1 release context](docs/release-context.md). Fill in a summary, impact, and any required action; select `users` or `internal` explicitly. The template's empty text values deliberately fail validation until completed.
 
-The parser reports missing or invalid context without returning partial data. This component does not yet add a live PR-body CI gate or define how release generation will handle historical PRs without context.
+The parser reports missing or invalid context without returning partial data. The separate [PR metadata gate](docs/pr-readiness.md) validates current title/body and commit evidence through read-only API calls, including title/body edits and internal PRs. Breaking commits require `!` in the PR title, and breaking PRs require nonempty `required_action`. There is no blanket bot or release-PR exemption.
 
 ## Continuous integration
 
@@ -77,7 +79,9 @@ The `verify` job runs on PRs, pushes to `main`, and manual dispatch. PR title ed
 
 CI installs frozen dependencies, runs the same `pnpm verify` command as local development, and validates non-merge commits in the applicable range and the PR title. GitHub event text is passed through environment variables, not interpolated into shell source. Actions are pinned to immutable SHAs and the workflow has read-only repository permissions.
 
-Requiring `verify` through branch protection and selecting allowed merge methods are separate repository-settings operations. This tooling does not configure either setting, deploy artifacts, or publish a package.
+The separate `PR metadata` workflow runs trusted base-SHA validator code under a metadata-only, explicitly read-only `pull_request_target` event. It never executes PR source; keep source testing in the unprivileged Quality workflow. Its rollout and controlled-run limitations are documented in [PR metadata readiness](docs/pr-readiness.md).
+
+Requiring `verify` or `metadata` through branch protection and selecting allowed merge methods are separate repository-settings operations. This tooling does not configure either setting, deploy artifacts, or publish a package.
 
 ## Changes and reviews
 
