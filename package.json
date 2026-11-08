@@ -14,7 +14,8 @@
   ],
   "type": "module",
   "exports": {
-    ".": "./dist/src/release-plan.js"
+    ".": "./dist/src/release-plan.js",
+    "./proposals": "./dist/src/release-proposal.js"
   },
   "scripts": {
     "build": "node scripts/build.ts",

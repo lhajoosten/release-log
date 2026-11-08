@@ -3,8 +3,10 @@ import { readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { inspectPendingRelease } from "./git.ts";
 import { collectMergedPullRequests } from "./github-association.ts";
+import { GitHubReadError } from "./github.ts";
 import { renderChangelog } from "./changelog.ts";
 import { createReleasePlan } from "./release-plan.ts";
+import { reconcileReleaseProposal, parseReleaseAutomation } from "./release-proposal.ts";
 import type { ReleaseVersionConfiguration } from "./release-plan.ts";
 import { prepareReleaseFiles, writeReleaseFiles } from "./proposal-files.ts";
 import {
@@ -27,13 +29,17 @@ const help = `release-log (Node.js >=26.13.0 <27; Git required only for collecti
       (--current-version VERSION | --initial-version 0.1.0)
   release-log prepare --config FILE --snapshot FILE --repository DIR
       (--current-version VERSION | --initial-version 0.1.0) [--dry-run | --write]
+  release-log propose --config FILE --snapshot FILE --automation FILE
+      (--current-version VERSION | --initial-version 0.1.0) [--dry-run | --write]
   release-log --help | --version
 
 collect makes bounded read-only GitHub.com requests using GITHUB_TOKEN and emits
 snapshot JSON. plan emits decision JSON; render emits Markdown (empty for no
 release). prepare defaults to dry-run and emits plan/files JSON; only --write
 changes fixed local proposal files. It supports package.json and pyproject.toml.
-No command pushes, opens PRs, publishes, or executes consumer build scripts.
+propose makes explicit GitHub reads; only propose --write creates/refreshes the
+reserved release branch and draft PR. It requires GITHUB_TOKEN and an expected
+numeric bot identity. No command merges, publishes, or runs consumer build scripts.
 Exit codes: 0 success (including no release), 1 operation failure, 2 usage error.
 `;
 
@@ -84,7 +90,17 @@ async function runCLI(args: readonly string[]): Promise<string> {
               "dry-run",
               "write",
             ]
-          : [];
+          : command === "propose"
+            ? [
+                "config",
+                "snapshot",
+                "current-version",
+                "initial-version",
+                "automation",
+                "dry-run",
+                "write",
+              ]
+            : [];
   if (!allowed.length) throw new UsageError("Unknown command. Use --help for supported commands.");
   const options = new Map<string, string | true>();
   for (let index = 1; index < args.length; index++) {
@@ -139,6 +155,29 @@ async function runCLI(args: readonly string[]): Promise<string> {
   if (command === "plan")
     return JSON.stringify(await createReleasePlan(snapshot, config, version), null, 2) + "\n";
   if (command === "render") return (await renderChangelog(snapshot, config, version)) ?? "";
+  if (command === "propose") {
+    const automationJSON: unknown = JSON.parse(
+      await readText(required(options, "automation"), 1024 * 1024),
+    );
+    const automation = parseReleaseAutomation(automationJSON);
+    const token = process.env.GITHUB_TOKEN;
+    if (!token?.trim())
+      throw new UsageError(
+        "propose requires a repository-limited GITHUB_TOKEN; writes require explicit approval and contents/PR write access.",
+      );
+    const result = await reconcileReleaseProposal({
+      snapshot,
+      configuration: config,
+      version,
+      automation,
+      token,
+      write: options.has("write"),
+    });
+    return (
+      JSON.stringify({ mode: options.has("write") ? "write" : "dry-run", ...result }, null, 2) +
+      "\n"
+    );
+  }
   const repository = required(options, "repository");
   const prepared = await prepareReleaseFiles(repository, snapshot, config, version);
   if (options.has("write")) await writeReleaseFiles(repository, prepared);
@@ -153,17 +192,19 @@ async function runCLI(args: readonly string[]): Promise<string> {
     process.stdout.write(await runCLI(process.argv.slice(2)));
   } catch (error) {
     const supported =
-      error instanceof Error &&
-      [
-        "UsageError",
-        "ReleasePlanError",
-        "ReleaseSnapshotError",
-        "ChangelogError",
-        "ProposalFilesError",
-        "VersionFilesError",
-        "PullRequestAssociationError",
-        "GitInspectionError",
-      ].includes(error.name);
+      error instanceof GitHubReadError ||
+      (error instanceof Error &&
+        [
+          "UsageError",
+          "ReleasePlanError",
+          "ReleaseSnapshotError",
+          "ChangelogError",
+          "ProposalFilesError",
+          "VersionFilesError",
+          "PullRequestAssociationError",
+          "GitInspectionError",
+          "ProposalConflictError",
+        ].includes(error.name));
     process.stderr.write(
       `release-log: ${supported ? error.message : "operation failed; check input files, permissions, and repository access."}\n`,
     );

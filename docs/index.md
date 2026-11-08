@@ -38,6 +38,8 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 
 - [Read-only release rehearsal](release-rehearsal.md): exercise the installed CLI against an explicit main baseline without creating proposals or publishing.
 
+- [Rolling release proposal controller](release-proposal.md): preview or explicitly create/refresh a draft proposal, with conflict checks and remaining safety gates.
+
 ## Maintaining these docs
 
 The site renders the Markdown files in `docs/` with VitePress. See [Documentation site](github-pages.md) for preview commands, deployment setup, and publication limitations.

@@ -158,6 +158,41 @@ void test(
         typeof error.stderr === "string" &&
         error.stderr.includes("GITHUB_TOKEN"),
     );
+    const automationPath = join(path, "automation.json");
+    await writeFile(automationPath, JSON.stringify({ schemaVersion: 1, botUserId: 42 }));
+    await assert.rejects(
+      run(["propose", ...args, "--automation", automationPath]),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 2 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("GITHUB_TOKEN"),
+    );
+    await assert.rejects(
+      run(
+        ["propose", ...args, "--automation", automationPath, "--dry-run"],
+        "synthetic-secret-never-print",
+      ),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 1 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("GitHub read failed") &&
+        !error.stderr.includes("synthetic-secret-never-print"),
+    );
+    await execute(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        'import { reconcileReleaseProposal } from "release-log/proposals"; if (typeof reconcileReleaseProposal !== "function") throw new Error("Missing packaged proposal API");',
+      ],
+      { cwd: consumer, timeout: 10_000 },
+    );
     await writeFile(
       snapshotPath,
       snapshot.serialized.replace('"schemaVersion":1', '"schemaVersion":99'),
