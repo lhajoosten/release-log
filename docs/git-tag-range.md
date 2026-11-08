@@ -43,6 +43,10 @@ Refs moving after capture do not change the walk: tag peeling uses the captured 
 - Each Git command has a ten-second timeout and a 16 MiB output limit; oversized histories fail rather than truncate successfully.
 - Git must be installed. Local verification used Git 2.43.0. This is a local component, not a packaged CLI.
 
+## Commit-object evidence
+
+`inspectCommit(repository, commitSha)` returns the verified full `sha`, `parentShas`, and raw `message` for one local commit. It reads the commit object directly rather than invoking configurable log formatting or signature verifiers. This single-object API does not establish complete history on its own; the [GitHub association collector](github-association.md) first verifies the captured range and then uses it for landing evidence. The same immutable-ID validation, Git routing isolation, replacement-ref protection, and execution limits apply.
+
 ## Boundaries
 
 The [accepted release policy](release-policy.md) defines release membership and bootstrap semantics. Callers choose the recorded completed-release tag or explicit bootstrap boundary and capture the source SHA; these APIs do not discover the latest published release, validate SemVer/tag naming or version files, associate PRs, filter automation/direct commits, calculate the initial version, render output, or authorize publication. First-release version selection belongs to later planning, not Git inspection.

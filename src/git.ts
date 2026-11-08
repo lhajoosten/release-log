@@ -47,6 +47,12 @@ export type ResolvedReleaseBaseline =
   | (ResolvedTag & { readonly kind: "tag" })
   | { readonly kind: "bootstrap"; readonly commitSha: string };
 
+export interface GitCommitEvidence {
+  readonly sha: string;
+  readonly parentShas: readonly string[];
+  readonly message: string;
+}
+
 export interface PendingReleaseInspection {
   readonly baseline: ResolvedReleaseBaseline;
   readonly sourceCommitSha: string;
@@ -291,6 +297,26 @@ export async function inspectTagRange(
   const commitShas = await commitsBetween(repository, from.commitSha, to.commitSha);
 
   return { from, to, fromIsAncestor, commitShas };
+}
+
+export async function inspectCommit(
+  repository: string,
+  commitSha: string,
+): Promise<GitCommitEvidence> {
+  const sha = await resolveCommit(repository, commitSha);
+  const raw = requireSuccess(
+    await runGit(repository, ["cat-file", "commit", sha]),
+    "Could not read the captured commit object.",
+  );
+  const separator = raw.indexOf("\n\n");
+  if (separator === -1)
+    throw new GitInspectionError("git-command-failed", "Git returned malformed commit evidence.");
+  const parentShas = raw
+    .slice(0, separator)
+    .split("\n")
+    .filter((line) => line.startsWith("parent "))
+    .map((line) => requireObjectSha(line.slice(7)));
+  return { sha, parentShas, message: raw.slice(separator + 2) };
 }
 
 export async function inspectPendingRelease(

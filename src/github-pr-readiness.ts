@@ -1,13 +1,15 @@
+import { GitHubReadError, readGitHubJson } from "./github.ts";
+import type { GitHubRead } from "./github.ts";
 import { validatePullRequestMetadata } from "./pr-readiness.ts";
 import type { PullRequestCommit, PullRequestReadiness } from "./pr-readiness.ts";
 
 const fullSha = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
-const maximumResponseBytes = 4 * 1024 * 1024;
+
 const maximumCommits = 250;
 
 export class PullRequestCheckError extends Error {}
 
-export type GitHubRead = (url: string, options: RequestInit) => Promise<Response>;
+export type { GitHubRead } from "./github.ts";
 
 interface PullRequestState {
   readonly number: number;
@@ -128,48 +130,6 @@ function readCommit(value: unknown): PullRequestCommit {
   return { sha: value.sha, message: value.commit.message, parentCount: value.parents.length };
 }
 
-async function readJson(response: Response): Promise<unknown> {
-  if (!response.body) {
-    throw new PullRequestCheckError("GitHub returned an empty response; retry the metadata check.");
-  }
-
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let bytes = 0;
-
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      bytes += value.byteLength;
-      if (bytes > maximumResponseBytes) {
-        await reader.cancel();
-        throw new PullRequestCheckError(
-          "GitHub metadata response exceeds the 4 MiB safety limit; reduce PR metadata and retry.",
-        );
-      }
-      chunks.push(value);
-    }
-  } catch (error) {
-    if (error instanceof PullRequestCheckError) {
-      throw error;
-    }
-    throw new PullRequestCheckError(
-      "GitHub response was interrupted or timed out; retry the metadata check.",
-    );
-  } finally {
-    reader.releaseLock();
-  }
-
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  } catch {
-    throw new PullRequestCheckError("GitHub returned malformed JSON; retry the metadata check.");
-  }
-}
-
 export async function checkGitHubPullRequest(
   request: {
     readonly repository: string;
@@ -194,41 +154,12 @@ export async function checkGitHubPullRequest(
   const apiPath = `https://api.github.com/repos/${encodeURIComponent(owner ?? "")}/${encodeURIComponent(repository ?? "")}/pulls/${request.number}`;
 
   async function get(suffix = ""): Promise<{ data: unknown; next: boolean }> {
-    let response: Response;
     try {
-      response = await read(`${apiPath}${suffix}`, {
-        method: "GET",
-        redirect: "error",
-        signal: AbortSignal.timeout(10_000),
-        headers: {
-          Accept: "application/vnd.github+json",
-          Authorization: `Bearer ${request.token}`,
-          "X-GitHub-Api-Version": "2022-11-28",
-          "User-Agent": "release-log-pr-readiness",
-        },
-      });
-    } catch {
-      throw new PullRequestCheckError(
-        "GitHub read failed or timed out. Check connectivity and retry; redirects are not followed.",
-      );
+      return await readGitHubJson(`${apiPath}${suffix}`, request.token, read);
+    } catch (error) {
+      if (error instanceof GitHubReadError) throw new PullRequestCheckError(error.message);
+      throw error;
     }
-
-    if (!response.ok) {
-      await response.body?.cancel();
-      if ([403, 429].includes(response.status)) {
-        throw new PullRequestCheckError(
-          `GitHub read rejected (HTTP ${response.status}). Check read permissions or rate limits and retry after the limit resets.`,
-        );
-      }
-      throw new PullRequestCheckError(
-        `GitHub read failed (HTTP ${response.status}). Check repository/PR read access and retry; no metadata was accepted.`,
-      );
-    }
-
-    return {
-      data: await readJson(response),
-      next: /rel="next"/u.test(response.headers.get("link") ?? ""),
-    };
   }
 
   const initial = readPullRequest((await get()).data, request.repository, request.number);
