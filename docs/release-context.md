@@ -51,7 +51,7 @@ Unknown fields are reported in sorted order, followed by required-field errors i
 
 ## Scope
 
-The PR template adopts this format for new descriptions. This change does not rewrite historical PRs or add a live PR-body CI gate. The future intake pipeline still needs a policy for historical or missing context; the parser itself reports missing context explicitly.
+The PR template adopts this format for new descriptions. The separate [PR metadata gate](pr-readiness.md) validates current PR readiness above this parser, including requiring nonempty action text for breaking PRs. Historical/missing-context handling follows the [accepted release policy](release-policy.md); the parser itself reports missing context explicitly and does not rewrite historical PRs.
 
 There are no GitHub calls, AI calls, release filtering, changelog rendering, or provider requirements in this component. Parser success does not prove the factual accuracy or writing quality of a summary. Those remain review responsibilities.
 

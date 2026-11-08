@@ -21,12 +21,14 @@ export default {
         text: "Project",
         items: [
           { text: "Overview", link: "/" },
+          { text: "Release policy", link: "/release-policy" },
           { text: "Documentation site", link: "/github-pages" },
         ],
       },
       {
         text: "Components",
         items: [
+          { text: "PR metadata readiness", link: "/pr-readiness" },
           { text: "PR release context", link: "/release-context" },
           { text: "Conventional metadata", link: "/conventional-metadata" },
           { text: "Git tag inspection", link: "/git-tag-range" },

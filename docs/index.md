@@ -4,7 +4,7 @@
 
 ## Current status
 
-The project is in development. Local Git tag inspection, conventional metadata validation, and PR release-context parsing are implemented as tested components. There is no packaged CLI, end-to-end release generation, GitHub integration, or AI integration yet.
+The project is in development. Local Git tag inspection, conventional metadata validation, and PR release-context parsing are implemented as tested components. A read-only PR metadata workflow is defined, but controlled GitHub rollout validation is still required. There is no packaged CLI, end-to-end release generation, release controller, publication, or AI integration yet.
 
 These docs describe the available components and their boundaries, not a released command-line interface. For development setup and repository checks, see the [contribution guide](https://github.com/lhajoosten/release-log/blob/main/CONTRIBUTING.md).
 
@@ -18,10 +18,12 @@ These docs describe the available components and their boundaries, not a release
 
 AI must not determine release membership, classification, or breaking-change status. It should preserve supported user impact, warnings, required actions, and source PR references. Ordinary changelog generation must not require AI credentials or an available provider.
 
-Release policies for tag ancestry, merge strategies, PR association, and historical or missing context still need to be defined. The [repository README](https://github.com/lhajoosten/release-log#readme) describes the product direction in more detail.
+The [accepted release policy](release-policy.md) defines bootstrap, membership, versioning, orchestration, and safety rules with worked acceptance examples. The [repository README](https://github.com/lhajoosten/release-log#readme) describes the product direction in more detail.
 
 ## Component guides
 
+- [Release policy](release-policy.md): review the accepted release contract and automation architecture.
+- [PR metadata readiness](pr-readiness.md): understand the read-only gate, diagnostics, and rollout limitations.
 - [PR release context](release-context.md): author the version 1 `release-log` block and understand its validation rules.
 - [Conventional metadata](conventional-metadata.md): understand commit and PR-title parsing, including breaking-change declarations.
 - [Git tag inspection](git-tag-range.md): inspect exact tag endpoints and commit membership without network calls.
