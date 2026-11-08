@@ -27,6 +27,7 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 - [PR release context](release-context.md): author the version 1 `release-log` block and understand its validation rules.
 - [Conventional metadata](conventional-metadata.md): understand commit and PR-title parsing, including breaking-change declarations.
 - [Git range inspection](git-tag-range.md): inspect tag-to-tag or baseline-to-SHA commit membership, including explicit bootstrap, without network calls.
+- [GitHub PR association](github-association.md): collect merged PR evidence for a captured range, verify landing footprints, and understand failure/automation boundaries.
 
 ## Maintaining these docs
 
