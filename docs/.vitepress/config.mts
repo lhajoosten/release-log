@@ -38,6 +38,7 @@ export default {
           { text: "Deterministic changelog", link: "/changelog" },
           { text: "Deterministic CLI", link: "/cli" },
           { text: "Read-only release rehearsal", link: "/release-rehearsal" },
+          { text: "Release proposal controller", link: "/release-proposal" },
         ],
       },
     ],
