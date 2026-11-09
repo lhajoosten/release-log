@@ -10,6 +10,10 @@ RUN rm -f /etc/apt/sources.list.d/debian.sources \
     && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# The CLI needs Node, not the base image's package managers and their dependencies.
+RUN rm -rf /usr/local/lib/node_modules/npm /opt/yarn-* \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/yarn /usr/local/bin/yarnpkg
+
 COPY runtime/ /opt/release-log/
 ARG TOOL_VERSION
 LABEL org.opencontainers.image.title="release-log" \

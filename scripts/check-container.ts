@@ -193,6 +193,16 @@ try {
     `${uid}:${gid}`,
     "node",
   );
+  await run(
+    [
+      "--input-type=module",
+      "-e",
+      'import { existsSync, readdirSync } from "node:fs"; for (const path of ["/usr/local/lib/node_modules/npm", "/usr/local/bin/npm", "/usr/local/bin/npx", "/usr/local/bin/yarn", "/usr/local/bin/yarnpkg"]) if (existsSync(path)) throw new Error("Unexpected package manager: " + path); if (readdirSync("/opt").some((name) => name.startsWith("yarn-"))) throw new Error("Unexpected Yarn installation");',
+    ],
+    false,
+    `${uid}:${gid}`,
+    "node",
+  );
   const args = [
     "--config",
     "/workspace/config.json",
