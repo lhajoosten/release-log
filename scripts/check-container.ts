@@ -193,6 +193,27 @@ try {
     `${uid}:${gid}`,
     "node",
   );
+  await run(
+    [
+      "--input-type=module",
+      "-e",
+      'import { existsSync, readdirSync } from "node:fs"; for (const path of ["/usr/local/lib/node_modules/npm", "/usr/local/bin/npm", "/usr/local/bin/npx", "/usr/local/bin/yarn", "/usr/local/bin/yarnpkg"]) if (existsSync(path)) throw new Error("Unexpected package manager: " + path); if (readdirSync("/opt").some((name) => name.startsWith("yarn-"))) throw new Error("Unexpected Yarn installation");',
+    ],
+    false,
+    `${uid}:${gid}`,
+    "node",
+  );
+  const expectedNode = (await readFile(join(root, ".node-version"), "utf8")).trim();
+  await run(
+    [
+      "--input-type=module",
+      "-e",
+      `import assert from "node:assert/strict"; import { existsSync, readFileSync } from "node:fs"; const os = readFileSync("/etc/os-release", "utf8"); assert.match(os, /^ID=alpine$/m); assert.match(readFileSync("/etc/alpine-release", "utf8"), /^3\\.24\\./); assert.equal(process.version, ${JSON.stringify(`v${expectedNode}`)}); assert.equal(existsSync("/tmp/release-log-apks"), false);`,
+    ],
+    false,
+    `${uid}:${gid}`,
+    "node",
+  );
   const args = [
     "--config",
     "/workspace/config.json",
