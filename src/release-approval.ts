@@ -9,6 +9,7 @@ import { prepareReleaseFileContents } from "./proposal-files.ts";
 import type { ReleaseFileContents } from "./proposal-files.ts";
 import { capturedIdentity, describe, verifyGeneratedTree } from "./proposal-identity.ts";
 import { validateConventionalMessage } from "./conventional.ts";
+import { reconcileReleaseProposal } from "./release-proposal.ts";
 import { parseReleaseInputConfiguration, replayReleaseSnapshot } from "./release-snapshot.ts";
 import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
 
@@ -44,6 +45,30 @@ export interface ReleaseApproval {
   readonly snapshotId: string;
   readonly proposalId: string;
 }
+
+export interface ReleaseReviewTarget {
+  readonly schemaVersion: 1;
+  readonly pullNumber: number;
+  readonly headSha: string;
+  readonly approverUserId: number;
+}
+
+export interface ReleaseReview extends ReleaseReviewTarget {
+  readonly repositoryId: number;
+  readonly sourceSha: string;
+  readonly baseline: ResolvedReleaseBaseline;
+  readonly snapshotId: string;
+  readonly proposalId: string;
+  readonly configurationId: string;
+  readonly policyId: string;
+}
+
+export interface ReleaseMergeAttestation extends ReleaseReviewTarget {
+  readonly repositoryId: number;
+  readonly landingSha: string;
+  readonly mergeKind: "merge" | "squash";
+}
+
 export interface VerifiedReleaseApproval extends ReleaseApproval {
   readonly releaseBranch: string;
   readonly version: string;
@@ -134,6 +159,88 @@ export function parseReleaseApprovalPolicy(value: unknown): ReleaseApprovalPolic
     return invalid("Human approvers must be unique and must not include the automation bot.");
   return { schemaVersion: 1, botUserId, approverUserIds };
 }
+
+export function parseReleaseReviewTarget(value: unknown): ReleaseReviewTarget {
+  const item = object(value, ["schemaVersion", "pullNumber", "headSha", "approverUserId"]);
+
+  if (item.schemaVersion !== 1) return invalid("Unsupported release review target schema.");
+
+  return {
+    schemaVersion: 1,
+    pullNumber: positive(item.pullNumber),
+    headSha: sha(item.headSha),
+    approverUserId: positive(item.approverUserId),
+  };
+}
+
+export function parseReleaseReview(value: unknown): ReleaseReview {
+  const item = object(value, [
+    "schemaVersion",
+    "pullNumber",
+    "headSha",
+    "approverUserId",
+    "repositoryId",
+    "sourceSha",
+    "baseline",
+    "snapshotId",
+    "proposalId",
+    "configurationId",
+    "policyId",
+  ]);
+  const target = parseReleaseReviewTarget({
+    schemaVersion: item.schemaVersion,
+    pullNumber: item.pullNumber,
+    headSha: item.headSha,
+    approverUserId: item.approverUserId,
+  });
+
+  return {
+    ...target,
+    repositoryId: positive(item.repositoryId),
+    sourceSha: sha(item.sourceSha),
+    baseline: baseline(item.baseline),
+    snapshotId: sha(item.snapshotId, true),
+    proposalId: sha(item.proposalId, true),
+    configurationId: sha(item.configurationId, true),
+    policyId: sha(item.policyId, true),
+  };
+}
+
+function mergeKind(value: unknown): "merge" | "squash" {
+  if (value !== "merge" && value !== "squash")
+    throw new ReleaseApprovalError(
+      "unsupported-merge",
+      "A trusted merge/squash method record is required; rebase or an inferred merge strategy is unsupported.",
+    );
+
+  return value;
+}
+
+export function parseReleaseMergeAttestation(value: unknown): ReleaseMergeAttestation {
+  const item = object(value, [
+    "schemaVersion",
+    "pullNumber",
+    "headSha",
+    "approverUserId",
+    "repositoryId",
+    "landingSha",
+    "mergeKind",
+  ]);
+  const target = parseReleaseReviewTarget({
+    schemaVersion: item.schemaVersion,
+    pullNumber: item.pullNumber,
+    headSha: item.headSha,
+    approverUserId: item.approverUserId,
+  });
+
+  return {
+    ...target,
+    repositoryId: positive(item.repositoryId),
+    landingSha: sha(item.landingSha),
+    mergeKind: mergeKind(item.mergeKind),
+  };
+}
+
 export function parseReleaseApproval(value: unknown): ReleaseApproval {
   const item = object(value, [
     "schemaVersion",
@@ -152,11 +259,8 @@ export function parseReleaseApproval(value: unknown): ReleaseApproval {
     return invalid(
       "Unsupported release approval schema; no migration or inferred approval is performed.",
     );
-  if (item.mergeKind !== "merge" && item.mergeKind !== "squash")
-    throw new ReleaseApprovalError(
-      "unsupported-merge",
-      "A trusted merge/squash method record is required; rebase or an inferred merge strategy is unsupported.",
-    );
+  const method = mergeKind(item.mergeKind);
+
   return {
     schemaVersion: 1,
     repositoryId: positive(item.repositoryId),
@@ -165,7 +269,7 @@ export function parseReleaseApproval(value: unknown): ReleaseApproval {
     sourceSha: sha(item.sourceSha),
     headSha: sha(item.headSha),
     landingSha: sha(item.landingSha),
-    mergeKind: item.mergeKind,
+    mergeKind: method,
     baseline: baseline(item.baseline),
     snapshotId: sha(item.snapshotId, true),
     proposalId: sha(item.proposalId, true),
@@ -206,6 +310,184 @@ async function contents(repository: string, tree: ProposalTree): Promise<Release
     "npm-shrinkwrap.json": await get("npm-shrinkwrap.json"),
     "uv.lock": await get("uv.lock"),
   };
+}
+
+export async function captureReleaseReview(
+  request: {
+    readonly repository: string;
+    readonly configuration: ReleaseInputConfiguration;
+    readonly policy: ReleaseApprovalPolicy;
+    readonly target: ReleaseReviewTarget;
+    readonly token: string;
+  },
+  transport: GitHubRead = fetch,
+): Promise<ReleaseReview> {
+  const config = parseReleaseInputConfiguration(request.configuration);
+  const policy = parseReleaseApprovalPolicy(request.policy);
+  const target = parseReleaseReviewTarget(request.target);
+  const repository = request.repository;
+  const token = request.token;
+
+  if (!policy.approverUserIds.includes(target.approverUserId))
+    throw new ReleaseApprovalError(
+      "identity-mismatch",
+      "The review actor is not an allowed human approver.",
+    );
+
+  const api = new GitHubProposalRepository(config, policy.botUserId, token, transport);
+
+  await api.verifyRepository();
+
+  const pull = await api.readPull(target.pullNumber);
+
+  if (
+    pull.number !== target.pullNumber ||
+    pull.state !== "open" ||
+    pull.merged ||
+    pull.headSha !== target.headSha
+  )
+    throw new ReleaseApprovalError(
+      "identity-mismatch",
+      "Review capture requires the exact intended open PR head before merge.",
+    );
+
+  const head = await localTree(repository, target.headSha);
+  const files = await contents(repository, head);
+  const snapshotJSON = files[".release-log/inputs.json"];
+
+  if (snapshotJSON === null)
+    throw new ReleaseApprovalError(
+      "content-mismatch",
+      "The reviewed head does not contain its captured inputs.",
+    );
+
+  const snapshot = await replayReleaseSnapshot(snapshotJSON, config);
+  const capturedBaseline = snapshot.input.range.baseline;
+  const range = await inspectPendingRelease(
+    repository,
+    capturedBaseline.kind === "tag"
+      ? { kind: "tag", name: capturedBaseline.name }
+      : capturedBaseline,
+    snapshot.normalized.sourceCommitSha,
+  );
+
+  if (
+    JSON.stringify(range.baseline) !== JSON.stringify(capturedBaseline) ||
+    JSON.stringify(range.commitShas.toSorted()) !==
+      JSON.stringify(snapshot.input.range.commitShas.toSorted())
+  )
+    throw new ReleaseApprovalError(
+      "identity-mismatch",
+      "The reviewed snapshot does not match the actual Git baseline and membership.",
+    );
+
+  // Reuse the controller's exact generated-tree/metadata checks without enabling writes.
+  const result = await reconcileReleaseProposal(
+    {
+      snapshot: snapshotJSON,
+      configuration: config,
+      version: capturedIdentity(head.message).version,
+      automation: { schemaVersion: 1, botUserId: policy.botUserId },
+      token,
+      write: false,
+    },
+    transport,
+  );
+
+  if (
+    result.outcome !== "unchanged" ||
+    result.headSha !== target.headSha ||
+    result.pullNumber !== target.pullNumber ||
+    result.proposalId === null
+  )
+    throw new ReleaseApprovalError(
+      "identity-mismatch",
+      "The intended reviewed head is not the complete current generated proposal.",
+    );
+
+  if (
+    (await api.ref("heads", config.releaseBranch)) !== snapshot.normalized.sourceCommitSha ||
+    (await api.ref("heads", api.headRef)) !== target.headSha
+  )
+    throw new ReleaseApprovalError(
+      "stale-source",
+      "The source or proposal head changed during review capture; refresh and review again.",
+    );
+
+  if (
+    capturedBaseline.kind === "tag" &&
+    (await api.ref("tags", capturedBaseline.name)) !== capturedBaseline.objectSha
+  )
+    throw new ReleaseApprovalError(
+      "baseline-mismatch",
+      "The baseline changed during review capture.",
+    );
+
+  if (JSON.stringify(await api.readPull(target.pullNumber)) !== JSON.stringify(pull))
+    throw new ReleaseApprovalError(
+      "identity-mismatch",
+      "PR metadata changed during review capture; obtain fresh review evidence.",
+    );
+
+  return {
+    ...target,
+    repositoryId: config.repositoryId,
+    sourceSha: snapshot.normalized.sourceCommitSha,
+    baseline: capturedBaseline,
+    snapshotId: snapshot.snapshotId,
+    proposalId: result.proposalId,
+    configurationId: snapshot.configurationId,
+    policyId: createHash("sha256").update(JSON.stringify(policy)).digest("hex"),
+  };
+}
+
+export async function finalizeReleaseApproval(
+  request: {
+    readonly repository: string;
+    readonly configuration: ReleaseInputConfiguration;
+    readonly policy: ReleaseApprovalPolicy;
+    readonly review: ReleaseReview;
+    readonly attestation: ReleaseMergeAttestation;
+    readonly token: string;
+  },
+  transport: GitHubRead = fetch,
+): Promise<ReleaseApproval> {
+  const review = parseReleaseReview(request.review);
+  const attestation = parseReleaseMergeAttestation(request.attestation);
+
+  if (
+    review.repositoryId !== attestation.repositoryId ||
+    review.pullNumber !== attestation.pullNumber ||
+    review.headSha !== attestation.headSha ||
+    review.approverUserId !== attestation.approverUserId
+  )
+    throw new ReleaseApprovalError(
+      "identity-mismatch",
+      "The trusted merge action must match the independently stored review repository, PR, head and human actor.",
+    );
+
+  const approval = parseReleaseApproval({
+    schemaVersion: 1,
+    repositoryId: review.repositoryId,
+    pullNumber: review.pullNumber,
+    approverUserId: review.approverUserId,
+    sourceSha: review.sourceSha,
+    headSha: review.headSha,
+    landingSha: attestation.landingSha,
+    mergeKind: attestation.mergeKind,
+    baseline: review.baseline,
+    snapshotId: review.snapshotId,
+    proposalId: review.proposalId,
+  });
+  const verified = await verifyReleaseApproval({ ...request, approval }, transport);
+
+  if (verified.configurationId !== review.configurationId || verified.policyId !== review.policyId)
+    throw new ReleaseApprovalError(
+      "identity-mismatch",
+      "Configuration or approval policy changed since the independently stored review.",
+    );
+
+  return approval;
 }
 
 export async function verifyReleaseApproval(

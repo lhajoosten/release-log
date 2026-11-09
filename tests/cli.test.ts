@@ -375,6 +375,81 @@ void test(
         error.stderr.includes("GitHub read failed") &&
         !error.stderr.includes("synthetic-secret-never-print"),
     );
+    const targetPath = join(path, "review-target.json");
+    const reviewPath = join(path, "stored-review.json");
+    const attestationPath = join(path, "merge-attestation.json");
+    const target = {
+      schemaVersion: 1,
+      pullNumber: 1,
+      headSha: approval.headSha,
+      approverUserId: 7,
+    };
+
+    await writeFile(targetPath, JSON.stringify(target));
+    await writeFile(
+      reviewPath,
+      JSON.stringify({
+        ...target,
+        repositoryId: approval.repositoryId,
+        sourceSha: approval.sourceSha,
+        baseline: approval.baseline,
+        snapshotId: approval.snapshotId,
+        proposalId: approval.proposalId,
+        configurationId: "a".repeat(64),
+        policyId: "b".repeat(64),
+      }),
+    );
+    await writeFile(
+      attestationPath,
+      JSON.stringify({
+        ...target,
+        repositoryId: approval.repositoryId,
+        landingSha: approval.landingSha,
+        mergeKind: approval.mergeKind,
+      }),
+    );
+
+    for (const command of [
+      ["capture-review", "--target", targetPath],
+      ["finalize-approval", "--review", reviewPath, "--attestation", attestationPath],
+    ]) {
+      const commandArgs = [
+        ...command,
+        "--config",
+        configPath,
+        "--policy",
+        policyPath,
+        "--repository",
+        consumer,
+      ];
+
+      await assert.rejects(
+        run([...commandArgs, "--write"]),
+        (error: unknown) => error instanceof Error && "code" in error && error.code === 2,
+      );
+      await assert.rejects(
+        run(commandArgs),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === 2 &&
+          "stderr" in error &&
+          typeof error.stderr === "string" &&
+          error.stderr.includes("GITHUB_TOKEN"),
+      );
+      await assert.rejects(
+        run(commandArgs, "synthetic-secret-never-print"),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === 1 &&
+          "stderr" in error &&
+          typeof error.stderr === "string" &&
+          error.stderr.includes("GitHub read failed") &&
+          !error.stderr.includes("synthetic-secret-never-print"),
+      );
+    }
+
     await writeFile(approvalPath, JSON.stringify({ ...approval, valid: true }));
     await assert.rejects(
       run(approvalArgs),
@@ -406,7 +481,7 @@ void test(
       [
         "--input-type=module",
         "-e",
-        'import { reconcileReleaseProposal } from "release-log/proposals"; import { verifyReleaseApproval, parseReleaseApproval } from "release-log/approval"; if ([reconcileReleaseProposal, verifyReleaseApproval, parseReleaseApproval].some(value => typeof value !== "function")) throw new Error("Missing packaged proposal/approval API");',
+        'import { reconcileReleaseProposal } from "release-log/proposals"; import { verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation } from "release-log/approval"; if ([reconcileReleaseProposal, verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation].some(value => typeof value !== "function")) throw new Error("Missing packaged proposal/approval API");',
       ],
       { cwd: consumer, timeout: 10_000 },
     );
