@@ -10,7 +10,7 @@
 
 These are library APIs, not currently available CLI flags. A refresh is a new explicit collection followed by capture. Replay never calls collection or fetches a mutable PR description.
 
-Configuration version 1 has exactly these fields:
+Configuration version 1 requires these fields:
 
 | Field           | Value                                                                    |
 | --------------- | ------------------------------------------------------------------------ |
@@ -23,6 +23,8 @@ Configuration version 1 has exactly these fields:
 The release/bootstrap boundary is already explicit in the captured range. This configuration only identifies the current extraction/normalization policy; output paths, adapters, automation identity, and publication configuration belong to later callers. No PR can override this policy. No initial/next version is calculated here.
 
 Configuration version 2 adds a required `bootstrap` object with exactly `baselineSha` and `onboardingSha` (full immutable commit IDs). It opts into [initial adoption](initial-adoption.md) and is required for initial CLI collection. This trusted record stays fixed across proposal refreshes; tagged captures remain strict even with the record present. Version 1 retains established-release/strict-library behavior and grants no historical metadata exemption.
+
+Both configuration versions additionally accept an optional `changelog` object with exactly one field, `verbosity`. Its value must be `detailed`, `concise` or `one-liner`. Omission retains the existing detailed rendering without inserting a new default field into captured configuration. The [verbosity contract](changelog.md#verbosity) affects presentation only, but is bound into configuration/snapshot/proposal identity. Unknown fields and malformed options still fail. Input schema versions remain unchanged; opting in requires a compatible pinned tool and fresh capture/review.
 
 ## Snapshot envelope and identities
 

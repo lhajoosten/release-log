@@ -7,6 +7,7 @@ import type { TestContext } from "node:test";
 import { inspectCommit, inspectPendingRelease } from "../src/git.ts";
 import type { GitCommitEvidence } from "../src/git.ts";
 import { captureReleaseSnapshot, serializeReleaseSnapshot } from "../src/release-snapshot.ts";
+import type { ChangelogVerbosity } from "../src/release-snapshot.ts";
 import type { GitHubRead } from "../src/github.ts";
 import { fixtureConfiguration } from "./release-fixture.ts";
 
@@ -34,6 +35,7 @@ export async function fixture(
     adoption?: boolean;
     bootstrapCommit?: boolean;
     objectFormat?: "sha1" | "sha256";
+    changelogVerbosity?: ChangelogVerbosity;
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "release-proposal-"));
@@ -110,13 +112,20 @@ export async function fixture(
 
   if (setup.adoption) assert.ok(setup.bootstrap);
 
-  const configuration = setup.adoption
+  const baseConfiguration = setup.adoption
     ? {
         ...fixtureConfiguration,
         schemaVersion: 2 as const,
         bootstrap: { baselineSha: baseline, onboardingSha: git(["rev-parse", "HEAD"]).trim() },
       }
     : fixtureConfiguration;
+  const configuration =
+    setup.changelogVerbosity === undefined
+      ? baseConfiguration
+      : {
+          ...baseConfiguration,
+          changelog: { verbosity: setup.changelogVerbosity },
+        };
 
   async function snapshot() {
     const source = git(["rev-parse", "refs/heads/main"]).trim();

@@ -14,6 +14,7 @@ import { GitHubProposalRepository } from "../src/github-proposals.ts";
 import { capturedIdentity, describe } from "../src/proposal-identity.ts";
 import { prepareReleaseFileContents } from "../src/proposal-files.ts";
 import { replayReleaseSnapshot } from "../src/release-snapshot.ts";
+import type { ChangelogVerbosity } from "../src/release-snapshot.ts";
 import { reconcileReleaseProposal } from "../src/release-proposal.ts";
 import {
   parseReleaseApproval,
@@ -37,6 +38,7 @@ async function approved(
     adoption?: boolean;
     bootstrapCommit?: boolean;
     objectFormat?: "sha1" | "sha256";
+    changelogVerbosity?: ChangelogVerbosity;
   } = {},
 ) {
   const f = await fixture(
@@ -222,6 +224,32 @@ for (const mergeKind of ["merge", "squash"] as const) {
     assert.equal(verified.landingSha, state.landing);
   });
 }
+
+for (const mergeKind of ["merge", "squash"] as const)
+  for (const changelogVerbosity of ["detailed", "concise", "one-liner"] as const) {
+    void test(`${mergeKind}/${changelogVerbosity}: refreshed proposals pin rendering configuration through exact-landing verification`, async (context) => {
+      const state = await approved(context, mergeKind, "both", true, { changelogVerbosity });
+      const verified = await verifyReleaseApproval(state.request, state.f.transport);
+      const changelog = state.f.git(["show", `${state.head}:CHANGELOG.md`]);
+
+      assert.equal(verified.version, "1.3.0");
+      assert.equal(changelog.includes("  - Impact:"), changelogVerbosity === "detailed");
+      assert.equal(verified.landingSha, state.landing);
+
+      const different = changelogVerbosity === "concise" ? "detailed" : "concise";
+
+      await assert.rejects(
+        verifyReleaseApproval(
+          {
+            ...state.request,
+            configuration: { ...state.request.configuration, changelog: { verbosity: different } },
+          },
+          state.f.transport,
+        ),
+        /configuration differs/u,
+      );
+    });
+  }
 
 void test("later ordinary main commits do not change the approved version, files or publication target", async (context) => {
   const state = await approved(context);

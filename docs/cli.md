@@ -50,6 +50,8 @@ The same [approval guide](release-approval.md#capture-before-merge-finalize-afte
 
 `audit-exclusion` reports a verified approved automation footprint and retained ordinary commits for an explicit Git range. See the [audit contract](release-approval.md#audit-an-automation-only-exclusion-footprint). It is read-only and does not change collection/snapshot membership or enable release publication.
 
+Changelog verbosity is selected in trusted configuration as `changelog: { "verbosity": "detailed" }`, with `concise` and `one-liner` also supported. Omission keeps detailed output. The setting applies consistently to `render`, `prepare`, proposals and approval verification; changing it requires fresh capture/review. All modes retain breaking warnings and required actions. See the [three output modes](changelog.md#verbosity).
+
 ## Node and Python version files
 
 `prepareReleaseFiles()` and `writeReleaseFiles()` are the corresponding library APIs. Present root manifests are detected as one release stream:

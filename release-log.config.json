@@ -4,6 +4,9 @@
   "repositoryId": 1449550207,
   "releaseBranch": "main",
   "releasePolicy": "release-policy-v1",
+  "changelog": {
+    "verbosity": "concise"
+  },
   "bootstrap": {
     "baselineSha": "bb0033fb274e69a8aabad6a17d71f18ec9292f60",
     "onboardingSha": "c28fe6faa4d516847fbc725e9186cc80ac8873af"
