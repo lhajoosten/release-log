@@ -52,7 +52,7 @@ The [documentation site guide](docs/github-pages.md) explains local previewing, 
 
 ## Hooks and conventional messages
 
-Lefthook runs the same `pnpm check` command before a commit. The hook checks maintained files across the working tree without rewriting or automatically staging them; the documentation build writes ignored output and cache files. Unstaged changes can therefore block a commit; resolve the issue rather than bypassing the hook.
+Lefthook runs the same `pnpm check` command before a commit through `scripts/check-hook.ts`. The runner clears Git's repository-local environment variables before starting checks, so Git fixture commands cannot inherit a linked worktree's absolute repository/index paths. It preserves the check exit status; no checks are skipped. The hook checks maintained files across the working tree without rewriting or automatically staging them; the documentation build writes ignored output and cache files. Unstaged changes can therefore block a commit; resolve the issue rather than bypassing the hook.
 
 The `commit-msg` hook requires an unscoped conventional message (`type: description`). For example:
 

@@ -1,7 +1,7 @@
 pre-commit:
   commands:
     check:
-      run: pnpm check
+      run: node scripts/check-hook.ts
 
 commit-msg:
   commands:

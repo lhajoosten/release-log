@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { readApkLock, stageContainerApks } from "./container-apks.ts";
 
 const execute = promisify(execFile);
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -60,12 +61,18 @@ try {
     throw new Error("The packaged artifact must declare a stable tool version.");
   for (const name of ["Dockerfile", ".dockerignore"])
     await copyFile(join(root, "container", name), join(context, name));
+  const apkLock: unknown = JSON.parse(
+    await readFile(join(root, "container", "apk-lock.json"), "utf8"),
+  );
+  await stageContainerApks(join(context, "apks"), readApkLock(apkLock));
   const built = await execute(
     "docker",
     [
       "build",
       "--platform",
       "linux/amd64",
+      "--network",
+      "none",
       "--build-arg",
       `TOOL_VERSION=${manifest.version}`,
       "--tag",
