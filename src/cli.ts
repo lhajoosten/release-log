@@ -19,6 +19,7 @@ import {
   parseReleaseMergeAttestation,
   verifyReleaseApproval,
   auditReleaseExclusion,
+  parseReleaseExclusionAuthorities,
 } from "./release-approval.ts";
 import { prepareReleaseFiles, writeReleaseFiles } from "./proposal-files.ts";
 import {
@@ -36,7 +37,7 @@ class UsageError extends Error {
 const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/approval verification)
 
   release-log collect --config FILE --repository DIR --source SHA
-      (--baseline-tag TAG | --bootstrap-sha SHA)
+      (--baseline-tag TAG | --bootstrap-sha SHA) [--exclusions FILE]
   release-log plan|render --config FILE --snapshot FILE
       (--current-version VERSION | --initial-version 0.1.0)
   release-log prepare --config FILE --snapshot FILE --repository DIR
@@ -67,8 +68,9 @@ Both are read-only, require GITHUB_TOKEN and do not authenticate the caller or
 provision trusted storage. verify-approval performs read-only GitHub/Git checks
 using GITHUB_TOKEN and independently trusted approval/policy files; it emits evidence,
 not publication permission. audit-exclusion verifies the complete generated Git
-footprint and reports excluded/retained commit IDs without changing collection
-or snapshots. No command merges, publishes, or runs consumer build scripts.
+footprint and reports excluded/retained commit IDs. collect --exclusions requires
+independently trusted approval authorities and matching configuration pins;
+it freshly verifies exclusions while retaining the complete raw graph in schema-4 snapshots. No command merges, publishes, or runs consumer build scripts.
 Exit codes: 0 success (including no release), 1 operation failure, 2 usage error.
 `;
 
@@ -106,7 +108,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
   const command = args[0];
   const versionOptions = ["config", "snapshot", "current-version", "initial-version"];
   const commandOptions = new Map<string, readonly string[]>([
-    ["collect", ["config", "repository", "source", "baseline-tag", "bootstrap-sha"]],
+    ["collect", ["config", "repository", "source", "baseline-tag", "bootstrap-sha", "exclusions"]],
     ["plan", versionOptions],
     ["render", versionOptions],
     ["prepare", [...versionOptions, "repository", "dry-run", "write"]],
@@ -162,6 +164,16 @@ async function runCLI(args: readonly string[]): Promise<string> {
         "The bootstrap baseline must match the fixed onboarding record in configuration.",
       );
 
+    if (options.has("exclusions") !== (config.automationExclusions !== undefined))
+      throw new UsageError(
+        "Exclusion collection requires both trusted configuration pins and --exclusions approval authorities.",
+      );
+
+    const automation = options.has("exclusions")
+      ? parseReleaseExclusionAuthorities(
+          parseReleaseApprovalJSON(await readText(required(options, "exclusions"), 1024 * 1024)),
+        )
+      : undefined;
     const range = await inspectPendingRelease(repository, baseline, required(options, "source"));
     return serializeReleaseSnapshot(
       await captureReleaseSnapshot(
@@ -171,6 +183,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
           localRepository: repository,
           range,
           token,
+          ...(automation === undefined ? {} : { automation }),
           ...(baseline.kind === "bootstrap" && config.schemaVersion === 2
             ? { onboardingSha: config.bootstrap.onboardingSha }
             : {}),

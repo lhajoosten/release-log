@@ -8,6 +8,8 @@ import {
 } from "./conventional.ts";
 import type { ConventionalMetadata } from "./conventional.ts";
 import type { AssociatedPullRequest, PullRequestAssociation } from "./github-association.ts";
+import { parseVerifiedReleaseApproval } from "./release-approval-record.ts";
+
 import type {
   GitCommitEvidence,
   PendingReleaseInspection,
@@ -49,6 +51,10 @@ interface ReleaseRepositoryConfiguration {
   readonly releaseBranch: string;
   readonly releasePolicy: "release-policy-v1";
   readonly changelog?: { readonly verbosity: ChangelogVerbosity };
+  readonly automationExclusions?: readonly {
+    readonly pullNumber: number;
+    readonly verificationId: string;
+  }[];
 }
 
 export type ReleaseInputConfiguration = ReleaseRepositoryConfiguration &
@@ -86,6 +92,12 @@ export interface NormalizedReleaseInputs {
   readonly sourceCommitSha: string;
   readonly bootstrapCommits: readonly NormalizedBootstrapCommit[];
   readonly historicalEntries: readonly HistoricalReleaseEntry[];
+  readonly excludedPullRequests?: readonly {
+    readonly number: number;
+    readonly url: string;
+    readonly verificationId: string;
+    readonly commitShas: readonly string[];
+  }[];
   readonly pullRequests: readonly {
     readonly number: number;
     readonly url: string;
@@ -103,7 +115,7 @@ export interface NormalizedReleaseInputs {
 }
 
 export interface ReleaseSnapshot {
-  readonly schemaVersion: 3;
+  readonly schemaVersion: 3 | 4;
   readonly tool: { readonly version: string; readonly normalizerId: string };
   readonly configuration: ReleaseInputConfiguration;
   readonly configurationId: string;
@@ -267,6 +279,10 @@ function runtimeIdentity(): { version: string; normalizerId: string } {
 }
 
 const tool = runtimeIdentity();
+const exclusionTool = {
+  ...tool,
+  normalizerId: digest({ baseNormalizerId: tool.normalizerId, exclusionNormalizationVersion: 1 }),
+};
 
 export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConfiguration {
   const item = object(
@@ -279,6 +295,9 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
       "releasePolicy",
       ...(isObject(value) && value.schemaVersion === 2 ? ["bootstrap"] : []),
       ...(isObject(value) && Object.hasOwn(value, "changelog") ? ["changelog"] : []),
+      ...(isObject(value) && Object.hasOwn(value, "automationExclusions")
+        ? ["automationExclusions"]
+        : []),
     ],
     "release configuration",
   );
@@ -310,12 +329,45 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
     changelog = { verbosity };
   }
 
+  let automationExclusions: ReleaseRepositoryConfiguration["automationExclusions"];
+
+  if (Object.hasOwn(item, "automationExclusions")) {
+    automationExclusions = array(
+      item.automationExclusions,
+      100,
+      "trusted automation exclusion pins",
+    )
+      .map((entry) => {
+        const pin = object(entry, ["pullNumber", "verificationId"], "automation exclusion pin");
+        const verificationId = text(pin.verificationId, "verification ID", 64);
+
+        if (!/^[a-f0-9]{64}$/u.test(verificationId))
+          return invalid("Exclusion pins require complete lowercase verification digests.");
+
+        return { pullNumber: positive(pin.pullNumber, "exclusion PR number"), verificationId };
+      })
+      .toSorted((left, right) => left.pullNumber - right.pullNumber);
+
+    if (automationExclusions.length === 0)
+      return invalid("Omit automationExclusions rather than supply an empty authority list.");
+
+    unique(
+      automationExclusions.map((pin) => pin.pullNumber),
+      "exclusion PR numbers",
+    );
+    unique(
+      automationExclusions.map((pin) => pin.verificationId),
+      "exclusion verification IDs",
+    );
+  }
+
   const common: ReleaseRepositoryConfiguration = {
     repository,
     repositoryId: positive(item.repositoryId, "repository ID"),
     releaseBranch,
     releasePolicy: "release-policy-v1",
     ...(changelog === undefined ? {} : { changelog }),
+    ...(automationExclusions === undefined ? {} : { automationExclusions }),
   };
 
   if (item.schemaVersion === 2) {
@@ -465,6 +517,7 @@ function association(value: unknown, config: ReleaseInputConfiguration): Release
       "range",
       "pullRequests",
       ...(isObject(value) && Object.hasOwn(value, "bootstrapCommits") ? ["bootstrapCommits"] : []),
+      ...(config.automationExclusions ? ["verifiedAutomation"] : []),
     ],
     "association evidence",
   );
@@ -504,6 +557,48 @@ function association(value: unknown, config: ReleaseInputConfiguration): Release
     pullRequests.map((entry) => entry.id),
     "PR IDs",
   );
+  const verifiedAutomation = config.automationExclusions
+    ? array(item.verifiedAutomation, 100, "captured automation verification evidence")
+        .map(parseVerifiedReleaseApproval)
+        .toSorted((left, right) => left.pullNumber - right.pullNumber)
+    : undefined;
+
+  if (verifiedAutomation) {
+    unique(
+      verifiedAutomation.map((proof) => proof.pullNumber),
+      "verification evidence PR numbers",
+    );
+
+    if (
+      canonical(
+        verifiedAutomation.map((proof) => ({
+          pullNumber: proof.pullNumber,
+          verificationId: proof.verificationId,
+        })),
+      ) !== canonical(config.automationExclusions)
+    )
+      return invalid(
+        "Captured exclusion evidence differs from independently trusted configuration pins.",
+      );
+
+    for (const proof of verifiedAutomation) {
+      if (
+        proof.repositoryId !== config.repositoryId ||
+        proof.releaseBranch !== config.releaseBranch
+      )
+        return invalid(
+          "Exclusion verification evidence belongs to a different repository or branch.",
+        );
+
+      const overlap = proof.automationCommitShas.filter((id) => range.commitShas.includes(id));
+
+      if (overlap.length !== 0 && overlap.length !== proof.automationCommitShas.length)
+        return invalid("The captured range splits a verified automation footprint.");
+      if (overlap.length && !pullRequests.some((pull) => pull.number === proof.pullNumber))
+        return invalid("Automation footprint evidence lacks its captured PR identity.");
+    }
+  }
+
   const graph = new Map<string, GitCommitEvidence>();
   const parentsByCommit = new Map<string, readonly string[]>();
   let evidenceCount = 0;
@@ -516,7 +611,25 @@ function association(value: unknown, config: ReleaseInputConfiguration): Release
       pull.url !== `https://github.com/${config.repository}/pull/${pull.number}`
     )
       return invalid("PR repository ID or constructed source URL does not match configuration.");
-    if (
+    const proof = verifiedAutomation?.find((entry) => entry.pullNumber === pull.number);
+
+    if (proof) {
+      if (
+        pull.authorType !== "Bot" ||
+        pull.authorId !== proof.pull.botUserId ||
+        pull.headRepositoryId !== config.repositoryId ||
+        pull.headRef !== `release-log/${config.releaseBranch}` ||
+        pull.headSha !== proof.headSha ||
+        pull.mergeCommitSha !== proof.landingSha ||
+        pull.title !== proof.pull.title ||
+        pull.body !== proof.pull.body ||
+        canonical(pull.landedCommits.map((entry) => entry.sha).toSorted()) !==
+          canonical(proof.automationCommitShas)
+      )
+        return invalid(
+          "Captured automation PR identity, metadata or complete footprint differs from verified authority.",
+        );
+    } else if (
       pull.authorType === "Bot" &&
       pull.headRepositoryId === config.repositoryId &&
       pull.headRef === `release-log/${config.releaseBranch}`
@@ -626,6 +739,7 @@ function association(value: unknown, config: ReleaseInputConfiguration): Release
     range,
     pullRequests,
     bootstrapCommits,
+    ...(verifiedAutomation === undefined ? {} : { verifiedAutomation }),
   };
   const historical = onboardingCommits(captured, config);
 
@@ -694,9 +808,24 @@ export async function captureReleaseSnapshot(
   const captured = association(input, selected);
   const pullRequests: NormalizedReleaseInputs["pullRequests"][number][] = [];
   const historicalEntries: HistoricalReleaseEntry[] = [];
+  const excludedPullRequests: NonNullable<
+    NormalizedReleaseInputs["excludedPullRequests"]
+  >[number][] = [];
   const historical = onboardingCommits(captured, selected);
 
   for (const pull of captured.pullRequests) {
+    const proof = captured.verifiedAutomation?.find((entry) => entry.pullNumber === pull.number);
+
+    if (proof) {
+      excludedPullRequests.push({
+        number: pull.number,
+        url: pull.url,
+        verificationId: proof.verificationId,
+        commitShas: proof.automationCommitShas,
+      });
+      continue;
+    }
+
     const sourceCommits = [
       ...pull.originalCommits.map((entry) => ({ source: "original" as const, ...entry })),
       ...pull.landedCommits.map((entry) => ({ source: "landed" as const, ...entry })),
@@ -820,8 +949,8 @@ export async function captureReleaseSnapshot(
   }
 
   const payload = {
-    schemaVersion: 3 as const,
-    tool: { ...tool },
+    schemaVersion: selected.automationExclusions ? (4 as const) : (3 as const),
+    tool: { ...(selected.automationExclusions ? exclusionTool : tool) },
     configuration: selected,
     configurationId: digest(selected),
     input: captured,
@@ -833,6 +962,7 @@ export async function captureReleaseSnapshot(
       pullRequests,
       bootstrapCommits,
       historicalEntries,
+      ...(selected.automationExclusions ? { excludedPullRequests } : {}),
     },
   };
   const snapshot = { ...payload, snapshotId: digest(payload) };
@@ -858,12 +988,17 @@ async function validateSnapshot(
     ],
     "snapshot envelope",
   );
-  if (item.schemaVersion !== 3)
+  if (item.schemaVersion !== 3 && item.schemaVersion !== 4)
     return invalid(
       "Unsupported release snapshot schema version; no automatic migration is performed.",
     );
   const capturedTool = object(item.tool, ["version", "normalizerId"], "tool identity");
-  if (capturedTool.version !== tool.version || capturedTool.normalizerId !== tool.normalizerId)
+  const expectedTool = item.schemaVersion === 4 ? exclusionTool : tool;
+
+  if (
+    capturedTool.version !== expectedTool.version ||
+    capturedTool.normalizerId !== expectedTool.normalizerId
+  )
     throw new ReleaseSnapshotError(
       "normalizer-mismatch",
       "Replay requires the captured tool version, normalization policy, and runtime dependency versions.",
@@ -877,10 +1012,20 @@ async function validateSnapshot(
       "configuration-mismatch",
       "Replay configuration differs from the captured configuration identity.",
     );
+  if (item.schemaVersion !== (config.automationExclusions ? 4 : 3))
+    return invalid("Snapshot schema does not match its pinned exclusion policy.");
+
   object(
     item.input,
-    ["repository", "releaseBranch", "range", "pullRequests", "bootstrapCommits"],
-    "version 3 association evidence",
+    [
+      "repository",
+      "releaseBranch",
+      "range",
+      "pullRequests",
+      "bootstrapCommits",
+      ...(config.automationExclusions ? ["verifiedAutomation"] : []),
+    ],
+    "versioned association evidence",
   );
 
   const captured = association(item.input, config);

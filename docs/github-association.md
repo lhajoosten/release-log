@@ -62,7 +62,7 @@ Failures throw `PullRequestAssociationError` with an actionable message and code
 - `collection-limit`: complete collection could not be established within the documented bounds; no partial output is usable.
 - `unassociated-commit`, `ambiguous-association`, `partial-membership`, or `incomplete-evidence`: repair the actual history/mapping or choose a reviewed complete boundary; do not silently exclude commits.
 - `metadata-changed`: explicitly collect again rather than reuse mixed metadata.
-- `automation-unverified`: release automation requires later identity/diff verification, not a bot/title exemption.
+- `automation-unverified`: supply independently trusted approval authority and matching configuration pins; bot/title claims or stale/changed metadata grant no exemption.
 
 Existing local `GitInspectionError` codes still describe local repository/history failures. Remote bodies, tokens, and arbitrary transport exception messages are not included in errors.
 
@@ -78,11 +78,11 @@ No truncated result or partially associated plan is returned. Large histories re
 
 ## Release automation boundary
 
-Human release-looking PRs are ordinary changes; titles, labels, body text, and bot names grant no exclusion. A bot using the same-repository reserved `release-log/<releaseBranch>` head fails with `automation-unverified` because this component cannot yet verify the generated snapshot/diff identity required by #16/#20/#22. It is neither silently omitted nor automatically accepted as release automation.
+Human release-looking PRs are ordinary changes; titles, labels, body text, and bot names grant no exclusion. A bot using the same-repository reserved `release-log/<releaseBranch>` head fails with `automation-unverified` unless independently trusted approval authority freshly verifies its exact generated identity/diff. It is neither silently omitted nor automatically accepted as release automation.
 
-The separate read-only [exclusion audit](release-approval.md#audit-an-automation-only-exclusion-footprint) verifies approved landing/generated-head footprints and reports excluded/retained IDs, including safe handling of refreshed proposal ancestry. It does not modify this collector or supply an unchecked allowlist.
+The read-only [exclusion audit](release-approval.md#audit-an-automation-only-exclusion-footprint) verifies approved landing/generated-head footprints. [Exclusion-enabled collection](automation-exclusions.md) now accepts independently trusted original approval/configuration/policy records and freshly verifies them before and after association reads. The current configuration must pin the resulting exact verification IDs before a snapshot can exclude those PRs from product entries.
 
-Verified automation-only exclusion is therefore **not integrated here**. Do not use this collector for controller-generated release cycles until that integration exists. This explicit failure is preferable to introducing an unchecked exclusion list or claiming that a bot ID proves the diff is automation-only.
+All raw graph/PR evidence is retained; schema-4 capture/replay matches proof digests, identity, metadata and complete footprints to the trusted pins. There is no unchecked commit allowlist or blanket bot exemption. Without authority records, reserved automation still fails closed. A verified exclusion is not proof of completed publication or permission to activate a live controller.
 
 ## Verification
 

@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { parseDocument } from "yaml";
 import { inspectCommit, inspectGitTree, inspectPendingRelease, readGitBlob } from "./git.ts";
 import type { PendingReleaseInspection, ResolvedReleaseBaseline } from "./git.ts";
 import { GitHubProposalRepository } from "./github-proposals.ts";
@@ -13,284 +12,78 @@ import { reconcileReleaseProposal } from "./release-proposal.ts";
 import { parseReleaseInputConfiguration, replayReleaseSnapshot } from "./release-snapshot.ts";
 import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
 
-export class ReleaseApprovalError extends Error {
-  readonly code:
-    | "approval-invalid"
-    | "identity-mismatch"
-    | "stale-source"
-    | "baseline-mismatch"
-    | "content-mismatch"
-    | "unsupported-merge"
-    | "exclusion-invalid"
-    | "resource-limit";
-  constructor(code: ReleaseApprovalError["code"], message: string) {
-    super(message);
-    this.name = "ReleaseApprovalError";
-    this.code = code;
-  }
-}
-export interface ReleaseApprovalPolicy {
-  readonly schemaVersion: 1;
-  readonly botUserId: number;
-  readonly approverUserIds: readonly number[];
-}
-export interface ReleaseApproval {
-  readonly schemaVersion: 1;
-  readonly repositoryId: number;
-  readonly pullNumber: number;
-  readonly approverUserId: number;
-  readonly sourceSha: string;
-  readonly headSha: string;
-  readonly landingSha: string;
-  readonly mergeKind: "merge" | "squash";
-  readonly baseline: ResolvedReleaseBaseline;
-  readonly snapshotId: string;
-  readonly proposalId: string;
-}
+import {
+  ReleaseApprovalError,
+  parseReleaseApproval,
+  parseReleaseApprovalPolicy,
+  parseReleaseReviewTarget,
+  parseReleaseReview,
+  parseReleaseMergeAttestation,
+  object,
+  invalid,
+} from "./release-approval-record.ts";
+import type {
+  ReleaseApprovalPolicy,
+  ReleaseApproval,
+  ReleaseReviewTarget,
+  ReleaseReview,
+  ReleaseMergeAttestation,
+  VerifiedReleaseApproval,
+  ReleaseExclusionAudit,
+  ReleaseExclusionAuthority,
+} from "./release-approval-record.ts";
+export {
+  ReleaseApprovalError,
+  parseReleaseApproval,
+  parseReleaseApprovalPolicy,
+  parseReleaseReviewTarget,
+  parseReleaseReview,
+  parseReleaseMergeAttestation,
+  parseReleaseApprovalJSON,
+  parseVerifiedReleaseApproval,
+} from "./release-approval-record.ts";
+export type {
+  ReleaseApprovalPolicy,
+  ReleaseApproval,
+  ReleaseReviewTarget,
+  ReleaseReview,
+  ReleaseMergeAttestation,
+  VerifiedReleaseApproval,
+  ReleaseExclusionAudit,
+  ReleaseExclusionAuthority,
+} from "./release-approval-record.ts";
 
-export interface ReleaseReviewTarget {
-  readonly schemaVersion: 1;
-  readonly pullNumber: number;
-  readonly headSha: string;
-  readonly approverUserId: number;
-}
+export function parseReleaseExclusionAuthorities(
+  value: unknown,
+): readonly ReleaseExclusionAuthority[] {
+  const envelope = object(value, ["schemaVersion", "approvals"]);
 
-export interface ReleaseReview extends ReleaseReviewTarget {
-  readonly repositoryId: number;
-  readonly sourceSha: string;
-  readonly baseline: ResolvedReleaseBaseline;
-  readonly snapshotId: string;
-  readonly proposalId: string;
-  readonly configurationId: string;
-  readonly policyId: string;
-}
-
-export interface ReleaseMergeAttestation extends ReleaseReviewTarget {
-  readonly repositoryId: number;
-  readonly landingSha: string;
-  readonly mergeKind: "merge" | "squash";
-}
-
-export interface VerifiedReleaseApproval extends ReleaseApproval {
-  readonly releaseBranch: string;
-  readonly version: string;
-  readonly configurationId: string;
-  readonly policyId: string;
-  readonly files: readonly { readonly path: string; readonly sha256: string }[];
-  readonly verificationId: string;
-  readonly automationCommitShas: readonly string[];
-}
-
-export interface ReleaseExclusionAudit {
-  readonly schemaVersion: 1;
-  readonly repository: string;
-  readonly releaseBranch: string;
-  readonly range: PendingReleaseInspection;
-  readonly approvalVerificationId: string;
-  readonly pullNumber: number;
-  readonly landingSha: string;
-  readonly excludedCommitShas: readonly string[];
-  readonly retainedCommitShas: readonly string[];
-  readonly auditId: string;
-}
-function invalid(message: string): never {
-  throw new ReleaseApprovalError("approval-invalid", message);
-}
-function object(value: unknown, keys: readonly string[]): Record<string, unknown> {
   if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value) ||
-    Object.keys(value).length !== keys.length ||
-    Object.keys(value).some((key) => !keys.includes(key))
-  )
-    return invalid("Approval records/policies require exactly the supported schema fields.");
-  return Object.fromEntries(Object.entries(value));
-}
-function positive(value: unknown): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0)
-    return invalid("Approval identities require positive safe integer IDs.");
-  return value;
-}
-function sha(value: unknown, digest = false): string {
-  if (
-    typeof value !== "string" ||
-    !(digest ? /^[a-f0-9]{64}$/u : /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u).test(value)
-  )
-    return invalid("Approval records require full lowercase object IDs and SHA-256 digests.");
-  return value;
-}
-function baseline(value: unknown): ResolvedReleaseBaseline {
-  if (typeof value !== "object" || value === null || !("kind" in value))
-    return invalid("An explicit approved baseline is required.");
-  if (value.kind === "bootstrap") {
-    const item = object(value, ["kind", "commitSha"]);
-    return { kind: "bootstrap", commitSha: sha(item.commitSha) };
-  }
-  const item = object(value, ["kind", "name", "objectSha", "commitSha"]);
-  if (
-    item.kind !== "tag" ||
-    typeof item.name !== "string" ||
-    item.name.length > 128 ||
-    !/^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(item.name)
-  )
-    return invalid("Approved release tags require stable vMAJOR.MINOR.PATCH names.");
-  return {
-    kind: "tag",
-    name: item.name,
-    objectSha: sha(item.objectSha),
-    commitSha: sha(item.commitSha),
-  };
-}
-export function parseReleaseApprovalJSON(serialized: string): unknown {
-  if (typeof serialized !== "string" || Buffer.byteLength(serialized, "utf8") > 1024 * 1024)
-    return invalid("Approval JSON must be bounded to 1 MiB UTF-8.");
-  try {
-    const value: unknown = JSON.parse(serialized);
-    if (parseDocument(serialized, { uniqueKeys: true, strict: true, version: "1.2" }).errors.length)
-      return invalid("Approval JSON must not repeat property names.");
-    return value;
-  } catch {
-    return invalid("Approval JSON must be valid and must not repeat property names.");
-  }
-}
-
-export function parseReleaseApprovalPolicy(value: unknown): ReleaseApprovalPolicy {
-  const item = object(value, ["schemaVersion", "botUserId", "approverUserIds"]);
-  if (
-    item.schemaVersion !== 1 ||
-    !Array.isArray(item.approverUserIds) ||
-    item.approverUserIds.length < 1 ||
-    item.approverUserIds.length > 1000
+    envelope.schemaVersion !== 1 ||
+    !Array.isArray(envelope.approvals) ||
+    envelope.approvals.length < 1 ||
+    envelope.approvals.length > 100
   )
     return invalid(
-      "Configure schemaVersion 1 and an explicit nonempty bounded list of human approver IDs.",
+      "Exclusion authority input requires schema 1 and 1–100 independently trusted approval records.",
     );
-  const botUserId = positive(item.botUserId);
-  const approverUserIds = item.approverUserIds.map(positive).toSorted((a, b) => a - b);
-  if (
-    new Set(approverUserIds).size !== approverUserIds.length ||
-    approverUserIds.includes(botUserId)
-  )
-    return invalid("Human approvers must be unique and must not include the automation bot.");
-  return { schemaVersion: 1, botUserId, approverUserIds };
-}
 
-export function parseReleaseReviewTarget(value: unknown): ReleaseReviewTarget {
-  const item = object(value, ["schemaVersion", "pullNumber", "headSha", "approverUserId"]);
+  const result = envelope.approvals.map((entry: unknown) => {
+    const item = object(entry, ["configuration", "policy", "approval"]);
 
-  if (item.schemaVersion !== 1) return invalid("Unsupported release review target schema.");
-
-  return {
-    schemaVersion: 1,
-    pullNumber: positive(item.pullNumber),
-    headSha: sha(item.headSha),
-    approverUserId: positive(item.approverUserId),
-  };
-}
-
-export function parseReleaseReview(value: unknown): ReleaseReview {
-  const item = object(value, [
-    "schemaVersion",
-    "pullNumber",
-    "headSha",
-    "approverUserId",
-    "repositoryId",
-    "sourceSha",
-    "baseline",
-    "snapshotId",
-    "proposalId",
-    "configurationId",
-    "policyId",
-  ]);
-  const target = parseReleaseReviewTarget({
-    schemaVersion: item.schemaVersion,
-    pullNumber: item.pullNumber,
-    headSha: item.headSha,
-    approverUserId: item.approverUserId,
+    return {
+      configuration: parseReleaseInputConfiguration(item.configuration),
+      policy: parseReleaseApprovalPolicy(item.policy),
+      approval: parseReleaseApproval(item.approval),
+    };
   });
 
-  return {
-    ...target,
-    repositoryId: positive(item.repositoryId),
-    sourceSha: sha(item.sourceSha),
-    baseline: baseline(item.baseline),
-    snapshotId: sha(item.snapshotId, true),
-    proposalId: sha(item.proposalId, true),
-    configurationId: sha(item.configurationId, true),
-    policyId: sha(item.policyId, true),
-  };
+  if (new Set(result.map((record) => record.approval.pullNumber)).size !== result.length)
+    return invalid("Exclusion authority records must have unique PR numbers.");
+
+  return result;
 }
 
-function mergeKind(value: unknown): "merge" | "squash" {
-  if (value !== "merge" && value !== "squash")
-    throw new ReleaseApprovalError(
-      "unsupported-merge",
-      "A trusted merge/squash method record is required; rebase or an inferred merge strategy is unsupported.",
-    );
-
-  return value;
-}
-
-export function parseReleaseMergeAttestation(value: unknown): ReleaseMergeAttestation {
-  const item = object(value, [
-    "schemaVersion",
-    "pullNumber",
-    "headSha",
-    "approverUserId",
-    "repositoryId",
-    "landingSha",
-    "mergeKind",
-  ]);
-  const target = parseReleaseReviewTarget({
-    schemaVersion: item.schemaVersion,
-    pullNumber: item.pullNumber,
-    headSha: item.headSha,
-    approverUserId: item.approverUserId,
-  });
-
-  return {
-    ...target,
-    repositoryId: positive(item.repositoryId),
-    landingSha: sha(item.landingSha),
-    mergeKind: mergeKind(item.mergeKind),
-  };
-}
-
-export function parseReleaseApproval(value: unknown): ReleaseApproval {
-  const item = object(value, [
-    "schemaVersion",
-    "repositoryId",
-    "pullNumber",
-    "approverUserId",
-    "sourceSha",
-    "headSha",
-    "landingSha",
-    "mergeKind",
-    "baseline",
-    "snapshotId",
-    "proposalId",
-  ]);
-  if (item.schemaVersion !== 1)
-    return invalid(
-      "Unsupported release approval schema; no migration or inferred approval is performed.",
-    );
-  const method = mergeKind(item.mergeKind);
-
-  return {
-    schemaVersion: 1,
-    repositoryId: positive(item.repositoryId),
-    pullNumber: positive(item.pullNumber),
-    approverUserId: positive(item.approverUserId),
-    sourceSha: sha(item.sourceSha),
-    headSha: sha(item.headSha),
-    landingSha: sha(item.landingSha),
-    mergeKind: method,
-    baseline: baseline(item.baseline),
-    snapshotId: sha(item.snapshotId, true),
-    proposalId: sha(item.proposalId, true),
-  };
-}
 async function localTree(repository: string, commitSha: string): Promise<ProposalTree> {
   const tree = await inspectGitTree(repository, commitSha);
   const commit = await inspectCommit(repository, commitSha);
@@ -837,6 +630,7 @@ export async function verifyReleaseApproval(
     configurationId: snapshot.configurationId,
     policyId: createHash("sha256").update(JSON.stringify(policy)).digest("hex"),
     files: description.identity.files,
+    pull: { title: pull.title, body: pull.body, botUserId: policy.botUserId },
     automationCommitShas,
   };
   return {

@@ -2,6 +2,8 @@ import { inspectCommit, inspectPendingRelease } from "./git.ts";
 import type { GitCommitEvidence, PendingReleaseInspection } from "./git.ts";
 import { GitHubReadError, readGitHubJson } from "./github.ts";
 import type { GitHubRead } from "./github.ts";
+import { parseReleaseExclusionAuthorities, verifyReleaseApproval } from "./release-approval.ts";
+import type { ReleaseExclusionAuthority, VerifiedReleaseApproval } from "./release-approval.ts";
 
 export type AssociationErrorCode =
   | "invalid-input"
@@ -60,6 +62,7 @@ export interface PullRequestAssociation {
   readonly range: PendingReleaseInspection;
   readonly pullRequests: readonly AssociatedPullRequest[];
   readonly bootstrapCommits?: readonly GitCommitEvidence[];
+  readonly verifiedAutomation?: readonly VerifiedReleaseApproval[];
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -203,6 +206,7 @@ export async function collectMergedPullRequests(
     readonly range: PendingReleaseInspection;
     readonly token: string;
     readonly onboardingSha?: string;
+    readonly automation?: readonly ReleaseExclusionAuthority[];
   },
   read: GitHubRead = fetch,
 ): Promise<PullRequestAssociation> {
@@ -220,6 +224,10 @@ export async function collectMergedPullRequests(
       "Supply a repository identity, release branch, read-only token, and a captured ancestral Git range.",
     );
   }
+  const authorities =
+    request.automation === undefined
+      ? []
+      : parseReleaseExclusionAuthorities({ schemaVersion: 1, approvals: request.automation });
   const verified = await inspectPendingRelease(
     request.localRepository,
     { kind: "bootstrap", commitSha: request.range.baseline.commitSha },
@@ -265,14 +273,64 @@ export async function collectMergedPullRequests(
   const signal = AbortSignal.timeout(300_000);
   const deadline = Date.now() + 300_000;
   let requests = 0;
-  async function get(path: string) {
+  const boundedRead: GitHubRead = async (url, options) => {
     if (++requests > 2000 || Date.now() >= deadline)
       throw new PullRequestAssociationError(
         "collection-limit",
         "Collection exceeded its 2000-request or five-minute budget; no partial association is usable.",
       );
+
+    return read(url, {
+      ...options,
+      signal: AbortSignal.any([signal, ...(options.signal ? [options.signal] : [])]),
+    });
+  };
+  const verifiedAutomation: VerifiedReleaseApproval[] = [];
+  const verifyAuthority = async (authority: ReleaseExclusionAuthority) => {
+    if (
+      authority.configuration.repository !== request.repository ||
+      authority.configuration.releaseBranch !== request.releaseBranch
+    )
+      throw new PullRequestAssociationError(
+        "invalid-input",
+        "Exclusion authority belongs to another repository or release branch.",
+      );
+
+    return verifyReleaseApproval(
+      {
+        repository: request.localRepository,
+        configuration: authority.configuration,
+        policy: authority.policy,
+        approval: authority.approval,
+        token: request.token,
+      },
+      boundedRead,
+    );
+  };
+
+  for (const authority of authorities) {
+    const proof = await verifyAuthority(authority);
+
+    await inspectPendingRelease(
+      request.localRepository,
+      { kind: "bootstrap", commitSha: proof.landingSha },
+      verified.sourceCommitSha,
+    );
+
+    const overlap = proof.automationCommitShas.filter((id) => inRange.has(id));
+
+    if (overlap.length !== 0 && overlap.length !== proof.automationCommitShas.length)
+      throw new PullRequestAssociationError(
+        "partial-membership",
+        "A trusted release footprint crosses the captured range boundary.",
+      );
+
+    verifiedAutomation.push(proof);
+  }
+
+  async function get(path: string) {
     try {
-      return await readGitHubJson(`${apiBase}${path}`, request.token, read, signal);
+      return await readGitHubJson(`${apiBase}${path}`, request.token, boundedRead, signal);
     } catch (error) {
       if (error instanceof GitHubReadError)
         throw new PullRequestAssociationError("github-read-failed", error.message);
@@ -330,14 +388,34 @@ export async function collectMergedPullRequests(
             "metadata-changed",
             `PR #${item.number} landing evidence changed during collection; retry explicitly.`,
           );
+        const proof = verifiedAutomation.find((entry) => entry.pullNumber === pull.number);
+
         if (
+          proof &&
+          (pull.authorType !== "Bot" ||
+            pull.authorId !== proof.pull.botUserId ||
+            pull.headRepositoryId !== proof.repositoryId ||
+            pull.baseRepositoryId !== proof.repositoryId ||
+            pull.headRef !== `release-log/${proof.releaseBranch}` ||
+            pull.headSha !== proof.headSha ||
+            pull.mergeCommitSha !== proof.landingSha ||
+            pull.title !== proof.pull.title ||
+            pull.body !== proof.pull.body)
+        )
+          throw new PullRequestAssociationError(
+            "automation-unverified",
+            "Captured automation identity or metadata differs from freshly verified approval.",
+          );
+
+        if (
+          !proof &&
           pull.authorType === "Bot" &&
           pull.headRepositoryId === pull.baseRepositoryId &&
           pull.headRef === `release-log/${request.releaseBranch}`
         ) {
           throw new PullRequestAssociationError(
             "automation-unverified",
-            `PR #${pull.number} claims the release automation branch. Snapshot/diff identity verification is not available in this collector; do not exclude it by bot name or title.`,
+            `PR #${pull.number} claims the release automation branch without independently trusted, freshly verified approval; do not exclude it by bot name or title.`,
           );
         }
         found.add(item.number);
@@ -530,11 +608,25 @@ export async function collectMergedPullRequests(
       );
   }
 
+  for (const authority of authorities) {
+    const final = await verifyAuthority(authority);
+
+    if (
+      final.verificationId !==
+      verifiedAutomation.find((proof) => proof.pullNumber === final.pullNumber)?.verificationId
+    )
+      throw new PullRequestAssociationError(
+        "metadata-changed",
+        "Exclusion verification changed during collection; capture again.",
+      );
+  }
+
   return {
     repository: request.repository,
     releaseBranch: request.releaseBranch,
     range: request.range,
     pullRequests: result,
     bootstrapCommits,
+    ...(request.automation === undefined ? {} : { verifiedAutomation }),
   };
 }

@@ -1,4 +1,4 @@
-# Release input snapshots — version 3
+# Release input snapshots — versions 3 and 4
 
 `src/release-snapshot.ts` captures the validated inputs for deterministic release planning and replays them offline. This is the draft implementation for [#16](https://github.com/lhajoosten/release-log/issues/16), stacked on the [PR association](github-association.md) component. It is not version calculation, changelog rendering, release authorization, or publication.
 
@@ -26,9 +26,11 @@ Configuration version 2 adds a required `bootstrap` object with exactly `baselin
 
 Both configuration versions additionally accept an optional `changelog` object with exactly one field, `verbosity`. Its value must be `detailed`, `concise` or `one-liner`. Omission retains the existing detailed rendering without inserting a new default field into captured configuration. The [verbosity contract](changelog.md#verbosity) affects presentation only, but is bound into configuration/snapshot/proposal identity. Unknown fields and malformed options still fail. Input schema versions remain unchanged; opting in requires a compatible pinned tool and fresh capture/review.
 
+Optional `automationExclusions` pins enable [verified automation capture](automation-exclusions.md). These configurations produce schema-4 snapshots/plans with raw `verifiedAutomation` evidence and normalized `excludedPullRequests`. Records must match the independently trusted pins, raw PR identity/metadata and complete footprint. The complete original graph remains captured. Configurations without pins retain the existing schema-3 format and normalizer; no automatic migration is performed.
+
 ## Snapshot envelope and identities
 
-Schema version 3 permits exactly:
+The default schema-3 envelope permits exactly:
 
 - `schemaVersion`: number `3`.
 - `tool`: the tool version and `normalizerId`.
@@ -38,6 +40,8 @@ Schema version 3 permits exactly:
 - `snapshotId`: SHA-256 of the canonical envelope payload excluding `snapshotId` itself.
 
 `normalizerId` binds normalization format revision 3, the resolved conventional rules/parser patterns loaded by the validator, declared runtime dependency versions, and the complete checked-in pnpm lockfile digest. The lockfile includes development tooling, so even a lockfile-only tooling update conservatively invalidates compatibility. The tool version must also match. The current `0.0.0` tool version is a development placeholder, not evidence of a published artifact.
+
+Schema 4 uses the same envelope fields, sets `schemaVersion: 4`, and binds a separate exclusion-normalizer identity to the existing normalizer. Its input additionally requires `verifiedAutomation`, and normalization additionally requires `excludedPullRequests`. Their exact authority/graph/replay contract is documented in [automation exclusions](automation-exclusions.md); proof fields cannot be added to a schema-3 snapshot as an implicit exemption.
 
 The runtime package needs its trusted `package.json`, dependency lock bytes, and existing Commitlint configuration/dependencies. The [CLI build](cli.md) preserves the lock bytes as `dist/dependency-lock.txt` because package managers omit lockfile-named files, retaining the same digest as the source checkout's `pnpm-lock.yaml`. Inspected consumer repository configuration is never loaded as validator code.
 
@@ -79,4 +83,4 @@ Version 3 adds pinned initial-adoption policy and warning-bearing historical ent
 
 Tests compare normalized output with the hand-written golden `tests/fixtures/release-inputs-v3.json`, verify canonical round trips, mutate source metadata after capture, forge normalized success/checksums, and exercise malformed/unknown schemas, configuration/tool differences, raw breaking/internal context, graph inconsistency, and resource limits. A replay subprocess replaces `fetch` with a throwing function. A synthetic Git plus mocked HTTP collection also feeds capture/replay without additional reads.
 
-No live collection pilot, model call, credential provisioning, repository settings change, or release/publication is part of this work. This draft depends on acceptance of the association slice; automation-only exclusion and actual release-controller freshness remain outstanding rather than implied by passing snapshot tests.
+Exclusion integration tests use actual temporary merge/squash Git histories with HTTP replaced, preserve ordinary before/after changes, verify schema-4 offline/CLI replay and reject changed pins/proofs, raw metadata, partial boundaries and concurrent edits. Existing schema-3 goldens/replay remain unchanged. These tests do not prove authenticated host storage, live App/race behavior, completed-cycle controller reuse or publication; those gates remain separate.
