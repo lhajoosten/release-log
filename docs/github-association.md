@@ -80,7 +80,9 @@ No truncated result or partially associated plan is returned. Large histories re
 
 Human release-looking PRs are ordinary changes; titles, labels, body text, and bot names grant no exclusion. A bot using the same-repository reserved `release-log/<releaseBranch>` head fails with `automation-unverified` because this component cannot yet verify the generated snapshot/diff identity required by #16/#20/#22. It is neither silently omitted nor automatically accepted as release automation.
 
-Verified automation-only exclusion is therefore **not implemented here**. Do not use this collector for controller-generated release cycles until that integration exists. This explicit failure is preferable to introducing an unchecked exclusion list or claiming that a bot ID proves the diff is automation-only.
+The separate read-only [exclusion audit](release-approval.md#audit-an-automation-only-exclusion-footprint) verifies approved landing/generated-head footprints and reports excluded/retained IDs, including safe handling of refreshed proposal ancestry. It does not modify this collector or supply an unchecked allowlist.
+
+Verified automation-only exclusion is therefore **not integrated here**. Do not use this collector for controller-generated release cycles until that integration exists. This explicit failure is preferable to introducing an unchecked exclusion list or claiming that a bot ID proves the diff is automation-only.
 
 ## Verification
 

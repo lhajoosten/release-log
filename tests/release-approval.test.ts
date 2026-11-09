@@ -3,13 +3,24 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { TestContext } from "node:test";
-import { GitInspectionError, inspectCommit, inspectGitTree, readGitBlob } from "../src/git.ts";
+import {
+  GitInspectionError,
+  inspectCommit,
+  inspectGitTree,
+  inspectPendingRelease,
+  readGitBlob,
+} from "../src/git.ts";
+import { GitHubProposalRepository } from "../src/github-proposals.ts";
+import { capturedIdentity, describe } from "../src/proposal-identity.ts";
+import { prepareReleaseFileContents } from "../src/proposal-files.ts";
+import { replayReleaseSnapshot } from "../src/release-snapshot.ts";
 import { reconcileReleaseProposal } from "../src/release-proposal.ts";
 import {
   parseReleaseApproval,
   parseReleaseApprovalJSON,
   parseReleaseApprovalPolicy,
   verifyReleaseApproval,
+  auditReleaseExclusion,
   ReleaseApprovalError,
 } from "../src/release-approval.ts";
 import type { ReleaseApproval } from "../src/release-approval.ts";
@@ -462,6 +473,233 @@ void test("local immutable tree/blob helpers read captured bytes and reject othe
   await assert.rejects(readGitBlob(state.f.directory, state.head), /Expected a Git blob/u);
   const commit = await inspectCommit(state.f.directory, state.head);
   assert.equal(commit.parentShas[0], state.source);
+});
+
+for (const mergeKind of ["merge", "squash"] as const)
+  for (const adoption of [false, true]) {
+    void test(`${mergeKind}/${adoption ? "adoption" : "released"}: audit excludes only verified generated history and retains ordinary changes even on owned paths`, async (context) => {
+      const state = await approved(
+        context,
+        mergeKind,
+        "both",
+        true,
+        adoption ? { bootstrap: true, adoption: true, bootstrapCommit: true } : {},
+      );
+      const head = await inspectCommit(state.f.directory, state.head);
+      const previous = capturedIdentity(head.message).previousHeadSha;
+
+      assert.ok(previous);
+
+      const laterTree = state.f.createTree(state.tree, [
+        { path: "CHANGELOG.md", mode: "100644", content: "An ordinary human changelog edit\n" },
+      ]);
+      const later = state.f
+        .git(["commit-tree", laterTree, "-p", state.landing], "docs: explain a later change\n")
+        .trim();
+
+      state.f.git(["update-ref", "refs/heads/main", later, state.landing]);
+
+      const range = await inspectPendingRelease(state.f.directory, state.approval.baseline, later);
+      const calls = state.f.calls.length;
+      const before = state.f.git(["status", "--porcelain"]);
+      const audit = await auditReleaseExclusion({ ...state.request, range }, state.f.transport);
+      const original = await inspectPendingRelease(
+        state.f.directory,
+        state.approval.baseline,
+        state.source,
+      );
+
+      assert.deepEqual(
+        audit.excludedCommitShas,
+        (mergeKind === "merge"
+          ? [previous, state.head, state.landing]
+          : [state.landing]
+        ).toSorted(),
+      );
+      assert.deepEqual(audit.retainedCommitShas, [...original.commitShas, later].toSorted());
+      assert.deepEqual(
+        [...audit.excludedCommitShas, ...audit.retainedCommitShas].toSorted(),
+        range.commitShas,
+      );
+      assert.equal(audit.landingSha, state.landing);
+      assert.match(audit.auditId, /^[a-f0-9]{64}$/u);
+      assert.deepEqual(
+        await auditReleaseExclusion({ ...state.request, range }, state.f.transport),
+        audit,
+      );
+      assert.equal(state.f.git(["status", "--porcelain"]), before);
+      assert.ok(state.f.calls.slice(calls).every(({ method }) => method === "GET"));
+
+      const tag = adoption ? "v0.1.0" : "v1.3.0";
+
+      state.f.git(["tag", tag, state.landing]);
+
+      const nextRange = await inspectPendingRelease(
+        state.f.directory,
+        { kind: "tag", name: tag },
+        later,
+      );
+      const next = await auditReleaseExclusion(
+        { ...state.request, range: nextRange },
+        state.f.transport,
+      );
+
+      assert.deepEqual(next.excludedCommitShas, []);
+      assert.deepEqual(next.retainedCommitShas, [later]);
+    });
+  }
+
+void test("an exclusion audit rejects forged membership, a partial release footprint and a source before the landing", async (context) => {
+  const state = await approved(context);
+  const range = await inspectPendingRelease(
+    state.f.directory,
+    state.approval.baseline,
+    state.landing,
+  );
+  const calls = state.f.calls.length;
+
+  await assert.rejects(
+    auditReleaseExclusion(
+      { ...state.request, range: { ...range, commitShas: range.commitShas.slice(1) } },
+      state.f.transport,
+    ),
+    /actual immutable Git membership/u,
+  );
+
+  assert.equal(state.f.calls.length, calls);
+
+  const earlier = await inspectPendingRelease(
+    state.f.directory,
+    state.approval.baseline,
+    state.source,
+  );
+
+  await assert.rejects(
+    auditReleaseExclusion({ ...state.request, range: earlier }, state.f.transport),
+    /ancestor/u,
+  );
+
+  const partial = await inspectPendingRelease(
+    state.f.directory,
+    { kind: "bootstrap", commitSha: state.head },
+    state.landing,
+  );
+
+  await assert.rejects(
+    auditReleaseExclusion({ ...state.request, range: partial }, state.f.transport),
+    /crosses a verified release footprint/u,
+  );
+});
+
+async function graftProposalParent(
+  state: Awaited<ReturnType<typeof approved>>,
+  previousHeadSha: string,
+) {
+  const snapshotJSON = state.f.git(["show", `${state.head}:.release-log/inputs.json`]);
+  const snapshot = await replayReleaseSnapshot(snapshotJSON, state.request.configuration);
+  const api = new GitHubProposalRepository(
+    state.request.configuration,
+    botId,
+    "synthetic-read-token",
+    state.f.transport,
+  );
+  const source = await api.tree(state.source);
+  const prepared = await prepareReleaseFileContents(
+    snapshotJSON,
+    state.request.configuration,
+    capturedIdentity((await inspectCommit(state.f.directory, state.head)).message).version,
+    await api.contents(source),
+  );
+  const description = describe(snapshot, prepared, botId, previousHeadSha);
+  const head = state.f
+    .git(
+      ["commit-tree", state.tree, "-p", state.source, "-p", previousHeadSha],
+      description.message,
+    )
+    .trim();
+  const landing = state.f
+    .git(
+      ["commit-tree", state.tree, "-p", state.source, "-p", head],
+      "Merge the reviewed release\n",
+    )
+    .trim();
+
+  state.f.git(["update-ref", "refs/heads/release-log/main", head, state.head]);
+  state.f.git(["update-ref", "refs/heads/main", landing, state.landing]);
+  state.pull.body = description.body;
+  state.pull.title = description.title;
+  state.pull.merge_commit_sha = landing;
+
+  return {
+    ...state.request,
+    approval: { ...state.approval, headSha: head, landingSha: landing, proposalId: description.id },
+  };
+}
+
+for (const tampering of ["ordinary-parent", "generated-output", "unrelated-file"] as const) {
+  void test(`a valid final proposal cannot hide ${tampering} in its prior-head ancestry`, async (context) => {
+    const state = await approved(context, "merge", "both", true);
+    const previousSha = capturedIdentity(
+      (await inspectCommit(state.f.directory, state.head)).message,
+    ).previousHeadSha;
+
+    assert.ok(previousSha);
+
+    const previous = await inspectCommit(state.f.directory, previousSha);
+    const tree = state.f.createTree(state.f.git(["rev-parse", `${previousSha}^{tree}`]).trim(), [
+      {
+        path: tampering === "generated-output" ? "CHANGELOG.md" : "ordinary-source.txt",
+        mode: "100644",
+        content: "A real source edit that must not disappear\n",
+      },
+    ]);
+    const grafted = state.f
+      .git(
+        ["commit-tree", tree, ...previous.parentShas.flatMap((parent) => ["-p", parent])],
+        tampering === "ordinary-parent"
+          ? "feat: add an ordinary source change\n"
+          : previous.message,
+      )
+      .trim();
+    const request = await graftProposalParent(state, grafted);
+
+    // The newest head, generated outputs, marker and trusted record are all consistent.
+    // Rejection must come from inspecting the prior commit rather than its final tree.
+    await assert.rejects(
+      verifyReleaseApproval(request, state.f.transport),
+      tampering === "ordinary-parent"
+        ? /supported generated proposal commit/u
+        : /edited generated outputs|unrelated file/u,
+    );
+
+    const range = await inspectPendingRelease(
+      state.f.directory,
+      state.approval.baseline,
+      request.approval.landingSha,
+    );
+
+    await assert.rejects(auditReleaseExclusion({ ...request, range }, state.f.transport));
+  });
+}
+
+void test("proposal ancestry beyond the bounded audit limit cannot be silently excluded", async (context) => {
+  const state = await approved(context);
+  let previous = state.source;
+
+  for (let index = 0; index < 100; index++)
+    previous = state.f
+      .git(
+        ["commit-tree", state.tree, "-p", previous],
+        `chore: retain historical evidence ${index}\n`,
+      )
+      .trim();
+
+  const request = await graftProposalParent(state, previous);
+
+  await assert.rejects(
+    verifyReleaseApproval(request, state.f.transport),
+    (error: unknown) => error instanceof ReleaseApprovalError && error.code === "resource-limit",
+  );
 });
 
 void test("approval schemas reject missing/unknown fields, self-approval, malformed IDs and unsupported merge strategies", async (context) => {

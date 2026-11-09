@@ -450,6 +450,58 @@ void test(
       );
     }
 
+    const auditArgs = [
+      "audit-exclusion",
+      "--config",
+      configPath,
+      "--approval",
+      approvalPath,
+      "--policy",
+      policyPath,
+      "--repository",
+      consumer,
+      "--source",
+      approval.landingSha,
+      "--bootstrap-sha",
+      approval.baseline.commitSha,
+    ];
+
+    await assert.rejects(
+      run([...auditArgs, "--write"]),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === 2,
+    );
+    await assert.rejects(
+      run(auditArgs),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 2 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("GITHUB_TOKEN"),
+    );
+    await assert.rejects(
+      run(auditArgs, "synthetic-secret-never-print"),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 1 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("selected Git repository is unavailable") &&
+        !error.stderr.includes("synthetic-secret-never-print"),
+    );
+    await assert.rejects(
+      run([...auditArgs, "--baseline-tag", "v1.2.3"], "synthetic-secret-never-print"),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 2 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("Select exactly one"),
+    );
+
     await writeFile(approvalPath, JSON.stringify({ ...approval, valid: true }));
     await assert.rejects(
       run(approvalArgs),
@@ -481,7 +533,7 @@ void test(
       [
         "--input-type=module",
         "-e",
-        'import { reconcileReleaseProposal } from "release-log/proposals"; import { verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation } from "release-log/approval"; if ([reconcileReleaseProposal, verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation].some(value => typeof value !== "function")) throw new Error("Missing packaged proposal/approval API");',
+        'import { reconcileReleaseProposal } from "release-log/proposals"; import { verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion } from "release-log/approval"; if ([reconcileReleaseProposal, verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion].some(value => typeof value !== "function")) throw new Error("Missing packaged proposal/approval API");',
       ],
       { cwd: consumer, timeout: 10_000 },
     );
