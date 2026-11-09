@@ -4,7 +4,7 @@
 
 ## Current status
 
-The project is in development. Git inspection, PR association, validated snapshots, version planning, and deterministic changelog rendering are implemented as tested components, with a locally packable CLI. Node and Python version manifests are supported. A read-only PR metadata workflow is defined, but rollout limitations remain. There is no deployed release controller, publication, or AI integration yet.
+The project is in development. Git inspection, PR association, validated snapshots, version planning, and deterministic changelog rendering are implemented as tested components, with a locally packable CLI. Node and Python version manifests are supported. A read-only PR metadata workflow is defined, but rollout limitations remain. Publication inspection and an explicit-write GitHub executor are implemented with fixture tests, but there is no deployed release controller, authenticated publication host, image publisher or AI integration yet.
 
 These docs describe the available components and their boundaries, not a released command-line interface. For development setup and repository checks, see the [contribution guide](https://github.com/lhajoosten/release-log/blob/main/CONTRIBUTING.md).
 
@@ -44,7 +44,7 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 
 - [Read-only approval verification](release-approval.md): verify an independently recorded reviewed proposal against its actual merge/squash landing, without publishing.
 
-- [Read-only publication reconciliation](release-publication.md): compare approved outputs with tag, Release, asset and image state and report missing actions without publishing.
+- [Publication reconciliation and GitHub execution](release-publication.md): inspect approved outputs or explicitly execute GitHub tag/Release/asset steps, with documented trust, retry and rollout limits.
 
 - [Local OCI distribution](container.md): build and smoke-test the packaged CLI in a pinned Linux/amd64 image without publishing it.
 

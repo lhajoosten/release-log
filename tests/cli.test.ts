@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -495,6 +496,86 @@ void test(
         error.stderr.includes("exact approved landing"),
     );
 
+    const assetDirectory = join(path, "publication-assets");
+    const assetBytes = Buffer.from("packaged CLI fixture bytes");
+    const publishArgs = [
+      "publish-github",
+      ...publicationArgs.slice(1),
+      "--asset-directory",
+      assetDirectory,
+    ];
+
+    await mkdir(assetDirectory);
+    await writeFile(join(assetDirectory, "tool.tgz"), assetBytes);
+    await writeFile(
+      publicationPolicyPath,
+      JSON.stringify({ schemaVersion: 1, assets: ["tool.tgz"], images: [] }),
+    );
+    await writeFile(
+      receiptPath,
+      JSON.stringify({
+        ...receipt,
+        images: [],
+        assets: [
+          {
+            name: "tool.tgz",
+            sha256: createHash("sha256").update(assetBytes).digest("hex"),
+            size: assetBytes.length,
+          },
+        ],
+      }),
+    );
+
+    assert.match((await run(["--help"])).stdout, /publish-github/u);
+
+    for (const flags of [[], ["--dry-run"], ["--write"]])
+      await assert.rejects(
+        run([...publishArgs, ...flags], "synthetic-secret-never-print"),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === 1 &&
+          "stderr" in error &&
+          typeof error.stderr === "string" &&
+          error.stderr.includes("Could not resolve the commit object") &&
+          !error.stderr.includes("synthetic-secret-never-print"),
+      );
+
+    await assert.rejects(
+      run([...publishArgs, "--dry-run", "--write"], "synthetic-secret-never-print"),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 2 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("mutually exclusive"),
+    );
+
+    await assert.rejects(
+      run(["publish-github", ...publicationArgs.slice(1)], "synthetic-secret-never-print"),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 2 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("--asset-directory"),
+    );
+
+    await writeFile(join(assetDirectory, "tool.tgz"), "changed");
+
+    await assert.rejects(
+      run([...publishArgs, "--write"], "synthetic-secret-never-print"),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 1 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("asset size differs"),
+    );
+
     const targetPath = join(path, "review-target.json");
     const reviewPath = join(path, "stored-review.json");
     const attestationPath = join(path, "merge-attestation.json");
@@ -719,7 +800,7 @@ void test(
       [
         "--input-type=module",
         "-e",
-        'import { inspectReleasePublication, parsePublicationPolicy, parsePublicationReceipt } from "release-log/publication"; import { reconcileReleaseProposal } from "release-log/proposals"; import { verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion, parseVerifiedReleaseApproval, parseReleaseExclusionAuthorities } from "release-log/approval"; if ([inspectReleasePublication, parsePublicationPolicy, parsePublicationReceipt, reconcileReleaseProposal, verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion, parseVerifiedReleaseApproval, parseReleaseExclusionAuthorities].some(value => typeof value !== "function")) throw new Error("Missing packaged proposal/approval API");',
+        'import { inspectReleasePublication, publishGitHubRelease, parsePublicationPolicy, parsePublicationReceipt } from "release-log/publication"; import { reconcileReleaseProposal } from "release-log/proposals"; import { verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion, parseVerifiedReleaseApproval, parseReleaseExclusionAuthorities } from "release-log/approval"; if ([inspectReleasePublication, publishGitHubRelease, parsePublicationPolicy, parsePublicationReceipt, reconcileReleaseProposal, verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion, parseVerifiedReleaseApproval, parseReleaseExclusionAuthorities].some(value => typeof value !== "function")) throw new Error("Missing packaged proposal/approval API");',
       ],
       { cwd: consumer, timeout: 10_000 },
     );
