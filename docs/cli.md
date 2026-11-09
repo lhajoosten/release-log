@@ -50,6 +50,14 @@ The same [approval guide](release-approval.md#capture-before-merge-finalize-afte
 
 `audit-exclusion` reports a verified approved automation footprint and retained ordinary commits for an explicit Git range. See the [audit contract](release-approval.md#audit-an-automation-only-exclusion-footprint). It is read-only and does not by itself change membership or enable release publication. Applying exclusions requires `collect --exclusions FILE` with independently trusted original approval authorities and matching `automationExclusions` pins in current configuration. Collection freshly verifies those records; schema-4 capture/replay retains the full raw graph while excluding verified automation only from product entries. See [authority setup and replay](automation-exclusions.md).
 
+Read-only [publication reconciliation](release-publication.md) compares an approved landing and independently trusted build receipt against tag, Release, asset and GHCR state:
+
+```sh
+release-log inspect-publication --config release-config.json --approval approved-release.json --policy approval-policy.json --publication-policy publication-policy.json --receipt build-receipt.json --repository .
+```
+
+It requires `GITHUB_TOKEN` and, for configured images, a separate pull-scoped `GHCR_READ_TOKEN` registry bearer. It emits missing-action JSON without executing actions and accepts no write/dry-run flags. Exit 0 means inspection succeeded; `complete: true` additionally requires matching published outputs. Neither is a durable publication authorization or baseline-advancement record. See the guide for receipt trust, credential/token-exchange limits and recovery.
+
 Changelog verbosity is selected in trusted configuration as `changelog: { "verbosity": "detailed" }`, with `concise` and `one-liner` also supported. Omission keeps detailed output. The setting applies consistently to `render`, `prepare`, proposals and approval verification; changing it requires fresh capture/review. All modes retain breaking warnings and required actions. See the [three output modes](changelog.md#verbosity).
 
 ## Node and Python version files
