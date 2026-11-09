@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { parseDocument } from "yaml";
 import { inspectCommit, inspectGitTree, inspectPendingRelease, readGitBlob } from "./git.ts";
-import type { ResolvedReleaseBaseline } from "./git.ts";
+import type { PendingReleaseInspection, ResolvedReleaseBaseline } from "./git.ts";
 import { GitHubProposalRepository } from "./github-proposals.ts";
 import type { ProposalTree } from "./github-proposals.ts";
 import type { GitHubRead } from "./github.ts";
@@ -20,7 +20,9 @@ export class ReleaseApprovalError extends Error {
     | "stale-source"
     | "baseline-mismatch"
     | "content-mismatch"
-    | "unsupported-merge";
+    | "unsupported-merge"
+    | "exclusion-invalid"
+    | "resource-limit";
   constructor(code: ReleaseApprovalError["code"], message: string) {
     super(message);
     this.name = "ReleaseApprovalError";
@@ -76,6 +78,20 @@ export interface VerifiedReleaseApproval extends ReleaseApproval {
   readonly policyId: string;
   readonly files: readonly { readonly path: string; readonly sha256: string }[];
   readonly verificationId: string;
+  readonly automationCommitShas: readonly string[];
+}
+
+export interface ReleaseExclusionAudit {
+  readonly schemaVersion: 1;
+  readonly repository: string;
+  readonly releaseBranch: string;
+  readonly range: PendingReleaseInspection;
+  readonly approvalVerificationId: string;
+  readonly pullNumber: number;
+  readonly landingSha: string;
+  readonly excludedCommitShas: readonly string[];
+  readonly retainedCommitShas: readonly string[];
+  readonly auditId: string;
 }
 function invalid(message: string): never {
   throw new ReleaseApprovalError("approval-invalid", message);
@@ -312,6 +328,126 @@ async function contents(repository: string, tree: ProposalTree): Promise<Release
   };
 }
 
+async function verifyProposalHistory(
+  repository: string,
+  config: ReleaseInputConfiguration,
+  botUserId: number,
+  sourceSha: string,
+  headSha: string,
+  expectedBaseline: ResolvedReleaseBaseline,
+): Promise<readonly string[]> {
+  const history = await inspectPendingRelease(
+    repository,
+    { kind: "bootstrap", commitSha: sourceSha },
+    headSha,
+  );
+
+  if (history.commitShas.length > 100)
+    throw new ReleaseApprovalError(
+      "resource-limit",
+      "Proposal history exceeds 100 generated commits; explicit recovery is required.",
+    );
+
+  const deadline = Date.now() + 300_000;
+  let snapshotBytes = 0;
+
+  for (const commitSha of history.commitShas) {
+    if (Date.now() >= deadline)
+      throw new ReleaseApprovalError(
+        "resource-limit",
+        "Proposal history verification exceeded five minutes; no exclusion is usable.",
+      );
+
+    // The caller has already checked the current head; older parents need the same scrutiny.
+    if (commitSha === headSha) continue;
+
+    const head = await localTree(repository, commitSha);
+    const marker = capturedIdentity(head.message);
+    const files = await contents(repository, head);
+    const snapshotJSON = files[".release-log/inputs.json"];
+
+    if (snapshotJSON === null)
+      throw new ReleaseApprovalError(
+        "content-mismatch",
+        "A prior proposal head is missing its captured inputs; do not exclude its history.",
+      );
+
+    snapshotBytes += Buffer.byteLength(snapshotJSON, "utf8");
+
+    if (snapshotBytes > 16 * 1024 * 1024)
+      throw new ReleaseApprovalError(
+        "resource-limit",
+        "Prior proposal snapshots exceed the 16 MiB audit budget.",
+      );
+
+    const snapshot = await replayReleaseSnapshot(snapshotJSON, config);
+    const capturedBaseline = snapshot.input.range.baseline;
+    const range = await inspectPendingRelease(
+      repository,
+      capturedBaseline.kind === "tag"
+        ? { kind: "tag", name: capturedBaseline.name }
+        : capturedBaseline,
+      marker.sourceSha,
+    );
+
+    if (
+      snapshot.normalized.sourceCommitSha !== marker.sourceSha ||
+      JSON.stringify(capturedBaseline) !== JSON.stringify(expectedBaseline) ||
+      JSON.stringify(range.baseline) !== JSON.stringify(capturedBaseline) ||
+      JSON.stringify(range.commitShas.toSorted()) !==
+        JSON.stringify(snapshot.input.range.commitShas.toSorted())
+    )
+      throw new ReleaseApprovalError(
+        "identity-mismatch",
+        "A prior proposal snapshot has inconsistent source, baseline or Git membership.",
+      );
+
+    await inspectPendingRelease(
+      repository,
+      { kind: "bootstrap", commitSha: marker.sourceSha },
+      sourceSha,
+    );
+
+    const source = await localTree(repository, marker.sourceSha);
+    const prepared = await prepareReleaseFileContents(
+      snapshotJSON,
+      config,
+      marker.version,
+      await contents(repository, source),
+    );
+    const description = describe(snapshot, prepared, botUserId, marker.previousHeadSha);
+    const parents =
+      marker.previousHeadSha && marker.previousHeadSha !== marker.sourceSha
+        ? [marker.sourceSha, marker.previousHeadSha]
+        : [marker.sourceSha];
+
+    if (
+      head.message !== description.message ||
+      JSON.stringify(head.parents) !== JSON.stringify(parents)
+    )
+      throw new ReleaseApprovalError(
+        "identity-mismatch",
+        "A prior proposal commit does not match its generated identity and parents.",
+      );
+
+    verifyGeneratedTree(source, head, prepared.files);
+
+    if (prepared.files.some((file) => files[file.path] !== file.after))
+      throw new ReleaseApprovalError(
+        "content-mismatch",
+        "A prior proposal contains edited generated outputs; do not exclude it.",
+      );
+  }
+
+  if (Date.now() >= deadline)
+    throw new ReleaseApprovalError(
+      "resource-limit",
+      "Proposal history verification exceeded five minutes; no exclusion is usable.",
+    );
+
+  return history.commitShas;
+}
+
 export async function captureReleaseReview(
   request: {
     readonly repository: string;
@@ -404,6 +540,15 @@ export async function captureReleaseReview(
       "identity-mismatch",
       "The intended reviewed head is not the complete current generated proposal.",
     );
+
+  await verifyProposalHistory(
+    repository,
+    config,
+    policy.botUserId,
+    snapshot.normalized.sourceCommitSha,
+    target.headSha,
+    capturedBaseline,
+  );
 
   if (
     (await api.ref("heads", config.releaseBranch)) !== snapshot.normalized.sourceCommitSha ||
@@ -640,6 +785,31 @@ export async function verifyReleaseApproval(
       "content-mismatch",
       "A no-release plan cannot be approved for publication.",
     );
+  const proposalCommits = await verifyProposalHistory(
+    repository,
+    config,
+    policy.botUserId,
+    approval.sourceSha,
+    approval.headSha,
+    approval.baseline,
+  );
+  const footprint = await inspectPendingRelease(
+    repository,
+    { kind: "bootstrap", commitSha: approval.sourceSha },
+    approval.landingSha,
+  );
+  const automationCommitShas = (
+    approval.mergeKind === "merge"
+      ? [...proposalCommits, approval.landingSha]
+      : [approval.landingSha]
+  ).toSorted();
+
+  if (JSON.stringify(footprint.commitShas) !== JSON.stringify(automationCommitShas))
+    throw new ReleaseApprovalError(
+      "exclusion-invalid",
+      "The release landing introduces unexpected history outside verified generated proposal commits.",
+    );
+
   if (JSON.stringify(await api.readPull(approval.pullNumber)) !== JSON.stringify(pull))
     throw new ReleaseApprovalError(
       "identity-mismatch",
@@ -667,9 +837,88 @@ export async function verifyReleaseApproval(
     configurationId: snapshot.configurationId,
     policyId: createHash("sha256").update(JSON.stringify(policy)).digest("hex"),
     files: description.identity.files,
+    automationCommitShas,
   };
   return {
     ...result,
     verificationId: createHash("sha256").update(JSON.stringify(result)).digest("hex"),
   };
+}
+
+export async function auditReleaseExclusion(
+  request: {
+    readonly repository: string;
+    readonly configuration: ReleaseInputConfiguration;
+    readonly policy: ReleaseApprovalPolicy;
+    readonly approval: ReleaseApproval;
+    readonly range: PendingReleaseInspection;
+    readonly token: string;
+  },
+  transport: GitHubRead = fetch,
+): Promise<ReleaseExclusionAudit> {
+  const config = parseReleaseInputConfiguration(request.configuration);
+  const policy = parseReleaseApprovalPolicy(request.policy);
+  const approval = parseReleaseApproval(request.approval);
+  const range = structuredClone(request.range);
+  const repository = request.repository;
+  const verifiedRange = await inspectPendingRelease(
+    repository,
+    range.baseline.kind === "tag" ? { kind: "tag", name: range.baseline.name } : range.baseline,
+    range.sourceCommitSha,
+  );
+
+  if (
+    !range.baselineIsAncestor ||
+    JSON.stringify(range.baseline) !== JSON.stringify(verifiedRange.baseline) ||
+    JSON.stringify(range.commitShas.toSorted()) !== JSON.stringify(verifiedRange.commitShas)
+  )
+    throw new ReleaseApprovalError(
+      "exclusion-invalid",
+      "The supplied audit range differs from actual immutable Git membership.",
+    );
+
+  if (verifiedRange.commitShas.length > 1000)
+    throw new ReleaseApprovalError(
+      "resource-limit",
+      "Exclusion audit supports at most 1000 range commits; history is never truncated.",
+    );
+
+  await inspectPendingRelease(
+    repository,
+    { kind: "bootstrap", commitSha: approval.landingSha },
+    verifiedRange.sourceCommitSha,
+  );
+
+  const verified = await verifyReleaseApproval(
+    { repository, configuration: config, policy, approval, token: request.token },
+    transport,
+  );
+  const members = new Set(verifiedRange.commitShas);
+  const excludedCommitShas = verified.automationCommitShas.filter((commitSha) =>
+    members.has(commitSha),
+  );
+
+  if (
+    excludedCommitShas.length !== 0 &&
+    excludedCommitShas.length !== verified.automationCommitShas.length
+  )
+    throw new ReleaseApprovalError(
+      "exclusion-invalid",
+      "The captured range crosses a verified release footprint; select a complete boundary rather than hiding partial membership.",
+    );
+
+  const excluded = new Set(excludedCommitShas);
+  const result = {
+    schemaVersion: 1 as const,
+    repository: config.repository,
+    releaseBranch: config.releaseBranch,
+    range: verifiedRange,
+    approvalVerificationId: verified.verificationId,
+    pullNumber: approval.pullNumber,
+    landingSha: approval.landingSha,
+    excludedCommitShas,
+    retainedCommitShas: verifiedRange.commitShas.filter((commitSha) => !excluded.has(commitSha)),
+  };
+
+  return { ...result, auditId: createHash("sha256").update(JSON.stringify(result)).digest("hex") };
 }

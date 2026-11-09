@@ -18,6 +18,7 @@ import {
   parseReleaseReview,
   parseReleaseMergeAttestation,
   verifyReleaseApproval,
+  auditReleaseExclusion,
 } from "./release-approval.ts";
 import { prepareReleaseFiles, writeReleaseFiles } from "./proposal-files.ts";
 import {
@@ -46,6 +47,8 @@ const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/ap
   release-log finalize-approval --config FILE --review FILE --attestation FILE
       --policy FILE --repository DIR
   release-log verify-approval --config FILE --approval FILE --policy FILE --repository DIR
+  release-log audit-exclusion --config FILE --approval FILE --policy FILE --repository DIR
+      --source SHA (--baseline-tag TAG | --bootstrap-sha SHA)
   release-log --help | --version
 
 collect makes bounded read-only GitHub.com requests using GITHUB_TOKEN and emits
@@ -61,7 +64,9 @@ finalize-approval binds that stored review to an explicit trusted merge action.
 Both are read-only, require GITHUB_TOKEN and do not authenticate the caller or
 provision trusted storage. verify-approval performs read-only GitHub/Git checks
 using GITHUB_TOKEN and independently trusted approval/policy files; it emits evidence,
-not publication permission. No command merges, publishes, or runs consumer build scripts.
+not publication permission. audit-exclusion verifies the complete generated Git
+footprint and reports excluded/retained commit IDs without changing collection
+or snapshots. No command merges, publishes, or runs consumer build scripts.
 Exit codes: 0 success (including no release), 1 operation failure, 2 usage error.
 `;
 
@@ -107,6 +112,10 @@ async function runCLI(args: readonly string[]): Promise<string> {
     ["capture-review", ["config", "target", "policy", "repository"]],
     ["finalize-approval", ["config", "review", "attestation", "policy", "repository"]],
     ["verify-approval", ["config", "approval", "policy", "repository"]],
+    [
+      "audit-exclusion",
+      ["config", "approval", "policy", "repository", "source", "baseline-tag", "bootstrap-sha"],
+    ],
   ]);
   const allowed = commandOptions.get(command ?? "");
   if (!allowed) throw new UsageError("Unknown command. Use --help for supported commands.");
@@ -216,7 +225,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
     );
   }
 
-  if (command === "verify-approval") {
+  if (command === "verify-approval" || command === "audit-exclusion") {
     const approval = parseReleaseApproval(
       parseReleaseApprovalJSON(await readText(required(options, "approval"), 1024 * 1024)),
     );
@@ -226,7 +235,33 @@ async function runCLI(args: readonly string[]): Promise<string> {
     const repository = required(options, "repository");
     const token = process.env.GITHUB_TOKEN;
     if (!token?.trim())
-      throw new UsageError("verify-approval requires GITHUB_TOKEN with repository/PR read access.");
+      throw new UsageError(`${command} requires GITHUB_TOKEN with repository/PR read access.`);
+
+    if (command === "audit-exclusion") {
+      if (options.has("baseline-tag") === options.has("bootstrap-sha"))
+        throw new UsageError("Select exactly one --baseline-tag or --bootstrap-sha.");
+
+      const baseline = options.has("baseline-tag")
+        ? { kind: "tag" as const, name: required(options, "baseline-tag") }
+        : { kind: "bootstrap" as const, commitSha: required(options, "bootstrap-sha") };
+      const range = await inspectPendingRelease(repository, baseline, required(options, "source"));
+
+      return (
+        JSON.stringify(
+          await auditReleaseExclusion({
+            repository,
+            configuration: config,
+            policy,
+            approval,
+            range,
+            token,
+          }),
+          null,
+          2,
+        ) + "\n"
+      );
+    }
+
     return (
       JSON.stringify(
         await verifyReleaseApproval({ repository, configuration: config, policy, approval, token }),

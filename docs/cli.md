@@ -48,6 +48,8 @@ It requires `GITHUB_TOKEN` with repository/PR read access, accepts no write flag
 
 The same [approval guide](release-approval.md#capture-before-merge-finalize-after-the-trusted-merge-action) describes `capture-review` and `finalize-approval`: capture an explicitly intended open head before merge, then bind the independently stored review to a trusted merge/squash outcome. Both are read-only and emit JSON, not a merge or publication. They do not authenticate the caller or provision protected review/attestation storage.
 
+`audit-exclusion` reports a verified approved automation footprint and retained ordinary commits for an explicit Git range. See the [audit contract](release-approval.md#audit-an-automation-only-exclusion-footprint). It is read-only and does not change collection/snapshot membership or enable release publication.
+
 ## Node and Python version files
 
 `prepareReleaseFiles()` and `writeReleaseFiles()` are the corresponding library APIs. Present root manifests are detected as one release stream:

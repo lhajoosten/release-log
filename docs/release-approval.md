@@ -51,7 +51,7 @@ release-log verify-approval --config release-config.json --approval approved-rel
 
 Supply a repository/PR-read token through `GITHUB_TOKEN`, never in arguments or files. This command makes explicit bounded GitHub.com reads and reads complete local Git history. Fetch required objects/tags in a separately trusted step; verification performs no fetch, checkout, consumer script/backend execution, index/worktree edits, GitHub write, tag or release creation. It does not accept `--write` or `--dry-run`: every invocation is read-only.
 
-The library takes `{ repository, configuration, policy, approval, token }` and an optional HTTP transport. It returns the approval plus release branch, planned version, configuration/policy identities, generated-file digests and a deterministic `verificationId`. Errors use `ReleaseApprovalError` or the existing Git/snapshot/proposal diagnostics. CLI errors omit raw bodies, credentials and unexpected exception details.
+The library takes `{ repository, configuration, policy, approval, token }` and an optional HTTP transport. It returns the approval plus release branch, planned version, configuration/policy identities, generated-file digests, sorted `automationCommitShas` and a deterministic `verificationId` that binds those values. Errors use `ReleaseApprovalError` or the existing Git/snapshot/proposal diagnostics. CLI errors omit raw bodies, credentials and unexpected exception details.
 
 ## Capture before merge, finalize after the trusted merge action
 
@@ -104,6 +104,24 @@ These new input files use the same strict, bounded, duplicate-key-rejecting JSON
 
 **Host boundary remains outstanding:** calling these helpers with self-asserted actor IDs or attacker-controlled target/review/attestation files does not authenticate anything. An integration must authenticate its human review/merge action, bind the exact head, enforce review/check policy and protect immutable storage before enabling publication. No such host workflow or storage is enabled by these helpers.
 
+## Audit an automation-only exclusion footprint
+
+```sh
+release-log audit-exclusion --config release-config.json --approval approved-release.json --policy approval-policy.json --repository . --source FULL_SOURCE_SHA --baseline-tag v1.2.3
+```
+
+For an explicit bootstrap range, replace `--baseline-tag` with `--bootstrap-sha FULL_BASELINE_SHA`. The read-only `auditReleaseExclusion()` API accepts the same repository/configuration/policy/approval/token inputs as verification plus an actual `PendingReleaseInspection` as `range`. Supply the independently trusted approval for this release, not an arbitrary bot/title/marker claim.
+
+The audit verifies the exact landing and every generated proposal commit in its ancestry. For refreshed proposals, each older head must replay under the pinned configuration/tool, reproduce its own source-tree outputs, have the expected marker/parents, and use a source ancestral to the approved final source. An ordinary commit, edited generated output, unrelated file, inconsistent source history or unsupported old capture blocks exclusion even if the newest proposal tree looks correct. Capture/finalization/approval verification also enforce this prior-head validation; a valid final tree alone is insufficient.
+
+A merge footprint consists of those verified generated heads plus the release landing. A squash footprint contains only the landing: unmerged side-branch heads are not part of main membership. Every other range commit remains retained, including legitimate ordinary changes to version/changelog paths. If the range already starts at or after the release landing, no exclusion is needed. A boundary splitting a footprint is rejected rather than silently excluding half of it. A source before the approved landing is rejected.
+
+The schema-1 audit result contains repository/branch, the original verified range, approval-verification ID, PR/landing identity, sorted `excludedCommitShas` and `retainedCommitShas`, and an `auditId`. Their disjoint union equals the captured range. The original range is not rewritten, and this result does not itself modify a snapshot or plan. Verification evidence now includes `automationCommitShas`; older cached verification IDs must be recomputed, not copied into new records. Approval and snapshot input schemas remain unchanged.
+
+Limits: at most 1000 audited range commits, 100 generated commits in the source-to-head graph, 16 MiB of prior snapshot text, and five minutes for prior-head verification, in addition to existing Git/blob/API limits. Missing old tool/configuration compatibility or exceeding a limit requires explicit reviewed recovery; the audit does not truncate or skip history.
+
+**Collection integration is still outstanding.** `collect` continues to reject reserved release-bot PRs with `automation-unverified`. No command accepts an audit JSON/checksum as an unchecked bypass. The next integration must bind independently verified exclusion authority to raw graph evidence and snapshot replay; it must not simply subtract IDs and pretend the original graph is complete. This audit neither advances a completed-release baseline nor enables a controller, release loop, or publication.
+
 ## Verified boundaries
 
 - GitHub must confirm the configured repository, same-repository reserved bot branch/base, exact merged PR head/landing and allowed human merger. Recheck PR metadata, baseline tag and release-branch ancestry before returning.
@@ -119,4 +137,4 @@ On any mismatch, stop and inspect the record, baseline, PR identity and generate
 
 Tests use real temporary Git object graphs with mocked GitHub HTTP: merge/squash landings, Node/Python/mixed manifests, explicit bootstrap, SHA-1/SHA-256 repositories, refreshed proposals, later main commits, pre-landing concurrent changes, altered landing trees, forged identities, changed baselines, incomplete history, invalid/oversized blob inputs, dirty checkouts and concurrent metadata/ref changes. Capture/finalization tests also exercise review-before-merge, refreshed heads, source/head/baseline/body/merge races, explicit attestations, policy changes, dirty worktrees and idempotent merge/squash paths with both object formats. Packed CLI tests load the compiled exports and exercise schema, credential, unsupported-write and sanitized network failures without live requests. This is fixture evidence, not an approved sandbox race run or proof of service/App compatibility.
 
-A digest is **not a signature or standalone publication permission**. Authenticated host review/merge capture and protected storage, review/check enforcement, verified automation-only exclusion (#13/#22), completed-cycle controller reuse (#20/#23), and the approved sandbox merge-to-publication race test remain outstanding. #23 must rerun this gate immediately before any authorized mutation and implement its own retry/partial-publication safeguards; a historical green check cannot authorize a later write. No automatic workflow, live rehearsal/controller run, publication, credentials provisioning or repository-settings change is enabled here.
+A digest is **not a signature or standalone publication permission**. Authenticated host review/merge capture and protected storage, review/check enforcement, collector/snapshot integration of verified automation-only exclusion (#13/#22), completed-cycle controller reuse (#20/#23), and the approved sandbox merge-to-publication race test remain outstanding. #23 must rerun this gate immediately before any authorized mutation and implement its own retry/partial-publication safeguards; a historical green check cannot authorize a later write. No automatic workflow, live rehearsal/controller run, publication, credentials provisioning or repository-settings change is enabled here.
