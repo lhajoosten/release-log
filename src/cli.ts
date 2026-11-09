@@ -12,6 +12,11 @@ import {
   parseReleaseApproval,
   parseReleaseApprovalJSON,
   parseReleaseApprovalPolicy,
+  captureReleaseReview,
+  finalizeReleaseApproval,
+  parseReleaseReviewTarget,
+  parseReleaseReview,
+  parseReleaseMergeAttestation,
   verifyReleaseApproval,
 } from "./release-approval.ts";
 import { prepareReleaseFiles, writeReleaseFiles } from "./proposal-files.ts";
@@ -37,6 +42,9 @@ const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/ap
       (--current-version VERSION | --initial-version 0.1.0) [--dry-run | --write]
   release-log propose --config FILE --snapshot FILE --automation FILE
       (--current-version VERSION | --initial-version 0.1.0) [--dry-run | --write]
+  release-log capture-review --config FILE --target FILE --policy FILE --repository DIR
+  release-log finalize-approval --config FILE --review FILE --attestation FILE
+      --policy FILE --repository DIR
   release-log verify-approval --config FILE --approval FILE --policy FILE --repository DIR
   release-log --help | --version
 
@@ -48,8 +56,11 @@ release). prepare defaults to dry-run and emits plan/files JSON; only --write
 changes fixed local proposal files. It supports package.json and pyproject.toml.
 propose makes explicit GitHub reads; only propose --write creates/refreshes the
 reserved release branch and draft PR. It requires GITHUB_TOKEN and an expected
-numeric bot identity. verify-approval performs read-only GitHub/Git checks using
-GITHUB_TOKEN and independently trusted approval/policy files; it emits evidence,
+numeric bot identity. capture-review records the exact intended open proposal;
+finalize-approval binds that stored review to an explicit trusted merge action.
+Both are read-only, require GITHUB_TOKEN and do not authenticate the caller or
+provision trusted storage. verify-approval performs read-only GitHub/Git checks
+using GITHUB_TOKEN and independently trusted approval/policy files; it emits evidence,
 not publication permission. No command merges, publishes, or runs consumer build scripts.
 Exit codes: 0 success (including no release), 1 operation failure, 2 usage error.
 `;
@@ -93,6 +104,8 @@ async function runCLI(args: readonly string[]): Promise<string> {
     ["render", versionOptions],
     ["prepare", [...versionOptions, "repository", "dry-run", "write"]],
     ["propose", [...versionOptions, "automation", "dry-run", "write"]],
+    ["capture-review", ["config", "target", "policy", "repository"]],
+    ["finalize-approval", ["config", "review", "attestation", "policy", "repository"]],
     ["verify-approval", ["config", "approval", "policy", "repository"]],
   ]);
   const allowed = commandOptions.get(command ?? "");
@@ -155,6 +168,54 @@ async function runCLI(args: readonly string[]): Promise<string> {
       ),
     );
   }
+
+  if (command === "capture-review" || command === "finalize-approval") {
+    const policy = parseReleaseApprovalPolicy(
+      parseReleaseApprovalJSON(await readText(required(options, "policy"), 1024 * 1024)),
+    );
+    const repository = required(options, "repository");
+    const token = process.env.GITHUB_TOKEN;
+
+    if (!token?.trim())
+      throw new UsageError(`${command} requires GITHUB_TOKEN with repository/PR read access.`);
+
+    if (command === "capture-review") {
+      const target = parseReleaseReviewTarget(
+        parseReleaseApprovalJSON(await readText(required(options, "target"), 1024 * 1024)),
+      );
+
+      return (
+        JSON.stringify(
+          await captureReleaseReview({ repository, configuration: config, policy, target, token }),
+          null,
+          2,
+        ) + "\n"
+      );
+    }
+
+    const review = parseReleaseReview(
+      parseReleaseApprovalJSON(await readText(required(options, "review"), 1024 * 1024)),
+    );
+    const attestation = parseReleaseMergeAttestation(
+      parseReleaseApprovalJSON(await readText(required(options, "attestation"), 1024 * 1024)),
+    );
+
+    return (
+      JSON.stringify(
+        await finalizeReleaseApproval({
+          repository,
+          configuration: config,
+          policy,
+          review,
+          attestation,
+          token,
+        }),
+        null,
+        2,
+      ) + "\n"
+    );
+  }
+
   if (command === "verify-approval") {
     const approval = parseReleaseApproval(
       parseReleaseApprovalJSON(await readText(required(options, "approval"), 1024 * 1024)),

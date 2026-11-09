@@ -4,7 +4,7 @@
 
 ## Trusted inputs
 
-Run trusted pinned tool code with the existing [snapshot configuration](release-snapshot.md), an explicit approval policy, and a separately recorded approval. **Policy and approval must come from owner/host-controlled storage outside the proposal's control.** Never load them from the proposal branch, its PR body, an arbitrary artifact, or a self-reported `valid: true` result. This component does not provision that storage, collect human review, or authenticate an uploaded approval file.
+Run trusted pinned tool code with the existing [snapshot configuration](release-snapshot.md), an explicit approval policy, and a separately recorded approval. **Policy and approval must come from owner/host-controlled storage outside the proposal's control.** Never load them from the proposal branch, its PR body, an arbitrary artifact, or a self-reported `valid: true` result. The capture/finalization helpers below produce records from explicitly supplied trusted host inputs, but do not provision storage, authenticate the caller, collect human review, or authenticate an uploaded file.
 
 The policy contains exactly:
 
@@ -53,6 +53,57 @@ Supply a repository/PR-read token through `GITHUB_TOKEN`, never in arguments or 
 
 The library takes `{ repository, configuration, policy, approval, token }` and an optional HTTP transport. It returns the approval plus release branch, planned version, configuration/policy identities, generated-file digests and a deterministic `verificationId`. Errors use `ReleaseApprovalError` or the existing Git/snapshot/proposal diagnostics. CLI errors omit raw bodies, credentials and unexpected exception details.
 
+## Capture before merge, finalize after the trusted merge action
+
+`captureReleaseReview()` and `finalizeReleaseApproval()` are also exported from `release-log/approval`. Both commands below are read-only. They emit JSON to stdout; the trusted host must persist it outside proposal-controlled storage. Neither command creates a PR, performs a merge, or publishes anything.
+
+### 1. Capture the intended reviewed head
+
+The host authenticates the human actor and records the exact head the person intends to review. Supply a target file containing exactly:
+
+```json
+{
+  "schemaVersion": 1,
+  "pullNumber": 1,
+  "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "approverUserId": 7
+}
+```
+
+```sh
+release-log capture-review --config release-config.json --policy approval-policy.json --target review-target.json --repository .
+```
+
+The library accepts `{ repository, configuration, policy, target, token }` and an optional HTTP transport. It requires the exact intended open bot PR/head, validates local captured Git membership, and reuses the controller's exact generated-tree/metadata verification with writes explicitly disabled. Main must still equal the snapshot source. It rechecks source, proposal ref, baseline tag and PR metadata before returning. It refuses to capture a merged PR retrospectively or silently follow a refreshed head.
+
+The resulting schema-1 review record contains the target fields plus `repositoryId`, `sourceSha`, `baseline`, `snapshotId`, `proposalId`, `configurationId`, and `policyId`. Store those bytes independently before the merge. Refreshing the proposal requires a new explicit head and review; do not update an existing stored review in place to manufacture approval. A successful capture verifies the proposal data, not that the named person actually reviewed it, required checks passed, or branch protection was enforced.
+
+### 2. Bind the stored review to a trusted merge outcome
+
+After an authorized merge, the host supplies a separately trusted action/response attestation containing exactly:
+
+```json
+{
+  "schemaVersion": 1,
+  "repositoryId": 17,
+  "pullNumber": 1,
+  "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "approverUserId": 7,
+  "landingSha": "cccccccccccccccccccccccccccccccccccccccc",
+  "mergeKind": "merge"
+}
+```
+
+```sh
+release-log finalize-approval --config release-config.json --policy approval-policy.json --review stored-review.json --attestation trusted-merge.json --repository .
+```
+
+The library accepts `{ repository, configuration, policy, review, attestation, token }` and an optional HTTP transport. The repository/PR/head/actor must match the stored review. The explicit merge method is never guessed from Git parents or generic PR metadata. Finalization reruns the existing landing verifier, including actual human merger, exact parents/tree/files, source freshness and final rechecks, and requires the configuration/policy identities to match the capture. It emits the existing schema-1 approval record, consumable by `verify-approval`. It does not turn a changed policy, refreshed head or stale landing into a new approval.
+
+These new input files use the same strict, bounded, duplicate-key-rejecting JSON handling. Unknown fields, missing/inferred/rebase merge methods and mismatched identities fail. Later main descendants never change the returned landing. Publication must still rerun verification at mutation time; finalized JSON is not a durable authorization token or proof that a remote write happened.
+
+**Host boundary remains outstanding:** calling these helpers with self-asserted actor IDs or attacker-controlled target/review/attestation files does not authenticate anything. An integration must authenticate its human review/merge action, bind the exact head, enforce review/check policy and protect immutable storage before enabling publication. No such host workflow or storage is enabled by these helpers.
+
 ## Verified boundaries
 
 - GitHub must confirm the configured repository, same-repository reserved bot branch/base, exact merged PR head/landing and allowed human merger. Recheck PR metadata, baseline tag and release-branch ancestry before returning.
@@ -66,6 +117,6 @@ On any mismatch, stop and inspect the record, baseline, PR identity and generate
 
 ## Evidence and remaining gates
 
-Tests use real temporary Git object graphs with mocked GitHub HTTP: merge/squash landings, Node/Python/mixed manifests, explicit bootstrap, SHA-1/SHA-256 repositories, refreshed proposals, later main commits, pre-landing concurrent changes, altered landing trees, forged identities, changed baselines, incomplete history, invalid/oversized blob inputs, dirty checkouts and concurrent metadata/ref changes. Packed CLI tests load the compiled export and exercise schema, credential, unsupported-write and sanitized network failures without live requests. This is fixture evidence, not an approved sandbox race run or proof of service/App compatibility.
+Tests use real temporary Git object graphs with mocked GitHub HTTP: merge/squash landings, Node/Python/mixed manifests, explicit bootstrap, SHA-1/SHA-256 repositories, refreshed proposals, later main commits, pre-landing concurrent changes, altered landing trees, forged identities, changed baselines, incomplete history, invalid/oversized blob inputs, dirty checkouts and concurrent metadata/ref changes. Capture/finalization tests also exercise review-before-merge, refreshed heads, source/head/baseline/body/merge races, explicit attestations, policy changes, dirty worktrees and idempotent merge/squash paths with both object formats. Packed CLI tests load the compiled exports and exercise schema, credential, unsupported-write and sanitized network failures without live requests. This is fixture evidence, not an approved sandbox race run or proof of service/App compatibility.
 
-A digest is **not a signature or standalone publication permission**. Trusted approval capture/storage, review/check enforcement, verified automation-only exclusion (#13/#22), completed-cycle controller reuse (#20/#23), and the approved sandbox merge-to-publication race test remain outstanding. #23 must rerun this gate immediately before any authorized mutation and implement its own retry/partial-publication safeguards; a historical green check cannot authorize a later write. No automatic workflow, live rehearsal/controller run, publication, credentials provisioning or repository-settings change is enabled here.
+A digest is **not a signature or standalone publication permission**. Authenticated host review/merge capture and protected storage, review/check enforcement, verified automation-only exclusion (#13/#22), completed-cycle controller reuse (#20/#23), and the approved sandbox merge-to-publication race test remain outstanding. #23 must rerun this gate immediately before any authorized mutation and implement its own retry/partial-publication safeguards; a historical green check cannot authorize a later write. No automatic workflow, live rehearsal/controller run, publication, credentials provisioning or repository-settings change is enabled here.

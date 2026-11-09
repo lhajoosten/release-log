@@ -46,6 +46,8 @@ release-log verify-approval --config release-config.json --approval approved-rel
 
 It requires `GITHUB_TOKEN` with repository/PR read access, accepts no write flag, and emits verification evidence rather than publication permission. Approval/policy storage and the recorded merge method must be independently trusted; do not source them from the proposal branch.
 
+The same [approval guide](release-approval.md#capture-before-merge-finalize-after-the-trusted-merge-action) describes `capture-review` and `finalize-approval`: capture an explicitly intended open head before merge, then bind the independently stored review to a trusted merge/squash outcome. Both are read-only and emit JSON, not a merge or publication. They do not authenticate the caller or provision protected review/attestation storage.
+
 ## Node and Python version files
 
 `prepareReleaseFiles()` and `writeReleaseFiles()` are the corresponding library APIs. Present root manifests are detected as one release stream:
