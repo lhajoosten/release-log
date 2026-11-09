@@ -35,11 +35,11 @@ export function checkInventory(value: unknown) {
   if (
     !node ||
     typeof node.version !== "string" ||
-    !packages.some((pkg) => pkg.type === "deb") ||
+    !packages.some((pkg) => pkg.type === "deb" || pkg.type === "apk") ||
     !packages.some((pkg) => pkg.type === "npm" && pkg.name === "@commitlint/lint")
   )
     throw new Error(
-      "Incomplete inventory: require Debian, Node binary and production npm packages.",
+      "Incomplete inventory: require Debian/Alpine, Node binary and production npm packages.",
     );
   const nodeVersion = node.version;
   if (

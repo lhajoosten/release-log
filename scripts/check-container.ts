@@ -203,6 +203,17 @@ try {
     `${uid}:${gid}`,
     "node",
   );
+  const expectedNode = (await readFile(join(root, ".node-version"), "utf8")).trim();
+  await run(
+    [
+      "--input-type=module",
+      "-e",
+      `import assert from "node:assert/strict"; import { existsSync, readFileSync } from "node:fs"; const os = readFileSync("/etc/os-release", "utf8"); assert.match(os, /^ID=alpine$/m); assert.match(readFileSync("/etc/alpine-release", "utf8"), /^3\\.24\\./); assert.equal(process.version, ${JSON.stringify(`v${expectedNode}`)}); assert.equal(existsSync("/tmp/release-log-apks"), false);`,
+    ],
+    false,
+    `${uid}:${gid}`,
+    "node",
+  );
   const args = [
     "--config",
     "/workspace/config.json",

@@ -1,8 +1,35 @@
 # Container vulnerability review — 2026-11-09
 
-**Disposition: blocked.** Scanning and removal of unused package managers are implemented locally; the current Bookworm image still has High/Critical OS matches. This does not close [#21](https://github.com/lhajoosten/release-log/issues/21), authorize publication, or establish private-registry access. These are scanner findings, not independently reproduced exploitability claims.
+**Current local disposition: vulnerability threshold passed, private access/publication pending.** The locked Alpine build below has no High/Critical/Unknown matches with the recorded database; three Medium BusyBox matches remain visible. This does not close [#21](https://github.com/lhajoosten/release-log/issues/21), authorize publication, or establish private-registry access. These are scanner findings, not independently reproduced exploitability claims.
 
-## Inputs and evidence
+## Locked Alpine remediation
+
+The follow-up keeps Node 26.13.0 and the packaged CLI, but replaces Debian/glibc with Alpine/musl. Git 2.54.0, musl 1.2.6-r3, libcurl 8.23.0-r0, OpenSSL libraries 3.5.9-r0 and zlib 1.4-r0 are among the 21 archives in `container/apk-lock.json` (lock SHA-256 `d2956db8e5b01ff084387c5721fea211085f9db1a02a0f082cc88008ed97853c`). Package filenames and bytes are pinned; the Docker build installs them offline with signature verification and RUN networking disabled. No advisory ignore rule or severity threshold was weakened. See the [runtime/pinning tradeoffs](container.md#build-from-locked-inputs), especially musl compatibility and upstream APK availability.
+
+| Local candidate                             | Critical | High | Medium | Gate | Disposition                                                          |
+| ------------------------------------------- | -------: | ---: | -----: | ---- | -------------------------------------------------------------------- |
+| Bookworm after npm removal                  |       10 |   83 |     96 | fail | Historical baseline below                                            |
+| Trixie, signed 20261108 snapshot + upgrades |        8 |   99 |     73 | fail | Rejected as a remediation; Docker smoke passed but findings remained |
+| Alpine initial evaluation                   |        1 |    0 |      3 | fail | zlib 1.3.2-r1 matched CVE-2026-4738; DB supplied fixed 1.4-r0        |
+| Alpine with locked APK closure              |        0 |    0 |      3 | pass | Patched zlib; real Docker smoke passed                               |
+
+The locked scan ran at **2026-11-09 13:57:42 UTC**, using the same Syft 1.57.0 / Grype 0.121.2 / DB v6.1.10 identities recorded below, and inventoried **122 packages**, including the independent Node binary/CPE and installed production npm tree. Runtime smoke measured **324,924,811 bytes** and passed existing Node/Python offline planning/rendering/writes, UID/mount/safe-directory/failure/no-consumer-execution checks plus Alpine 3.24, unchanged Node version, absent package managers and absent runtime APK staging directory.
+
+| Locked-image evidence    | Identity                                                                  |
+| ------------------------ | ------------------------------------------------------------------------- |
+| Build source             | `78f2ac3` plus the local container-only Alpine/lock/build/scan changes    |
+| Local tag                | `release-log-security:alpine-locked`                                      |
+| Image/index ID           | `sha256:5f9a8ae1a6aaa34a258106d09386f2dcba03bb0a66f9b241d9451b9aa87104d9` |
+| Exported archive SHA-256 | `481e12dfc7c00ef1c9518cc9558e358b8d936dd31fa3d8da10598df2abb6e1d3`        |
+| SBOM SHA-256             | `e8d02ff894fe215e0ebeca7b47d4ba9be6d1c54a3356fa6ac0b52b276d10b7ba`        |
+| Findings report SHA-256  | `6be76579a43e26c30d1aa77b72d79562e53c63a8d86d3c42c13d85a184741763`        |
+| Raw local evidence       | `.local/security-alpine-locked/` in the container-base worktree           |
+
+Remaining matches: **CVE-2025-60876**, Medium, for `busybox`, `busybox-binsh` and `ssl_client`, each 1.37.0-r31. This database lists no fixed version. They remain in the full report under the existing Medium-review policy, not a new ignore list; continue monitoring upstream updates and rescan before release. No claim that they are unreachable or independently reproduced is made. A passing scan covers this image and database only, not all native libraries bundled into Node or future advisories.
+
+Other evaluation evidence remains in `.local/security-trixie/` and `.local/security-alpine/` in the same worktree. Neither candidate was published. Alpine CI evidence must be observed separately; no approved online collection/release or private-registry pull is implied by offline smoke tests.
+
+## Historical Bookworm inputs and evidence
 
 Both images were built locally from the packaged CLI at main `c3680a5d8e6e8a85ae65e7c1faaadddb0857aac7`; the second additionally removes npm/npx/Yarn in `container/Dockerfile`. No release-state code or package/lock files changed. Runtime: Node 26.13.0, Git 2.39.5, CLI 0.0.0, Linux/amd64. Base/snapshot pins are in the [container guide](container.md).
 
@@ -26,9 +53,9 @@ Scanner release archives (Linux/amd64):
 - [Grype 0.121.2](https://github.com/anchore/grype/releases/tag/v0.121.2), SHA-256 `9c8965ced9df657e5e851c14021bae838802f711edd7a48f9bc3c923a8d28f12`.
 - Both runs used Grype DB schema **v6.1.10**, built **2026-11-08 06:19:57 UTC**, archive `vulnerability-db_v6.1.10_2026-11-08T00:22:04Z_1794118797.tar.zst` from `https://grype.anchore.io/databases/v6/`, archive checksum `sha256:dcca24722e16c2bcf4a542a3f7fdd2147baf9215c17b973f5a7d4243fbddacea`. Grype reported valid database status with hash/age validation enabled.
 
-Raw local evidence remains in `.local/security-baseline/` and `.local/security-hardened/` in the security worktree, not in Git. The CI workflow will produce its own downloadable reports when run; **no CI scan run is claimed here**. Reproduce with the [documented scan command](container.md#vulnerability-gate) and a new output directory; current databases may change findings.
+Raw local evidence remains in `.local/security-baseline/` and `.local/security-hardened/` in the security worktree, not in Git. The initial Bookworm CI scan also failed as expected on [PR #48](https://github.com/lhajoosten/release-log/pull/48) ([run](https://github.com/lhajoosten/release-log/actions/runs/42628286137)); its ordinary verification, metadata and Docker checks passed. This does not establish Alpine CI results. Reproduce with the [documented scan command](container.md#vulnerability-gate) and a new output directory; current databases may change findings.
 
-## Remediation and coverage
+## Historical package-manager remediation and coverage
 
 Every baseline npm match came from `/usr/local/lib/node_modules/npm/node_modules/`, not `/opt/release-log/node_modules/`. The CLI does not install packages at runtime, so its image now removes npm/npx and Yarn rather than patching unused dependencies or changing the shared lockfile. This removes six High matches (`brace-expansion` and `undici`), twelve Medium matches and one Low match from the installed filesystem. Examples: [GHSA-qhr7-859c-m2p7](https://github.com/advisories/GHSA-qhr7-859c-m2p7), [GHSA-6j4f-fj2g-mc7p](https://github.com/advisories/GHSA-6j4f-fj2g-mc7p), [GHSA-xjj6-f33q-929c](https://github.com/advisories/GHSA-xjj6-f33q-929c). Lower inherited layers still contain the original bytes; this is not a smaller or rewritten base image.
 
@@ -36,7 +63,7 @@ The hardened SBOM contains the Node **26.13.0 binary** at `/usr/local/bin/node`,
 
 Real `pnpm check:container` passed after removal, including help/version, offline planning/rendering, Node/Python writes, UID/mount/ownership/error paths and explicit package-manager absence. Application behavior did not need npm or Yarn.
 
-## Remaining blockers
+## Historical Bookworm blockers
 
 All High/Critical matches below are in `debian:distro:debian:12`; the database lists **no fixed version** for them. `not-fixed` and `wont-fix` are database dispositions, not accepted risk waivers.
 
@@ -58,4 +85,4 @@ All High/Critical matches below are in `debian:distro:debian:12`; the database l
 
 Critical IDs: `libcurl3-gnutls` — CVE-2026-19931, CVE-2026-11856, CVE-2026-92388, CVE-2026-86414, CVE-2026-8924, CVE-2026-10536, CVE-2026-18924, CVE-2026-8927; both glibc packages — CVE-2026-5450. Raw reports retain full identifiers, package locations, matching evidence and advisory links for every severity.
 
-Do not suppress these matches globally, remove required Git/glibc libraries, or assume network-disabled smoke tests prove online collection is unaffected. The next remediation is to evaluate a maintained base/distribution and updated signed snapshot together, assess the advisory matches and compatibility, then rebuild, smoke-test and rescan. A distro/runtime migration was not bundled into this scanning slice. Publication remains blocked until findings are resolved or an explicitly reviewed, narrowly documented risk decision changes the policy. Private-registry authentication remains separately pending; no image was pushed and no credentials/visibility/settings changed.
+These historical findings motivated the tested Alpine/musl migration above rather than a global ignore rule or removal of required libraries. Offline smoke tests do not prove online collection or registry authorization. Private-registry authentication and approved publication remain separately pending; no image was pushed and no credentials/visibility/settings changed.
