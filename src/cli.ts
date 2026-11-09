@@ -23,6 +23,11 @@ import {
 } from "./release-approval.ts";
 import { prepareReleaseFiles, writeReleaseFiles } from "./proposal-files.ts";
 import {
+  inspectReleasePublication,
+  parsePublicationPolicy,
+  parsePublicationReceipt,
+} from "./release-publication.ts";
+import {
   captureReleaseSnapshot,
   parseReleaseInputConfiguration,
   serializeReleaseSnapshot,
@@ -50,6 +55,8 @@ const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/ap
   release-log verify-approval --config FILE --approval FILE --policy FILE --repository DIR
   release-log audit-exclusion --config FILE --approval FILE --policy FILE --repository DIR
       --source SHA (--baseline-tag TAG | --bootstrap-sha SHA)
+  release-log inspect-publication --config FILE --approval FILE --policy FILE
+      --publication-policy FILE --receipt FILE --repository DIR
   release-log --help | --version
 
 collect makes bounded read-only GitHub.com requests using GITHUB_TOKEN and emits
@@ -70,7 +77,10 @@ using GITHUB_TOKEN and independently trusted approval/policy files; it emits evi
 not publication permission. audit-exclusion verifies the complete generated Git
 footprint and reports excluded/retained commit IDs. collect --exclusions requires
 independently trusted approval authorities and matching configuration pins;
-it freshly verifies exclusions while retaining the complete raw graph in schema-4 snapshots. No command merges, publishes, or runs consumer build scripts.
+it freshly verifies exclusions while retaining the complete raw graph in schema-4 snapshots.
+inspect-publication reads tag/Release/artifact state and emits a reconciliation
+plan without writes. Images require a separate GHCR_READ_TOKEN registry bearer.
+No command merges, publishes, or runs consumer build scripts.
 Exit codes: 0 success (including no release), 1 operation failure, 2 usage error.
 `;
 
@@ -116,6 +126,10 @@ async function runCLI(args: readonly string[]): Promise<string> {
     ["capture-review", ["config", "target", "policy", "repository"]],
     ["finalize-approval", ["config", "review", "attestation", "policy", "repository"]],
     ["verify-approval", ["config", "approval", "policy", "repository"]],
+    [
+      "inspect-publication",
+      ["config", "approval", "policy", "publication-policy", "receipt", "repository"],
+    ],
     [
       "audit-exclusion",
       ["config", "approval", "policy", "repository", "source", "baseline-tag", "bootstrap-sha"],
@@ -240,7 +254,11 @@ async function runCLI(args: readonly string[]): Promise<string> {
     );
   }
 
-  if (command === "verify-approval" || command === "audit-exclusion") {
+  if (
+    command === "verify-approval" ||
+    command === "audit-exclusion" ||
+    command === "inspect-publication"
+  ) {
     const approval = parseReleaseApproval(
       parseReleaseApprovalJSON(await readText(required(options, "approval"), 1024 * 1024)),
     );
@@ -251,6 +269,35 @@ async function runCLI(args: readonly string[]): Promise<string> {
     const token = process.env.GITHUB_TOKEN;
     if (!token?.trim())
       throw new UsageError(`${command} requires GITHUB_TOKEN with repository/PR read access.`);
+
+    if (command === "inspect-publication") {
+      const publicationPolicy = parsePublicationPolicy(
+        parseReleaseApprovalJSON(
+          await readText(required(options, "publication-policy"), 1024 * 1024),
+        ),
+      );
+      const receipt = parsePublicationReceipt(
+        parseReleaseApprovalJSON(await readText(required(options, "receipt"), 1024 * 1024)),
+      );
+      const registryToken = process.env.GHCR_READ_TOKEN;
+
+      return (
+        JSON.stringify(
+          await inspectReleasePublication({
+            repository,
+            configuration: config,
+            approvalPolicy: policy,
+            approval,
+            publicationPolicy,
+            receipt,
+            token,
+            ...(registryToken === undefined ? {} : { registryToken }),
+          }),
+          null,
+          2,
+        ) + "\n"
+      );
+    }
 
     if (command === "audit-exclusion") {
       if (options.has("baseline-tag") === options.has("bootstrap-sha"))
@@ -347,6 +394,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
           "GitInspectionError",
           "ProposalConflictError",
           "ReleaseApprovalError",
+          "ReleasePublicationError",
         ].includes(error.name));
     process.stderr.write(
       `release-log: ${supported ? error.message : "operation failed; check input files, permissions, and repository access."}\n`,

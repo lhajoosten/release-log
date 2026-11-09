@@ -16,7 +16,8 @@
   "exports": {
     ".": "./dist/src/release-plan.js",
     "./proposals": "./dist/src/release-proposal.js",
-    "./approval": "./dist/src/release-approval.js"
+    "./approval": "./dist/src/release-approval.js",
+    "./publication": "./dist/src/release-publication.js"
   },
   "scripts": {
     "build": "node scripts/build.ts",
