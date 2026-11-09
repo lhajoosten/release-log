@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
+import { constants } from "node:fs";
+import { lstat, open, realpath } from "node:fs/promises";
+import { join, resolve } from "node:path";
 
 import { renderChangelog } from "./changelog.ts";
 import { inspectGitTree, readGitBlob } from "./git.ts";
 import { GitHubProposalRepository, proposalObject, proposalSha } from "./github-proposals.ts";
-import { GitHubReadError } from "./github.ts";
+import { GitHubReadError, requestGitHubJson } from "./github.ts";
 import type { GitHubRead } from "./github.ts";
 import {
   parseReleaseApproval,
@@ -20,7 +23,8 @@ export class ReleasePublicationError extends Error {
     | "conflict"
     | "incomplete-evidence"
     | "resource-limit"
-    | "read-failed";
+    | "read-failed"
+    | "write-failed";
 
   constructor(code: ReleasePublicationError["code"], message: string) {
     super(message);
@@ -431,17 +435,47 @@ async function registryImage(
   return actual;
 }
 
+export interface PublicationRequest {
+  readonly repository: string;
+  readonly configuration: ReleaseInputConfiguration;
+  readonly approvalPolicy: ReleaseApprovalPolicy;
+  readonly approval: ReleaseApproval;
+  readonly publicationPolicy: PublicationPolicy;
+  readonly receipt: PublicationReceipt;
+  readonly token: string;
+  readonly registryToken?: string;
+}
+
+async function publicationNotes(
+  repository: string,
+  configuration: ReleaseInputConfiguration,
+  approval: ReleaseApproval,
+): Promise<string> {
+  const tree = await inspectGitTree(repository, approval.landingSha);
+  const captured = tree.entries.get(".release-log/inputs.json");
+
+  if (!captured || captured.type !== "blob" || !["100644", "100755"].includes(captured.mode))
+    return fail(
+      "incomplete-evidence",
+      "The approved landing is missing its ordinary captured-input file.",
+    );
+
+  const notes = await renderChangelog(
+    await readGitBlob(repository, captured.sha),
+    configuration,
+    approval.baseline.kind === "tag"
+      ? { kind: "released", currentVersion: approval.baseline.name.slice(1) }
+      : { kind: "bootstrap", initialVersion: "0.1.0" },
+  );
+
+  if (notes === null)
+    return fail("conflict", "A no-release plan cannot enter publication reconciliation.");
+
+  return notes;
+}
+
 export async function inspectReleasePublication(
-  request: {
-    readonly repository: string;
-    readonly configuration: ReleaseInputConfiguration;
-    readonly approvalPolicy: ReleaseApprovalPolicy;
-    readonly approval: ReleaseApproval;
-    readonly publicationPolicy: PublicationPolicy;
-    readonly receipt: PublicationReceipt;
-    readonly token: string;
-    readonly registryToken?: string;
-  },
+  request: PublicationRequest,
   transport: GitHubRead = fetch,
 ): Promise<PublicationInspection> {
   const config = parseReleaseInputConfiguration(request.configuration);
@@ -494,25 +528,7 @@ export async function inspectReleasePublication(
       "The build receipt is not bound to the freshly verified approval identity.",
     );
 
-  const tree = await inspectGitTree(repository, approval.landingSha);
-  const captured = tree.entries.get(".release-log/inputs.json");
-
-  if (!captured || captured.type !== "blob" || !["100644", "100755"].includes(captured.mode))
-    return fail(
-      "incomplete-evidence",
-      "The approved landing is missing its ordinary captured-input file.",
-    );
-
-  const notes = await renderChangelog(
-    await readGitBlob(repository, captured.sha),
-    config,
-    approval.baseline.kind === "tag"
-      ? { kind: "released", currentVersion: approval.baseline.name.slice(1) }
-      : { kind: "bootstrap", initialVersion: "0.1.0" },
-  );
-
-  if (notes === null)
-    return fail("conflict", "A no-release plan cannot enter publication reconciliation.");
+  const notes = await publicationNotes(repository, config, approval);
 
   const tag = `v${verified.version}`;
   const api = new GitHubProposalRepository(config, approvalPolicy.botUserId, token, read);
@@ -664,4 +680,411 @@ export async function inspectReleasePublication(
   };
 
   return { ...result, inspectionId: digest(JSON.stringify(result)) };
+}
+
+export interface GitHubPublicationRequest extends PublicationRequest {
+  readonly assetDirectory: string;
+  readonly write?: boolean;
+}
+
+export interface GitHubPublicationExecution {
+  readonly schemaVersion: 1;
+  readonly mode: "dry-run" | "write";
+  readonly performed: readonly PublicationAction[];
+  readonly inspection: PublicationInspection;
+}
+
+async function publicationAssets(
+  directory: string,
+  receipt: PublicationReceipt,
+): Promise<ReadonlyMap<string, Uint8Array<ArrayBuffer>>> {
+  if (
+    receipt.assets.some((asset) => asset.size > 64 * 1024 * 1024) ||
+    receipt.assets.reduce((total, asset) => total + asset.size, 0) > 128 * 1024 * 1024
+  )
+    return fail("resource-limit", "Publication assets exceed 64 MiB per file or 128 MiB total.");
+
+  const assets = new Map<string, Uint8Array<ArrayBuffer>>();
+
+  try {
+    const root = resolve(directory);
+
+    if (!(await lstat(root)).isDirectory() || (await realpath(root)) !== root)
+      return fail(
+        "invalid-input",
+        "Publication assets require an ordinary directory without symlink parents.",
+      );
+
+    for (const asset of receipt.assets) {
+      const path = join(root, asset.name);
+
+      if (!(await lstat(path)).isFile())
+        return fail(
+          "invalid-input",
+          "Publication assets must be ordinary files, not links or special files.",
+        );
+
+      const handle = await open(
+        path,
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      );
+
+      try {
+        const before = await handle.stat();
+
+        if (!before.isFile() || before.size !== asset.size)
+          return fail(
+            "conflict",
+            "Local publication asset size differs from its trusted build receipt.",
+          );
+
+        // Keep the exact verified bytes in memory; never reopen a path for upload.
+        const bytes = new Uint8Array(asset.size + 1);
+        let offset = 0;
+
+        while (offset < bytes.length) {
+          const read = await handle.read(bytes, offset, bytes.length - offset, offset);
+
+          if (read.bytesRead === 0) break;
+          offset += read.bytesRead;
+        }
+
+        const after = await handle.stat();
+        const payload = bytes.subarray(0, asset.size);
+
+        if (
+          offset !== asset.size ||
+          after.size !== before.size ||
+          after.mtimeMs !== before.mtimeMs ||
+          after.ctimeMs !== before.ctimeMs ||
+          createHash("sha256").update(payload).digest("hex") !== asset.sha256
+        )
+          return fail(
+            "conflict",
+            "Local publication asset changed or differs from its trusted build digest.",
+          );
+
+        assets.set(asset.name, payload);
+      } finally {
+        await handle.close();
+      }
+    }
+  } catch (error) {
+    if (error instanceof ReleasePublicationError) throw error;
+    return fail(
+      "invalid-input",
+      "Cannot read ordinary publication assets; verify the directory and file permissions.",
+    );
+  }
+
+  return assets;
+}
+
+async function uploadPublicationAsset(
+  url: string,
+  token: string,
+  bytes: Uint8Array<ArrayBuffer>,
+  transport: GitHubRead,
+): Promise<unknown> {
+  try {
+    const response = await transport(url, {
+      method: "POST",
+      body: bytes,
+      redirect: "error",
+      signal: AbortSignal.timeout(60_000),
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/octet-stream",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "release-log-publication",
+      },
+    });
+
+    if (response.status !== 201 || !response.body) {
+      await response.body?.cancel();
+      return fail(
+        "write-failed",
+        `Release asset upload rejected or uncertain (HTTP ${response.status}); inspect remote state before retrying, and check contents write permissions or rate limits.`,
+      );
+    }
+
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+
+    try {
+      for (;;) {
+        const part = await reader.read();
+
+        if (part.done) break;
+        size += part.value.byteLength;
+
+        if (size > 4 * 1024 * 1024) {
+          await reader.cancel();
+          return fail(
+            "write-failed",
+            "Release asset upload returned oversized evidence; inspect remote state before retrying.",
+          );
+        }
+
+        chunks.push(part.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
+  } catch (error) {
+    if (error instanceof ReleasePublicationError) throw error;
+    return fail(
+      "write-failed",
+      "Release asset upload failed, timed out or returned incomplete evidence; inspect remote state before retrying. Redirects are not followed.",
+    );
+  }
+}
+
+function publicationProgress(
+  before: PublicationInspection,
+  after: PublicationInspection,
+  action: PublicationAction,
+  response: Record<string, unknown>,
+): void {
+  const oldRelease = before.state.release;
+  const newRelease = after.state.release;
+
+  if (
+    before.approvalVerificationId !== after.approvalVerificationId ||
+    before.receiptId !== after.receiptId ||
+    before.publicationPolicyId !== after.publicationPolicyId ||
+    (before.state.tag !== null &&
+      JSON.stringify(before.state.tag) !== JSON.stringify(after.state.tag)) ||
+    JSON.stringify(before.state.images) !== JSON.stringify(after.state.images) ||
+    (oldRelease !== null &&
+      (newRelease === null ||
+        newRelease.id !== oldRelease.id ||
+        (!oldRelease.draft && newRelease.draft) ||
+        oldRelease.assetIds.some(
+          (asset) =>
+            !newRelease.assetIds.some(
+              (entry) => entry.name === asset.name && entry.id === asset.id,
+            ),
+        )))
+  )
+    return fail(
+      "conflict",
+      "Previously verified publication state changed during execution; stop and reconcile without overwriting it.",
+    );
+
+  const progressed =
+    action.kind === "create-tag"
+      ? after.state.tag?.objectSha === action.commitSha
+      : action.kind === "create-draft-release"
+        ? newRelease !== null && newRelease.id === response.id && newRelease.draft
+        : action.kind === "upload-asset"
+          ? newRelease?.assetIds.some(
+              (asset) => asset.name === action.name && asset.id === response.id,
+            )
+          : action.kind === "publish-release"
+            ? newRelease !== null && newRelease.id === action.releaseId && !newRelease.draft
+            : false;
+
+  if (!progressed)
+    return fail(
+      "write-failed",
+      "The publication write was not confirmed by fresh remote evidence; inspect remote state before retrying.",
+    );
+}
+
+export async function publishGitHubRelease(
+  request: GitHubPublicationRequest,
+  transport: GitHubRead = fetch,
+): Promise<GitHubPublicationExecution> {
+  if (request.write !== undefined && typeof request.write !== "boolean")
+    return fail("invalid-input", "Publication requires an explicit boolean write option.");
+  if (typeof request.assetDirectory !== "string" || !request.assetDirectory.trim())
+    return fail("invalid-input", "Configure the local publication asset directory explicitly.");
+
+  const write = request.write === true;
+  const input: PublicationRequest = {
+    repository: request.repository,
+    configuration: parseReleaseInputConfiguration(request.configuration),
+    approvalPolicy: parseReleaseApprovalPolicy(request.approvalPolicy),
+    approval: parseReleaseApproval(request.approval),
+    publicationPolicy: parsePublicationPolicy(request.publicationPolicy),
+    receipt: parsePublicationReceipt(request.receipt),
+    token: request.token,
+    ...(request.registryToken === undefined ? {} : { registryToken: request.registryToken }),
+  };
+  const assets = await publicationAssets(request.assetDirectory, input.receipt);
+  const signal = AbortSignal.timeout(900_000);
+  const deadline = Date.now() + 900_000;
+  let requests = 0;
+  const bounded: GitHubRead = async (url, options) => {
+    if (++requests > 2000 || Date.now() >= deadline)
+      return fail(
+        "resource-limit",
+        "Publication execution exceeded 2000 requests or fifteen minutes; inspect remote state before retrying.",
+      );
+
+    return transport(url, {
+      ...options,
+      signal: AbortSignal.any([signal, ...(options.signal ? [options.signal] : [])]),
+    });
+  };
+  const notes = await publicationNotes(input.repository, input.configuration, input.approval);
+  let inspection = await inspectReleasePublication(input, bounded);
+  const performed: PublicationAction[] = [];
+  const result = (): GitHubPublicationExecution => ({
+    schemaVersion: 1,
+    mode: write ? "write" : "dry-run",
+    performed,
+    inspection,
+  });
+
+  if (!write) return result();
+
+  const apiURL = `https://api.github.com/repos/${input.configuration.repository}`;
+
+  for (let step = 0; step < input.receipt.assets.length + 4; step++) {
+    if (inspection.complete) return result();
+    if (inspection.actions.some((action) => action.kind === "publish-image"))
+      return fail(
+        "conflict",
+        "Configured image roots are missing; publish them through the separately authorized image job before GitHub publication. No image push is performed here.",
+      );
+
+    const action = inspection.actions[0];
+
+    if (!action)
+      return fail("incomplete-evidence", "Incomplete publication has no verifiable next action.");
+
+    let response: Record<string, unknown>;
+
+    try {
+      if (action.kind === "upload-asset") {
+        const release = inspection.state.release;
+        const bytes = assets.get(action.name);
+
+        if (!release || !bytes)
+          return fail(
+            "incomplete-evidence",
+            "Release asset upload lacks verified release identity or local bytes.",
+          );
+
+        // Never use an upload_url supplied by a remote Release response.
+        response = proposalObject(
+          await uploadPublicationAsset(
+            `https://uploads.github.com/repos/${input.configuration.repository}/releases/${release.id}/assets?name=${encodeURIComponent(action.name)}`,
+            input.token,
+            bytes,
+            bounded,
+          ),
+        );
+
+        if (
+          typeof response.id !== "number" ||
+          !Number.isSafeInteger(response.id) ||
+          response.id <= 0 ||
+          response.name !== action.name ||
+          response.size !== action.size ||
+          response.state !== "uploaded" ||
+          response.digest !== `sha256:${action.sha256}`
+        )
+          return fail(
+            "write-failed",
+            "Release asset upload returned inconsistent identity/bytes; inspect remote state before retrying.",
+          );
+      } else {
+        const path =
+          action.kind === "create-tag"
+            ? "/git/refs"
+            : action.kind === "create-draft-release"
+              ? "/releases"
+              : action.kind === "publish-release" && action.releaseId !== null
+                ? `/releases/${action.releaseId}`
+                : null;
+
+        if (path === null)
+          return fail("incomplete-evidence", "Publication has no supported GitHub write target.");
+
+        const body =
+          action.kind === "create-tag"
+            ? { ref: `refs/tags/${action.tag}`, sha: action.commitSha }
+            : action.kind === "create-draft-release"
+              ? {
+                  tag_name: inspection.tag,
+                  target_commitish: inspection.landingSha,
+                  name: inspection.tag,
+                  body: notes,
+                  draft: true,
+                  prerelease: false,
+                  generate_release_notes: false,
+                  make_latest: "false",
+                }
+              : { draft: false, make_latest: "false" };
+
+        response = proposalObject(
+          (
+            await requestGitHubJson(
+              apiURL + path,
+              input.token,
+              {
+                method: action.kind === "publish-release" ? "PATCH" : "POST",
+                body,
+              },
+              bounded,
+              signal,
+            )
+          ).data,
+        );
+
+        if (action.kind === "create-tag") {
+          const target = proposalObject(response.object);
+
+          if (
+            response.ref !== `refs/tags/${action.tag}` ||
+            target.type !== "commit" ||
+            target.sha !== action.commitSha
+          )
+            return fail(
+              "write-failed",
+              "Tag creation returned unexpected identity; inspect remote state before retrying.",
+            );
+        } else if (
+          typeof response.id !== "number" ||
+          !Number.isSafeInteger(response.id) ||
+          response.id <= 0 ||
+          response.tag_name !== inspection.tag ||
+          response.name !== inspection.tag ||
+          response.body !== notes ||
+          response.prerelease !== false ||
+          response.draft !== (action.kind === "create-draft-release") ||
+          (action.kind === "publish-release" && response.id !== action.releaseId)
+        )
+          return fail(
+            "write-failed",
+            "Release write returned inconsistent identity/notes/state; inspect remote state before retrying.",
+          );
+      }
+    } catch (error) {
+      if (error instanceof ReleasePublicationError) throw error;
+      return fail(
+        "write-failed",
+        "GitHub publication write failed, was rejected or has an uncertain outcome; inspect remote state before retrying. Check contents write permissions/rate limits; redirects are not followed.",
+      );
+    }
+
+    performed.push(action);
+
+    const after = await inspectReleasePublication(input, bounded);
+
+    publicationProgress(inspection, after, action, response);
+    inspection = after;
+  }
+
+  return fail(
+    "resource-limit",
+    "Publication exceeded its bounded mutation steps; inspect remote state before retrying.",
+  );
 }

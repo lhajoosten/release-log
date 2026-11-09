@@ -42,7 +42,7 @@ export default {
           { text: "Release proposal controller", link: "/release-proposal" },
           { text: "Release approval verification", link: "/release-approval" },
           { text: "Verified automation exclusions", link: "/automation-exclusions" },
-          { text: "Publication reconciliation", link: "/release-publication" },
+          { text: "Publication reconciliation/execution", link: "/release-publication" },
           { text: "Local OCI distribution", link: "/container" },
         ],
       },

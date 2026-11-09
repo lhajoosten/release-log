@@ -24,6 +24,7 @@ import {
 import { prepareReleaseFiles, writeReleaseFiles } from "./proposal-files.ts";
 import {
   inspectReleasePublication,
+  publishGitHubRelease,
   parsePublicationPolicy,
   parsePublicationReceipt,
 } from "./release-publication.ts";
@@ -57,6 +58,9 @@ const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/ap
       --source SHA (--baseline-tag TAG | --bootstrap-sha SHA)
   release-log inspect-publication --config FILE --approval FILE --policy FILE
       --publication-policy FILE --receipt FILE --repository DIR
+  release-log publish-github --config FILE --approval FILE --policy FILE
+      --publication-policy FILE --receipt FILE --repository DIR
+      --asset-directory DIR [--dry-run | --write]
   release-log --help | --version
 
 collect makes bounded read-only GitHub.com requests using GITHUB_TOKEN and emits
@@ -80,7 +84,11 @@ independently trusted approval authorities and matching configuration pins;
 it freshly verifies exclusions while retaining the complete raw graph in schema-4 snapshots.
 inspect-publication reads tag/Release/artifact state and emits a reconciliation
 plan without writes. Images require a separate GHCR_READ_TOKEN registry bearer.
-No command merges, publishes, or runs consumer build scripts.
+publish-github defaults to dry-run; only explicit --write creates the approved
+GitHub tag, draft Release, assets and published Release. It requires independently
+trusted host inputs and exact local asset bytes. It never pushes images; configured
+image roots must already match. No workflow enables it automatically.
+No command merges or runs consumer build scripts.
 Exit codes: 0 success (including no release), 1 operation failure, 2 usage error.
 `;
 
@@ -129,6 +137,20 @@ async function runCLI(args: readonly string[]): Promise<string> {
     [
       "inspect-publication",
       ["config", "approval", "policy", "publication-policy", "receipt", "repository"],
+    ],
+    [
+      "publish-github",
+      [
+        "config",
+        "approval",
+        "policy",
+        "publication-policy",
+        "receipt",
+        "repository",
+        "asset-directory",
+        "dry-run",
+        "write",
+      ],
     ],
     [
       "audit-exclusion",
@@ -257,7 +279,8 @@ async function runCLI(args: readonly string[]): Promise<string> {
   if (
     command === "verify-approval" ||
     command === "audit-exclusion" ||
-    command === "inspect-publication"
+    command === "inspect-publication" ||
+    command === "publish-github"
   ) {
     const approval = parseReleaseApproval(
       parseReleaseApprovalJSON(await readText(required(options, "approval"), 1024 * 1024)),
@@ -270,7 +293,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
     if (!token?.trim())
       throw new UsageError(`${command} requires GITHUB_TOKEN with repository/PR read access.`);
 
-    if (command === "inspect-publication") {
+    if (command === "inspect-publication" || command === "publish-github") {
       const publicationPolicy = parsePublicationPolicy(
         parseReleaseApprovalJSON(
           await readText(required(options, "publication-policy"), 1024 * 1024),
@@ -281,22 +304,26 @@ async function runCLI(args: readonly string[]): Promise<string> {
       );
       const registryToken = process.env.GHCR_READ_TOKEN;
 
-      return (
-        JSON.stringify(
-          await inspectReleasePublication({
-            repository,
-            configuration: config,
-            approvalPolicy: policy,
-            approval,
-            publicationPolicy,
-            receipt,
-            token,
-            ...(registryToken === undefined ? {} : { registryToken }),
-          }),
-          null,
-          2,
-        ) + "\n"
-      );
+      const request = {
+        repository,
+        configuration: config,
+        approvalPolicy: policy,
+        approval,
+        publicationPolicy,
+        receipt,
+        token,
+        ...(registryToken === undefined ? {} : { registryToken }),
+      };
+      const result =
+        command === "inspect-publication"
+          ? await inspectReleasePublication(request)
+          : await publishGitHubRelease({
+              ...request,
+              assetDirectory: required(options, "asset-directory"),
+              write: options.has("write"),
+            });
+
+      return JSON.stringify(result, null, 2) + "\n";
     }
 
     if (command === "audit-exclusion") {
