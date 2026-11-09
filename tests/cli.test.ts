@@ -489,6 +489,72 @@ void test(
       );
     }
 
+    const exclusionConfigPath = join(path, "exclusion-config.json");
+    const authoritiesPath = join(path, "trusted-authorities.json");
+    const authorities = {
+      schemaVersion: 1,
+      approvals: [
+        {
+          configuration: fixtureConfiguration,
+          policy: { schemaVersion: 1, botUserId: 42, approverUserIds: [7] },
+          approval,
+        },
+      ],
+    };
+
+    await writeFile(
+      exclusionConfigPath,
+      JSON.stringify({
+        ...fixtureConfiguration,
+        automationExclusions: [{ pullNumber: 1, verificationId: "a".repeat(64) }],
+      }),
+    );
+    await writeFile(authoritiesPath, JSON.stringify(authorities));
+
+    const collectArgs = [
+      "collect",
+      "--repository",
+      consumer,
+      "--source",
+      approval.landingSha,
+      "--baseline-tag",
+      "v1.2.3",
+    ];
+
+    for (const selection of [
+      ["--config", exclusionConfigPath],
+      ["--config", configPath, "--exclusions", authoritiesPath],
+    ]) {
+      await assert.rejects(
+        run([...collectArgs, ...selection], "synthetic-secret-never-print"),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === 2 &&
+          "stderr" in error &&
+          typeof error.stderr === "string" &&
+          error.stderr.includes("both trusted configuration pins") &&
+          !error.stderr.includes("synthetic-secret-never-print"),
+      );
+    }
+
+    await writeFile(
+      authoritiesPath,
+      JSON.stringify(authorities).replace('"approvals":', '"approvals":[],"approvals":'),
+    );
+
+    await assert.rejects(
+      run(
+        [...collectArgs, "--config", exclusionConfigPath, "--exclusions", authoritiesPath],
+        "synthetic-secret-never-print",
+      ),
+      (error: unknown) =>
+        error instanceof Error &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("repeat property names"),
+    );
+
     const auditArgs = [
       "audit-exclusion",
       "--config",
@@ -572,7 +638,7 @@ void test(
       [
         "--input-type=module",
         "-e",
-        'import { reconcileReleaseProposal } from "release-log/proposals"; import { verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion } from "release-log/approval"; if ([reconcileReleaseProposal, verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion].some(value => typeof value !== "function")) throw new Error("Missing packaged proposal/approval API");',
+        'import { reconcileReleaseProposal } from "release-log/proposals"; import { verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion, parseVerifiedReleaseApproval, parseReleaseExclusionAuthorities } from "release-log/approval"; if ([reconcileReleaseProposal, verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion, parseVerifiedReleaseApproval, parseReleaseExclusionAuthorities].some(value => typeof value !== "function")) throw new Error("Missing packaged proposal/approval API");',
       ],
       { cwd: consumer, timeout: 10_000 },
     );

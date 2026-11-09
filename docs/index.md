@@ -29,6 +29,7 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 - [Conventional metadata](conventional-metadata.md): understand commit and PR-title parsing, including breaking-change declarations.
 - [Git range inspection](git-tag-range.md): inspect tag-to-tag or baseline-to-SHA commit membership, including explicit bootstrap, without network calls.
 - [GitHub PR association](github-association.md): collect merged PR evidence for a captured range, verify landing footprints, and understand failure/automation boundaries.
+- [Verified automation exclusions](automation-exclusions.md): collect and replay complete graphs with independently pinned release-automation evidence, without dropping ordinary changes.
 - [Release input snapshots](release-snapshot.md): validate and serialize captured inputs, then replay them offline under the same configuration and normalization policy.
 
 - [Release version planning](release-plan.md): calculate the next version or an explicit no-release result from validated snapshots.
