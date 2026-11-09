@@ -651,6 +651,45 @@ void test(
       );
     }
 
+    const strictApprovalPolicy = {
+      schemaVersion: 2,
+      botUserId: 42,
+      approverUserIds: [7],
+      requiredChecks: [{ name: "verify", appId: 90, workflowId: 201, event: "pull_request" }],
+    };
+
+    await writeFile(policyPath, JSON.stringify(strictApprovalPolicy));
+
+    await assert.rejects(
+      run(approvalArgs, "synthetic-secret-never-print"),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 1 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("GitHub read failed") &&
+        !error.stderr.includes("synthetic-secret-never-print"),
+    );
+
+    await writeFile(policyPath, JSON.stringify({ ...strictApprovalPolicy, requiredChecks: [] }));
+
+    await assert.rejects(
+      run(approvalArgs, "synthetic-secret-never-print"),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 1 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("1–20 explicitly trusted"),
+    );
+
+    await writeFile(
+      policyPath,
+      JSON.stringify({ schemaVersion: 1, botUserId: 42, approverUserIds: [7] }),
+    );
+
     const exclusionConfigPath = join(path, "exclusion-config.json");
     const authoritiesPath = join(path, "trusted-authorities.json");
     const authorities = {

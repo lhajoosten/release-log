@@ -8,6 +8,8 @@ The separate `publishGitHubRelease()` / `publish-github` executor can perform th
 
 Use the original release configuration, independently protected [approval and approval policy](release-approval.md), an explicit publication policy, and a trusted build receipt. None may be taken from an untrusted proposal branch or accepted solely because its JSON schema is valid.
 
+Selecting [approval policy 2](release-approval.md#strict-review-check-policy-2) makes each fresh approval verification additionally require the intended human's native exact-head review and pinned successful workflow/job/App evidence; publication cannot bypass those checks. Policy 1 retains its compatibility behavior. Neither policy provisions a trusted host or turns a receipt into provenance.
+
 The host must authenticate and protect the publication policy and receipt outside proposal control. A receipt records expected build bytes at an approved commit; its hashes do not prove who built them or that they came from that commit. This module does not build artifacts, authenticate receipt producers, sign receipts, verify provenance, provision credentials or configure protected storage.
 
 Publication policy schema 1:
