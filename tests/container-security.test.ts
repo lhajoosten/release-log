@@ -62,11 +62,26 @@ const packages = [
   { name: "@commitlint/lint", type: "npm", version: "21.2.4" },
 ];
 
-void test("inventory must include the non-dpkg Node runtime and installed production dependencies", () => {
+void test("inventory must include OS packages, the independent Node runtime and production dependencies", () => {
   assert.deepEqual(checkInventory({ artifacts: packages }), {
     packageCount: 3,
     nodeVersion: "26.13.0",
   });
+  assert.deepEqual(
+    checkInventory({
+      artifacts: packages.map((pkg) =>
+        pkg.type === "deb" ? { name: "musl", type: "apk", version: "1.2.6-r3" } : pkg,
+      ),
+    }),
+    { packageCount: 3, nodeVersion: "26.13.0" },
+  );
+  assert.throws(
+    () =>
+      checkInventory({
+        artifacts: packages.map((pkg) => (pkg.type === "deb" ? { ...pkg, type: "unknown" } : pkg)),
+      }),
+    /Incomplete inventory/u,
+  );
   for (const pkg of packages)
     assert.throws(
       () => checkInventory({ artifacts: packages.filter((item) => item !== pkg) }),

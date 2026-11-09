@@ -1,14 +1,9 @@
-FROM node:26.13.0-bookworm-slim@sha256:add5c17c14752c54d2f3d519ec46a3815684d41c33f198bcb09fb998f7dcbf68
+FROM node:26.13.0-alpine3.24@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216
 
-# Snapshot archives pin Git and its dependencies; keep signature verification enabled.
-RUN rm -f /etc/apt/sources.list.d/debian.sources \
-    && printf '%s\n' \
-      'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20261105T000000Z bookworm main' \
-      'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20261105T000000Z bookworm-security main' \
-      > /etc/apt/sources.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+# The builder verifies archive hashes; apk verifies Alpine signatures without network resolution.
+COPY apks/ /tmp/release-log-apks/
+RUN apk --no-network --no-cache add /tmp/release-log-apks/*.apk \
+    && rm -rf /tmp/release-log-apks
 
 # The CLI needs Node, not the base image's package managers and their dependencies.
 RUN rm -rf /usr/local/lib/node_modules/npm /opt/yarn-* \
