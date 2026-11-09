@@ -3,7 +3,7 @@ import { fromMarkdown } from "mdast-util-from-markdown";
 import { createReleasePlan } from "./release-plan.ts";
 import type { ReleaseVersionConfiguration } from "./release-plan.ts";
 import { replayReleaseSnapshot } from "./release-snapshot.ts";
-import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
+import type { ChangelogVerbosity, ReleaseInputConfiguration } from "./release-snapshot.ts";
 
 export class ChangelogError extends Error {
   constructor(message: string) {
@@ -40,6 +40,16 @@ function escapeText(value: string): string {
     .replace(/[\p{P}\p{Cc}<>+=|~$^]/gu, (character) => `&#${character.codePointAt(0)};`);
 }
 
+function appendEntry(
+  lines: string[],
+  entry: string,
+  details: readonly string[],
+  verbosity: ChangelogVerbosity,
+): void {
+  if (verbosity === "one-liner") lines.push([entry, ...details].join(" "));
+  else lines.push(entry, ...details.map((detail) => `  - ${detail}`));
+}
+
 export async function renderChangelog(
   serializedSnapshot: string,
   expected: ReleaseInputConfiguration,
@@ -48,6 +58,7 @@ export async function renderChangelog(
   const plan = await createReleasePlan(serializedSnapshot, expected, version);
   if (!plan.release) return null;
   const snapshot = await replayReleaseSnapshot(serializedSnapshot, expected);
+  const verbosity = snapshot.configuration.changelog?.verbosity ?? "detailed";
   const lines = [`## v${plan.nextVersion}`, ""];
 
   if (plan.onboardingSha !== null)
@@ -88,28 +99,35 @@ export async function renderChangelog(
 
     for (const pull of entries) {
       const label = pull.context.audience === "internal" ? " [internal]" : "";
-      lines.push(
-        `- **${escapeText(pull.title.scope ?? "")}**${label}: ${escapeText(pull.context.summary)} ([#${pull.number}](${pull.url}))`,
-      );
-      lines.push(`  - Impact: ${escapeText(pull.context.impact)}`);
-      if (pull.title.breaking) {
-        lines.push(`  - **Breaking change:** ${pull.breakingChanges.map(escapeText).join("; ")}`);
-      }
+      const details: string[] = [];
+
+      if (verbosity === "detailed") details.push(`Impact: ${escapeText(pull.context.impact)}`);
+      if (pull.title.breaking)
+        details.push(`**Breaking change:** ${pull.breakingChanges.map(escapeText).join("; ")}`);
       if (pull.context.requiredAction !== null)
-        lines.push(`  - **Required action:** ${escapeText(pull.context.requiredAction)}`);
+        details.push(`**Required action:** ${escapeText(pull.context.requiredAction)}`);
+
+      appendEntry(
+        lines,
+        `- **${escapeText(pull.title.scope ?? "")}**${label}: ${escapeText(pull.context.summary)} ([#${pull.number}](${pull.url}))`,
+        details,
+        verbosity,
+      );
     }
 
     for (const entry of bootstrapEntries) {
       const scope = entry.metadata.scope ? `**${escapeText(entry.metadata.scope)}** ` : "";
 
-      lines.push(
-        `- ${scope}[bootstrap commit]: ${escapeText(entry.metadata.description)} ([${entry.sha.slice(0, 12)}](${entry.url}))`,
-      );
+      const details = entry.metadata.breaking
+        ? [`**Breaking change:** ${entry.metadata.breakingChanges.map(escapeText).join("; ")}`]
+        : [];
 
-      if (entry.metadata.breaking)
-        lines.push(
-          `  - **Breaking change:** ${entry.metadata.breakingChanges.map(escapeText).join("; ")}`,
-        );
+      appendEntry(
+        lines,
+        `- ${scope}[bootstrap commit]: ${escapeText(entry.metadata.description)} ([${entry.sha.slice(0, 12)}](${entry.url}))`,
+        details,
+        verbosity,
+      );
     }
 
     lines.push("");
@@ -126,25 +144,33 @@ export async function renderChangelog(
       const kind = entry.source.kind === "pull-request" ? "historical PR" : "historical commit";
       const audience = entry.context?.audience === "internal" ? " [internal]" : "";
 
-      lines.push(
-        `- [${kind}]${audience}: ${escapeText(entry.title)} ([${reference}](${entry.source.url}))`,
-      );
+      const details: string[] = [];
 
       if (entry.context !== null) {
-        lines.push(`  - Summary: ${escapeText(entry.context.summary)}`);
-        lines.push(`  - Impact: ${escapeText(entry.context.impact)}`);
+        if (verbosity === "detailed") {
+          details.push(`Summary: ${escapeText(entry.context.summary)}`);
+          details.push(`Impact: ${escapeText(entry.context.impact)}`);
+        }
 
         if (entry.context.requiredAction !== null)
-          lines.push(`  - **Required action:** ${escapeText(entry.context.requiredAction)}`);
-      } else {
-        lines.push("  - Release context: unavailable; review the linked historical source.");
+          details.push(`**Required action:** ${escapeText(entry.context.requiredAction)}`);
+      } else if (verbosity === "detailed") {
+        details.push("Release context: unavailable; review the linked historical source.");
       }
 
       if (entry.breakingChanges.length)
-        lines.push(`  - **Breaking change:** ${entry.breakingChanges.map(escapeText).join("; ")}`);
+        details.push(`**Breaking change:** ${entry.breakingChanges.map(escapeText).join("; ")}`);
 
-      lines.push(
-        `  - Metadata review: ${entry.warnings.map((issue) => escapeText(issue.code)).join(", ")}`,
+      if (verbosity === "detailed")
+        details.push(
+          `Metadata review: ${entry.warnings.map((issue) => escapeText(issue.code)).join(", ")}`,
+        );
+
+      appendEntry(
+        lines,
+        `- [${kind}]${audience}: ${escapeText(entry.title)} ([${reference}](${entry.source.url}))`,
+        details,
+        verbosity,
       );
     }
 

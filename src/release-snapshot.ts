@@ -41,11 +41,14 @@ export class ReleaseSnapshotError extends Error {
   }
 }
 
+export type ChangelogVerbosity = "detailed" | "concise" | "one-liner";
+
 interface ReleaseRepositoryConfiguration {
   readonly repository: string;
   readonly repositoryId: number;
   readonly releaseBranch: string;
   readonly releasePolicy: "release-policy-v1";
+  readonly changelog?: { readonly verbosity: ChangelogVerbosity };
 }
 
 export type ReleaseInputConfiguration = ReleaseRepositoryConfiguration &
@@ -275,6 +278,7 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
       "releaseBranch",
       "releasePolicy",
       ...(isObject(value) && value.schemaVersion === 2 ? ["bootstrap"] : []),
+      ...(isObject(value) && Object.hasOwn(value, "changelog") ? ["changelog"] : []),
     ],
     "release configuration",
   );
@@ -294,11 +298,24 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
     /[\0\r\n]/u.test(releaseBranch)
   )
     return invalid("Invalid repository identity or release branch in configuration.");
+  let changelog: ReleaseRepositoryConfiguration["changelog"];
+
+  if (Object.hasOwn(item, "changelog")) {
+    const options = object(item.changelog, ["verbosity"], "changelog configuration");
+    const verbosity = options.verbosity;
+
+    if (verbosity !== "detailed" && verbosity !== "concise" && verbosity !== "one-liner")
+      return invalid("Changelog verbosity must be detailed, concise or one-liner.");
+
+    changelog = { verbosity };
+  }
+
   const common: ReleaseRepositoryConfiguration = {
     repository,
     repositoryId: positive(item.repositoryId, "repository ID"),
     releaseBranch,
     releasePolicy: "release-policy-v1",
+    ...(changelog === undefined ? {} : { changelog }),
   };
 
   if (item.schemaVersion === 2) {

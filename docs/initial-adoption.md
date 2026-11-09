@@ -31,7 +31,7 @@ The IDs above are illustrative; supply the real repository identity and full imm
 
 Do **not** replace `onboardingSha` with the latest main SHA on each refresh. Every later main commit remains after onboarding even while the first release PR is open. Classification uses Git reachability, not author/merge dates. The cutoff is bound into configuration/snapshot/proposal identities; changing it conflicts with existing captured evidence rather than silently refreshing its authority.
 
-For this repository, `release-log.config.json` records baseline `bb0033fb274e69a8aabad6a17d71f18ec9292f60` and onboarding `c28fe6faa4d516847fbc725e9186cc80ac8873af`, the source previously captured by the approved read-only rehearsal. This preserves the original first-commit base and all subsequent membership. It does not rewrite historical PRs.
+For this repository, `release-log.config.json` records baseline `bb0033fb274e69a8aabad6a17d71f18ec9292f60` and onboarding `c28fe6faa4d516847fbc725e9186cc80ac8873af`, the source previously captured by the approved read-only rehearsal. This preserves the original first-commit base and all subsequent membership. It does not rewrite historical PRs. This repository additionally selects `changelog.verbosity: concise`; [verbosity](changelog.md#verbosity) is separate from the fixed history boundaries and never removes breaking warnings or available required actions. Changing that rendering setting requires fresh capture/review, not changing onboarding or replaying old captures against a different configuration.
 
 ## Legacy versus new changes
 

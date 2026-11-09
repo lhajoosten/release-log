@@ -109,6 +109,45 @@ void test(
         plan.nextVersion === "1.2.4",
     );
     assert.match((await run(["render", ...args])).stdout, /^## v1\.2\.4/u);
+    for (const verbosity of ["detailed", "concise", "one-liner"] as const) {
+      const configuration = { ...fixtureConfiguration, changelog: { verbosity } };
+      const capture = await captureReleaseSnapshot(snapshot.snapshot.input, configuration);
+      const configurationPath = join(path, `config-${verbosity}.json`);
+      const capturePath = join(path, `snapshot-${verbosity}.json`);
+
+      await writeFile(configurationPath, JSON.stringify(configuration));
+      await writeFile(capturePath, await serializeReleaseSnapshot(capture));
+
+      const selectedArgs = [
+        "--config",
+        configurationPath,
+        "--snapshot",
+        capturePath,
+        "--current-version",
+        "1.2.3",
+      ];
+      const rendered = (await run(["render", ...selectedArgs])).stdout;
+      const repository = join(path, `verbosity-${verbosity}`);
+
+      assert.equal(rendered.includes("  - Impact:"), verbosity === "detailed");
+      assert.match(rendered, /^## v1\.2\.4/u);
+
+      await mkdir(repository);
+      await writeFile(join(repository, "package.json"), '{"version":"1.2.3"}\n');
+      await writeFile(join(repository, "pyproject.toml"), '[project]\nversion="1.2.3"\n');
+      await run(["prepare", ...selectedArgs, "--repository", repository, "--write"]);
+
+      assert.ok((await readFile(join(repository, "CHANGELOG.md"), "utf8")).includes(rendered));
+      assert.equal(
+        await readFile(join(repository, "package.json"), "utf8"),
+        '{"version":"1.2.4"}\n',
+      );
+      assert.equal(
+        await readFile(join(repository, "pyproject.toml"), "utf8"),
+        '[project]\nversion="1.2.4"\n',
+      );
+    }
+
     for (const mode of ["node", "python", "both"]) {
       const repository = join(path, mode);
       await mkdir(repository);
