@@ -19,6 +19,7 @@ import {
 import type { PublicationPolicy, PublicationReceipt } from "../src/release-publication.ts";
 import { reconcileReleaseProposal } from "../src/release-proposal.ts";
 import { botId, fixture, json, object, text } from "./proposal-fixture.ts";
+import { readinessFixture } from "./readiness-fixture.ts";
 
 const approvalPolicy = { schemaVersion: 1 as const, botUserId: botId, approverUserIds: [7] };
 const publicationPolicy: PublicationPolicy = {
@@ -1053,6 +1054,39 @@ void test("caller input changes after preflight do not retarget an executing pub
 
   assert.equal(result.inspection.complete, true);
   assert.equal(result.inspection.landingSha, state.landing);
+});
+
+void test("strict approval-policy checks are enforced before the publication executor can write", async (context) => {
+  const state = await publisher(context);
+  const gate = readinessFixture(state.head, state.request.approval.pullNumber, state.transport);
+  const verified = await verifyReleaseApproval(
+    {
+      repository: state.request.repository,
+      configuration: state.request.configuration,
+      policy: gate.policy,
+      approval: state.request.approval,
+      token: state.request.token,
+    },
+    gate.transport,
+  );
+  const check = gate.checkRuns[0];
+
+  assert.ok(check);
+  check.conclusion = "failure";
+
+  await assert.rejects(
+    publishGitHubRelease(
+      {
+        ...state.request,
+        approvalPolicy: gate.policy,
+        receipt: { ...state.request.receipt, approvalVerificationId: verified.verificationId },
+        write: true,
+      },
+      gate.transport,
+    ),
+    /trusted App/u,
+  );
+  assert.deepEqual(state.writes, []);
 });
 
 void test("missing configured image roots block every GitHub write", async (context) => {

@@ -15,7 +15,8 @@ import {
 } from "../src/release-approval.ts";
 import type { ReleaseMergeAttestation } from "../src/release-approval.ts";
 import { reconcileReleaseProposal } from "../src/release-proposal.ts";
-import { botId, fixture, object, text } from "./proposal-fixture.ts";
+import { botId, fixture, json, object, text } from "./proposal-fixture.ts";
+import { readinessFixture } from "./readiness-fixture.ts";
 
 const policy = { schemaVersion: 1 as const, botUserId: botId, approverUserIds: [7] };
 
@@ -86,6 +87,117 @@ async function proposal(
 
   return { f, result, capture, land };
 }
+
+for (const mergeKind of ["merge", "squash"] as const) {
+  void test(`${mergeKind}: strict review/check policy gates capture, finalization and later approval verification`, async (context) => {
+    const state = await proposal(context);
+    const gate = readinessFixture(
+      state.capture.target.headSha,
+      state.capture.target.pullNumber,
+      state.f.transport,
+    );
+    const capture = { ...state.capture, policy: gate.policy };
+    const legacy = await captureReleaseReview(state.capture, state.f.transport);
+    const review = await captureReleaseReview(capture, gate.transport);
+
+    assert.notEqual(review.policyId, legacy.policyId);
+    assert.deepEqual(await captureReleaseReview(capture, gate.transport), review);
+
+    const attestation = await state.land(mergeKind);
+    const check = gate.checkRuns[0];
+
+    assert.ok(check);
+    check.conclusion = "failure";
+
+    await assert.rejects(
+      finalizeReleaseApproval({ ...capture, review, attestation }, gate.transport),
+      /trusted App/u,
+    );
+
+    check.conclusion = "success";
+
+    const approval = await finalizeReleaseApproval(
+      { ...capture, review, attestation },
+      gate.transport,
+    );
+    const verified = await verifyReleaseApproval({ ...capture, approval }, gate.transport);
+
+    assert.equal(verified.policyId, review.policyId);
+    await assert.rejects(
+      finalizeReleaseApproval({ ...capture, review: legacy, attestation }, gate.transport),
+      /policy changed/u,
+    );
+
+    const humanReview = gate.reviews[0];
+
+    assert.ok(humanReview);
+    humanReview.state = "DISMISSED";
+
+    await assert.rejects(
+      verifyReleaseApproval({ ...capture, approval }, gate.transport),
+      /latest submitted APPROVED/u,
+    );
+  });
+}
+
+void test("strict capture rejects review/check changes during its observation window", async (context) => {
+  const state = await proposal(context);
+  const gate = readinessFixture(
+    state.capture.target.headSha,
+    state.capture.target.pullNumber,
+    state.f.transport,
+  );
+  let reads = 0;
+
+  gate.intercept((url) => {
+    if (url.pathname.endsWith("/reviews") && ++reads === 2) {
+      const review = gate.reviews[0];
+
+      assert.ok(review);
+      review.id = 101;
+    }
+
+    return null;
+  });
+
+  await assert.rejects(
+    captureReleaseReview({ ...state.capture, policy: gate.policy }, gate.transport),
+    /changed during verification/u,
+  );
+  assert.equal(reads, 2);
+});
+
+void test("strict capture rejects a newly successful workflow attempt during verification", async (context) => {
+  const state = await proposal(context);
+  const gate = readinessFixture(
+    state.capture.target.headSha,
+    state.capture.target.pullNumber,
+    state.f.transport,
+  );
+  let runReads = 0;
+
+  gate.intercept((url) => {
+    if (url.pathname.endsWith("/runs") && ++runReads === 2) {
+      const run = gate.runs[0];
+
+      assert.ok(run);
+      run.run_attempt = 3;
+    }
+    if (url.pathname.endsWith("/attempts/3/jobs"))
+      return json({
+        total_count: gate.jobs.length,
+        jobs: gate.jobs.map((job) => ({ ...job, run_attempt: 3 })),
+      });
+
+    return null;
+  });
+
+  await assert.rejects(
+    captureReleaseReview({ ...state.capture, policy: gate.policy }, gate.transport),
+    /changed during verification/u,
+  );
+  assert.equal(runReads, 2);
+});
 
 for (const mergeKind of ["merge", "squash"] as const)
   for (const adoption of [false, true])

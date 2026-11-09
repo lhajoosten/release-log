@@ -9,6 +9,7 @@ import type { ReleaseFileContents } from "./proposal-files.ts";
 import { capturedIdentity, describe, verifyGeneratedTree } from "./proposal-identity.ts";
 import { validateConventionalMessage } from "./conventional.ts";
 import { reconcileReleaseProposal } from "./release-proposal.ts";
+import { requireSameReadiness, verifyReleaseReadiness } from "./release-readiness.ts";
 import { parseReleaseInputConfiguration, replayReleaseSnapshot } from "./release-snapshot.ts";
 import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
 
@@ -43,6 +44,7 @@ export {
   parseVerifiedReleaseApproval,
 } from "./release-approval-record.ts";
 export type {
+  RequiredReleaseCheck,
   ReleaseApprovalPolicy,
   ReleaseApproval,
   ReleaseReviewTarget,
@@ -280,6 +282,7 @@ export async function captureReleaseReview(
       "Review capture requires the exact intended open PR head before merge.",
     );
 
+  const readiness = await verifyReleaseReadiness(api, config, policy, target);
   const head = await localTree(repository, target.headSha);
   const files = await contents(repository, head);
   const snapshotJSON = files[".release-log/inputs.json"];
@@ -342,6 +345,8 @@ export async function captureReleaseReview(
     target.headSha,
     capturedBaseline,
   );
+
+  requireSameReadiness(readiness, await verifyReleaseReadiness(api, config, policy, target));
 
   if (
     (await api.ref("heads", config.releaseBranch)) !== snapshot.normalized.sourceCommitSha ||
@@ -465,6 +470,7 @@ export async function verifyReleaseApproval(
       "identity-mismatch",
       "GitHub must confirm the exact merged PR, reviewed head, actual landing and allowed human merger.",
     );
+  const readiness = await verifyReleaseReadiness(api, config, policy, approval);
   const current = await api.ref("heads", config.releaseBranch);
   if (current === null)
     throw new ReleaseApprovalError(
@@ -602,6 +608,8 @@ export async function verifyReleaseApproval(
       "exclusion-invalid",
       "The release landing introduces unexpected history outside verified generated proposal commits.",
     );
+
+  requireSameReadiness(readiness, await verifyReleaseReadiness(api, config, policy, approval));
 
   if (JSON.stringify(await api.readPull(approval.pullNumber)) !== JSON.stringify(pull))
     throw new ReleaseApprovalError(

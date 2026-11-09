@@ -78,7 +78,9 @@ finalize-approval binds that stored review to an explicit trusted merge action.
 Both are read-only, require GITHUB_TOKEN and do not authenticate the caller or
 provision trusted storage. verify-approval performs read-only GitHub/Git checks
 using GITHUB_TOKEN and independently trusted approval/policy files; it emits evidence,
-not publication permission. audit-exclusion verifies the complete generated Git
+not publication permission. Approval policy 2 additionally requires the intended
+human's actual head-specific review and successful pinned workflow/job/App checks.
+audit-exclusion verifies the complete generated Git
 footprint and reports excluded/retained commit IDs. collect --exclusions requires
 independently trusted approval authorities and matching configuration pins;
 it freshly verifies exclusions while retaining the complete raw graph in schema-4 snapshots.
