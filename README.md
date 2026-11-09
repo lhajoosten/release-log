@@ -43,7 +43,7 @@ The [accepted release-policy ADR](docs/release-policy.md) defines bootstrap, mem
 
 ## Status
 
-Core Git/PR collection, snapshots, version planning, and changelog rendering are implemented with tests. A locally packable [CLI](docs/cli.md) exposes explicit online collection and offline planning/rendering, with dry-run or opt-in writes for root `package.json` and static `pyproject.toml` versions. A first-cycle [proposal controller](docs/release-proposal.md) and read-only [approval verifier](docs/release-approval.md) are available with explicit trust and rollout limitations. Component boundaries are documented in `docs/` alongside `src/`. The read-only PR metadata workflow has documented rollout limitations; a deployed release controller, publication, and AI integration are not implemented.
+Core Git/PR collection, snapshots, version planning, and changelog rendering are implemented with tests. A locally packable [CLI](docs/cli.md) exposes explicit online collection and offline planning/rendering, with dry-run or opt-in writes for root `package.json` and static `pyproject.toml` versions. A first-cycle [proposal controller](docs/release-proposal.md) and read-only [approval verifier](docs/release-approval.md) are available with explicit trust and rollout limitations. Read-only [publication reconciliation](docs/release-publication.md) reports missing approved outputs without publishing. Component boundaries are documented in `docs/` alongside `src/`. The read-only PR metadata workflow has documented rollout limitations; a deployed release controller, publication, and AI integration are not implemented.
 
 ## Documentation
 

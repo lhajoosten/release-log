@@ -44,6 +44,8 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 
 - [Read-only approval verification](release-approval.md): verify an independently recorded reviewed proposal against its actual merge/squash landing, without publishing.
 
+- [Read-only publication reconciliation](release-publication.md): compare approved outputs with tag, Release, asset and image state and report missing actions without publishing.
+
 - [Local OCI distribution](container.md): build and smoke-test the packaged CLI in a pinned Linux/amd64 image without publishing it.
 
 ## Maintaining these docs

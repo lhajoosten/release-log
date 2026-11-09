@@ -75,12 +75,12 @@ void test(
       prelude,
       'globalThis.fetch = () => { throw new Error("Unexpected network access"); };\n',
     );
-    async function run(args: string[], githubToken = "") {
+    async function run(args: string[], githubToken = "", registryToken = "") {
       return execute(process.execPath, ["--import", prelude, cli, ...args], {
         cwd: consumer,
         timeout: 10_000,
         maxBuffer: 16 * 1024 * 1024,
-        env: { ...process.env, GITHUB_TOKEN: githubToken },
+        env: { ...process.env, GITHUB_TOKEN: githubToken, GHCR_READ_TOKEN: registryToken },
       });
     }
     assert.match((await run(["--help"])).stdout, /pyproject.toml/u);
@@ -414,6 +414,87 @@ void test(
         error.stderr.includes("GitHub read failed") &&
         !error.stderr.includes("synthetic-secret-never-print"),
     );
+    const publicationPolicyPath = join(path, "publication-policy.json");
+    const receiptPath = join(path, "receipt.json");
+    const receipt = {
+      schemaVersion: 1,
+      approvalVerificationId: "a".repeat(64),
+      landingSha: approval.landingSha,
+      assets: [{ name: "tool.tgz", sha256: "b".repeat(64), size: 1024 }],
+      images: [{ name: "ghcr.io/example/project", digest: "sha256:" + "c".repeat(64) }],
+    };
+
+    await writeFile(
+      publicationPolicyPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        assets: ["tool.tgz"],
+        images: ["ghcr.io/example/project"],
+      }),
+    );
+    await writeFile(receiptPath, JSON.stringify(receipt));
+
+    const publicationArgs = [
+      "inspect-publication",
+      ...approvalArgs.slice(1),
+      "--publication-policy",
+      publicationPolicyPath,
+      "--receipt",
+      receiptPath,
+    ];
+
+    assert.match((await run(["--help"])).stdout, /inspect-publication/u);
+
+    for (const flag of ["--write", "--dry-run"])
+      await assert.rejects(
+        run([...publicationArgs, flag]),
+        (error: unknown) => error instanceof Error && "code" in error && error.code === 2,
+      );
+
+    for (const [githubToken, registryToken, message, code] of [
+      ["", "", "GITHUB_TOKEN", 2],
+      ["synthetic-secret-never-print", "", "separate pull-scoped", 1],
+      ["synthetic-secret-never-print", "synthetic-registry-never-print", "GitHub read failed", 1],
+    ] as const)
+      await assert.rejects(
+        run(publicationArgs, githubToken, registryToken),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === code &&
+          "stderr" in error &&
+          typeof error.stderr === "string" &&
+          error.stderr.includes(message) &&
+          !error.stderr.includes("synthetic-secret-never-print") &&
+          !error.stderr.includes("synthetic-registry-never-print"),
+      );
+
+    await writeFile(receiptPath, JSON.stringify({ ...receipt, complete: true }));
+
+    await assert.rejects(
+      run(publicationArgs, "synthetic-secret-never-print"),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 1 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("supported schema fields"),
+    );
+
+    await writeFile(receiptPath, JSON.stringify({ ...receipt, landingSha: approval.sourceSha }));
+
+    await assert.rejects(
+      run(publicationArgs, "synthetic-secret-never-print"),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 1 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("exact approved landing"),
+    );
+
     const targetPath = join(path, "review-target.json");
     const reviewPath = join(path, "stored-review.json");
     const attestationPath = join(path, "merge-attestation.json");
@@ -638,7 +719,7 @@ void test(
       [
         "--input-type=module",
         "-e",
-        'import { reconcileReleaseProposal } from "release-log/proposals"; import { verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion, parseVerifiedReleaseApproval, parseReleaseExclusionAuthorities } from "release-log/approval"; if ([reconcileReleaseProposal, verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion, parseVerifiedReleaseApproval, parseReleaseExclusionAuthorities].some(value => typeof value !== "function")) throw new Error("Missing packaged proposal/approval API");',
+        'import { inspectReleasePublication, parsePublicationPolicy, parsePublicationReceipt } from "release-log/publication"; import { reconcileReleaseProposal } from "release-log/proposals"; import { verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion, parseVerifiedReleaseApproval, parseReleaseExclusionAuthorities } from "release-log/approval"; if ([inspectReleasePublication, parsePublicationPolicy, parsePublicationReceipt, reconcileReleaseProposal, verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion, parseVerifiedReleaseApproval, parseReleaseExclusionAuthorities].some(value => typeof value !== "function")) throw new Error("Missing packaged proposal/approval API");',
       ],
       { cwd: consumer, timeout: 10_000 },
     );
