@@ -27,12 +27,12 @@
       "sha256": "bb008f6d214b6af7576324659856fb63dc8dcb4373f8345ff706388696f1254d"
     },
     {
-      "file": "git-2.54.0-r0.apk",
-      "sha256": "5a2c6782774d2e891fc2fc3fdc50c3c2743b8eb2dc7cda69b6b723af2eedcf78"
+      "file": "git-2.54.1-r0.apk",
+      "sha256": "a8d6464152f823b28d80876142649bfddd8ac7959b5c24be9f8f7f2b5e2421dc"
     },
     {
-      "file": "git-init-template-2.54.0-r0.apk",
-      "sha256": "e8094a47bfa6e66b7d550ae12a7a8bcab0bc4af502aacd5d2a6fc62d2c5e488d"
+      "file": "git-init-template-2.54.1-r0.apk",
+      "sha256": "d64eeddb867cdb678944535e1e56d0438a9ca5114344cbf624abae31519f2afd"
     },
     {
       "file": "libcrypto3-3.5.9-r0.apk",
