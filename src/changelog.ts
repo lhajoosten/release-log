@@ -195,7 +195,11 @@ function generatedSection(content: string): string {
   return `<!-- release-log:pending:v1 sha256:${digest} -->\n\n${content}\n${endMarker}\n`;
 }
 
-export function updateChangelog(existing: string, rendered: string | null): string {
+export function updateChangelog(
+  existing: string,
+  rendered: string | null,
+  releasedVersion?: string,
+): string {
   bounded(existing);
   if (rendered !== null) bounded(rendered);
   const tree = fromMarkdown(existing);
@@ -251,6 +255,8 @@ export function updateChangelog(existing: string, rendered: string | null): stri
     throw new ChangelogError(
       "Pending generated content was edited; review and recover explicitly rather than overwriting it.",
     );
+  const released = releasedVersion !== undefined && content.startsWith(`## v${releasedVersion}\n`);
+  if (released && rendered === null) return existing;
   if (rendered === null)
     throw new ChangelogError(
       "A pending release exists but the new plan has no release; review rather than silently removing it.",
@@ -260,7 +266,11 @@ export function updateChangelog(existing: string, rendered: string | null): stri
     : existing.startsWith("\n", end)
       ? end + 1
       : end;
-  const result = existing.slice(0, start) + generatedSection(rendered) + existing.slice(after);
+  const result =
+    existing.slice(0, start) +
+    generatedSection(rendered) +
+    (released ? `\n${content}\n` : "") +
+    existing.slice(after);
   bounded(result);
   return result;
 }

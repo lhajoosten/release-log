@@ -88,9 +88,18 @@ function cycleTransport(f: Awaited<ReturnType<typeof fixture>>): GitHubRead {
         pulls.map((value: unknown) => {
           const pull = object(value);
           delete pull.merged_by;
+          const original = f.pulls.find((item) => item.number === pull.number);
+          if (pull.state === "closed" && original) pull.head = original.head;
           return pull;
         }),
       );
+    }
+
+    if (method === "GET" && /^\/pulls\/[0-9]+$/u.test(path)) {
+      const data = object(await response.json());
+      const original = f.pulls.find((item) => item.number === data.number);
+      if (data.state === "closed" && original) data.head = original.head;
+      return json(data);
     }
 
     if (method === "GET" && path.startsWith("/git/ref/tags/")) {
@@ -336,6 +345,76 @@ void test("multiple open reserved proposals fail closed", async (context) => {
   );
   assertReadOnly(state.f.calls, before);
 });
+
+void test("a missing release tag stops proposal writes with release-tag-pending", async (context) => {
+  const state = await mergedProposal(context);
+  state.f.git(["tag", "v1.3.0", state.landingSha]);
+  state.f.git(["read-tree", "--reset", "-u", "HEAD"]);
+  await state.f.advance("fix(api): preserve later changes");
+  const snapshot = await state.f.snapshot("v1.3.0");
+  state.f.git(["tag", "-d", "v1.3.0"]);
+  const before = state.f.calls.length;
+  await assert.rejects(
+    reconcileReleaseProposal(
+      {
+        configuration: state.request.configuration,
+        automation: state.request.automation,
+        token: state.request.token,
+        write: true,
+        snapshot,
+        version: { kind: "released", currentVersion: "1.3.0" },
+      },
+      cycleTransport(state.f),
+    ),
+    /release-tag-pending/u,
+  );
+  assertReadOnly(state.f.calls, before);
+});
+
+for (const retained of [true, false]) {
+  void test(`a tagged release starts a new cycle with the prior branch ${retained ? "retained" : "deleted"}`, async (context) => {
+    const state = await mergedProposal(context);
+    const priorHead = text(object(state.pull.head).sha);
+    state.f.git(["tag", "v1.3.0", state.landingSha]);
+    if (!retained) state.f.git(["update-ref", "-d", "refs/heads/release-log/main"]);
+    state.f.git(["read-tree", "--reset", "-u", "HEAD"]);
+    await state.f.advance("fix(api): preserve later changes");
+    const next = await reconcileReleaseProposal(
+      {
+        configuration: state.request.configuration,
+        automation: state.request.automation,
+        token: state.request.token,
+        write: true,
+        snapshot: await state.f.snapshot("v1.3.0"),
+        version: { kind: "released", currentVersion: "1.3.0" },
+      },
+      cycleTransport(state.f),
+    );
+    assert.equal(next.outcome, "created");
+    assert.equal(next.pullNumber, 2);
+    assert.ok(next.headSha);
+    const parents = state.f.git(["show", "-s", "--format=%P", next.headSha]).trim().split(" ");
+    assert.equal(parents[1], priorHead);
+    assert.equal(state.f.ref("heads/release-log/main"), next.headSha);
+    const changelog = state.f.git(["show", `${next.headSha}:CHANGELOG.md`]);
+    assert.match(changelog, /1\.3\.0/u);
+    assert.match(changelog, /1\.3\.1/u);
+    assert.match(changelog, /### Fixes/u);
+    const repeated = await reconcileReleaseProposal(
+      {
+        configuration: state.request.configuration,
+        automation: state.request.automation,
+        token: state.request.token,
+        write: true,
+        snapshot: await state.f.snapshot("v1.3.0"),
+        version: { kind: "released", currentVersion: "1.3.0" },
+      },
+      cycleTransport(state.f),
+    );
+    assert.equal(repeated.outcome, "unchanged");
+    assert.equal(repeated.headSha, next.headSha);
+  });
+}
 
 void test("a conflicting latest version tag is never replaced by an older baseline", async (context) => {
   const state = await mergedProposal(context);

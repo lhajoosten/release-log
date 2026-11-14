@@ -7,6 +7,7 @@ import {
 import type { ProposalPullRequest } from "./github-proposals.ts";
 import type { GitHubRead } from "./github.ts";
 import { verifyPrevious } from "./proposal-verification.ts";
+import { selectReleaseCycle } from "./release-cycle.ts";
 import { prepareReleaseFileContents } from "./proposal-files.ts";
 import { validatePullRequestMetadata } from "./pr-readiness.ts";
 import type { ReleaseVersionConfiguration } from "./release-plan.ts";
@@ -87,18 +88,64 @@ export async function reconcileReleaseProposal(
       );
   };
   await api.verifyRepository();
-  await requireFresh();
   const pulls = await api.pulls();
-  if (pulls.length > 1 || pulls.some((pull) => pull.state !== "open" || pull.merged))
+  const open = pulls.filter((pull) => pull.state === "open" && !pull.merged);
+  if (open.length > 1 || pulls.some((pull) => pull.state === "closed" && !pull.merged))
     throw new ProposalConflictError(
       "A closed/merged or competing proposal exists; explicit recovery or completed-cycle verification is required before reuse.",
     );
-  const previous = pulls[0] ?? null;
+  const previous = open[0] ?? null;
+  let completed: ProposalPullRequest | null = null;
+  if (pulls.some((pull) => pull.merged)) {
+    const cycle = await selectReleaseCycle(
+      { configuration: config, automation, token, sourceSha },
+      transport,
+    );
+    if (cycle.outcome === "release-tag-pending")
+      throw new ProposalConflictError(
+        `release-tag-pending: rerun tag-release for PR #${cycle.pullNumber} at ${cycle.landingSha}.`,
+      );
+    if (cycle.outcome !== "selected" || cycle.baseline.kind !== "tag")
+      throw new ProposalConflictError("Release history requires explicit recovery before reuse.");
+    if (
+      baseline.kind !== "tag" ||
+      baseline.name !== cycle.baseline.name ||
+      baseline.objectSha !== cycle.baseline.objectSha ||
+      baseline.commitSha !== cycle.baseline.commitSha ||
+      JSON.stringify(selectedVersion) !== JSON.stringify(cycle.version)
+    )
+      throw new ProposalConflictError(
+        "The captured baseline or version is not the latest verified release; collect again.",
+      );
+    completed = await api.readPull(cycle.baseline.pullNumber);
+    if (!completed.merged || completed.mergeCommitSha !== cycle.baseline.commitSha)
+      throw new ProposalConflictError(
+        "The completed release changed during reconciliation; retry from fresh state.",
+      );
+    const verified = await verifyPrevious(api, completed, config, automation.botUserId);
+    const landing = await api.tree(cycle.baseline.commitSha);
+    const mergeParents = [verified.source.commitSha, verified.head.commitSha];
+    const squashParents = [verified.source.commitSha];
+    if (
+      landing.treeSha !== verified.head.treeSha ||
+      (JSON.stringify(landing.parents) !== JSON.stringify(mergeParents) &&
+        JSON.stringify(landing.parents) !== JSON.stringify(squashParents))
+    )
+      throw new ProposalConflictError(
+        "The completed proposal no longer matches its verified landing; retry from fresh state.",
+      );
+  }
+  await requireFresh();
   const initialHead = await api.ref("heads", api.headRef, true);
-  if (previous ? initialHead !== previous.headSha : initialHead !== null)
+  if (
+    previous
+      ? initialHead !== previous.headSha
+      : initialHead !== null && initialHead !== completed?.headSha
+  )
     throw new ProposalConflictError(
       "The proposal branch was deleted, moved, or exists without a verified PR; do not recreate or overwrite it automatically.",
     );
+  const historyHead = previous ? initialHead : (completed?.headSha ?? null);
   const prior = previous ? await verifyPrevious(api, previous, config, automation.botUserId) : null;
   if (prior && JSON.stringify(prior.identity.baseline) !== JSON.stringify(baseline))
     throw new ProposalConflictError(
@@ -139,7 +186,7 @@ export async function reconcileReleaseProposal(
     JSON.stringify(prior.identity.version) === JSON.stringify(prepared.plan.version)
   )
     return result("unchanged", prior.id);
-  const description = describe(snapshot, prepared, automation.botUserId, initialHead);
+  const description = describe(snapshot, prepared, automation.botUserId, historyHead);
   const readiness = await validatePullRequestMetadata(description.title, description.body, [
     { sha: sourceSha, message: description.message, parentCount: 1 },
   ]);
@@ -154,16 +201,20 @@ export async function reconcileReleaseProposal(
       throw new ProposalConflictError(
         "The proposal head changed during reconciliation; retry from freshly verified state.",
       );
+    if (completed && !samePull(completed, await api.readPull(completed.number)))
+      throw new ProposalConflictError(
+        "The completed release changed during reconciliation; retry from fresh state.",
+      );
     if (previous && !samePull(previous, await api.readPull(previous.number)))
       throw new ProposalConflictError(
         "PR metadata changed during reconciliation; preserve human edits and recover manually.",
       );
   };
   await unchanged();
-  const head = await api.commit(source, initialHead, prepared.files, description.message);
+  const head = await api.commit(source, historyHead, prepared.files, description.message);
   const generated = await api.tree(head);
   const expectedParents =
-    initialHead && initialHead !== sourceSha ? [sourceSha, initialHead] : [sourceSha];
+    historyHead && historyHead !== sourceSha ? [sourceSha, historyHead] : [sourceSha];
   if (
     generated.message !== description.message ||
     JSON.stringify(generated.parents) !== JSON.stringify(expectedParents)
