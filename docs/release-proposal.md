@@ -1,6 +1,6 @@
 # Rolling release proposal controller — initial pending cycle
 
-`reconcileReleaseProposal()` (package subpath `release-log/proposals`, source `src/release-proposal.ts`) and the explicit `propose` CLI command implement the first pending release cycle for [#20](https://github.com/lhajoosten/release-log/issues/20). They create or refresh one reserved branch and draft PR using validated snapshots and the existing version/changelog/Node/Python preparation logic. No workflow automatically invokes writes; no live pilot, credentials provisioning, release, or publication has been performed.
+`reconcileReleaseProposal()` (package subpath `release-log/proposals`, source `src/release-proposal.ts`) and the explicit `propose` CLI command implement the first pending release cycle for [#20](https://github.com/lhajoosten/release-log/issues/20). They create or refresh one reserved branch and PR using validated snapshots and the existing version/changelog/Node/Python preparation logic. No workflow automatically invokes writes; no live pilot, credentials provisioning, release, or publication has been performed.
 
 The owner-approved [rolling-release workflow](release-workflow.md) narrows the intended orchestration to ordinary merge → rolling PR, manual release-PR merge → automatic version tag. The tag-only command is documented in the [CLI guide](cli.md#tag-a-manually-merged-release-pr). Recurring-cycle selection and the reusable workflow are not yet implemented; the first-cycle controller below still rejects merged history.
 
@@ -24,7 +24,7 @@ The library takes `{ snapshot, configuration, version, automation, token, write?
 
 ## Branch, files and metadata
 
-The reserved branch is `release-log/<releaseBranch>` (normally `release-log/main`) in the same repository. A new PR is a draft with maintainer modification disabled, targeting the configured release branch. Titles are `chore(release): prepare vX.Y.Z`; commits are unscoped `chore: prepare vX.Y.Z`. Generated title/context/commit metadata passes the ordinary readiness validator; there is no bot exemption.
+The reserved branch is `release-log/<releaseBranch>` (normally `release-log/main`) in the same repository. A new PR is non-draft with maintainer modification disabled, targeting the configured release branch. Refreshes do not change an existing PR's draft state. Titles are `chore(release): prepare vX.Y.Z`; commits are unscoped `chore: prepare vX.Y.Z`. Generated title/context/commit metadata passes the ordinary readiness validator; there is no bot exemption.
 
 The exact source tree is the captured immutable source commit. Regenerate the full baseline-to-source batch, not just the latest event. Reuse the Node/Python adapters, pending changelog updater and canonical snapshot serializer. Only present root manifests, `CHANGELOG.md` and `.release-log/inputs.json` are owned outputs. Preserve every unrelated source path and the existing file modes.
 

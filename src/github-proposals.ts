@@ -221,7 +221,7 @@ export class GitHubProposalRepository {
       "uv.lock": await get("uv.lock"),
     };
   }
-  pull(value: unknown): ProposalPullRequest {
+  pull(value: unknown, requireMerger = true): ProposalPullRequest {
     const raw = proposalObject(value);
     const head = proposalObject(raw.head);
     const base = proposalObject(raw.base);
@@ -249,18 +249,20 @@ export class GitHubProposalRepository {
     let mergeCommitSha: string | null = null;
     let mergedByUserId: number | null = null;
     if (raw.merged_at !== null) {
-      const merger = proposalObject(raw.merged_by);
-      if (
-        merger.type !== "User" ||
-        typeof merger.id !== "number" ||
-        !Number.isSafeInteger(merger.id) ||
-        merger.id <= 0
-      )
-        throw new ProposalConflictError(
-          "Merged release approval requires an identifiable human merger.",
-        );
       mergeCommitSha = proposalSha(raw.merge_commit_sha);
-      mergedByUserId = merger.id;
+      if (requireMerger) {
+        const merger = proposalObject(raw.merged_by);
+        if (
+          merger.type !== "User" ||
+          typeof merger.id !== "number" ||
+          !Number.isSafeInteger(merger.id) ||
+          merger.id <= 0
+        )
+          throw new ProposalConflictError(
+            "Merged release approval requires an identifiable human merger.",
+          );
+        mergedByUserId = merger.id;
+      }
     }
     return {
       number: raw.number,
@@ -282,7 +284,7 @@ export class GitHubProposalRepository {
       );
       if (!Array.isArray(response.data))
         throw new ProposalConflictError("GitHub returned an invalid proposal history page.");
-      result.push(...response.data.map((value: unknown) => this.pull(value)));
+      result.push(...response.data.map((value: unknown) => this.pull(value, false)));
       if (!response.next) {
         if (new Set(result.map((pull) => pull.number)).size !== result.length)
           throw new ProposalConflictError(
@@ -367,7 +369,7 @@ export class GitHubProposalRepository {
               : {
                   head: this.headRef,
                   base: this.config.releaseBranch,
-                  draft: true,
+                  draft: false,
                   maintainer_can_modify: false,
                 }),
           },

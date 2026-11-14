@@ -309,7 +309,7 @@ export async function fixture(
       return json({ ref: `refs/${name}`, object: { sha } }, method === "POST" ? 201 : 200);
     }
     if (method === "POST" && path === "/pulls") {
-      assert.equal(body.draft, true);
+      assert.equal(body.draft, false);
       const pull = {
         number: pulls.length + 1,
         title: body.title,

@@ -41,7 +41,7 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 
 - [Read-only release rehearsal](release-rehearsal.md): exercise the installed CLI against an explicit main baseline without creating proposals or publishing.
 
-- [Rolling release proposal controller](release-proposal.md): preview or explicitly create/refresh a draft proposal, with conflict checks and remaining safety gates.
+- [Rolling release proposal controller](release-proposal.md): preview or explicitly create/refresh a proposal, with conflict checks and remaining safety gates.
 
 - [Read-only approval verification](release-approval.md): verify an independently recorded reviewed proposal against its actual merge/squash landing, without publishing.
 
