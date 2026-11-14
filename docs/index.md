@@ -22,7 +22,7 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 
 ## Component guides
 
-- [Rolling release workflow](release-workflow.md): the accepted scope, manual-merge/automatic-tag lifecycle, bot setup, and remaining implementation work.
+- [Rolling release workflow](release-workflow.md): the accepted scope, manual-merge/automatic-tag lifecycle, packaged event routing, inactive caller, and separate live-setup boundary.
 - [Release policy](release-policy.md): deterministic membership, metadata, versioning, and changelog rules.
 - [Initial adoption](initial-adoption.md): start a reviewed first release without rewriting legacy PRs, with a fixed cutoff and strict rules for new changes.
 - [PR metadata readiness](pr-readiness.md): understand the read-only gate, diagnostics, and rollout limitations.
@@ -37,7 +37,7 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 
 - [Deterministic changelog](changelog.md): render escaped release entries and update a digest-checked pending section without rewriting released content.
 
-- [Deterministic CLI](cli.md): collect online, replay/plan/render offline, and prepare Node/Python proposal files with explicit opt-in writes.
+- [Deterministic CLI](cli.md): route rolling release events, collect online, replay/plan/render offline, and prepare Node/Python proposal files with explicit opt-in writes.
 
 - [Read-only release rehearsal](release-rehearsal.md): exercise the installed CLI against an explicit main baseline without creating proposals or publishing.
 

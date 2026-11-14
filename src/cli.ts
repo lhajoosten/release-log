@@ -8,6 +8,7 @@ import { renderChangelog } from "./changelog.ts";
 import { createReleasePlan } from "./release-plan.ts";
 import { reconcileReleaseProposal, parseReleaseAutomation } from "./release-proposal.ts";
 import { reconcileReleaseTag } from "./release-tag.ts";
+import { rollRelease } from "./release-roll.ts";
 import { selectReleaseCycle } from "./release-cycle.ts";
 import { ProposalConflictError } from "./github-proposals.ts";
 import type { ReleaseVersionConfiguration } from "./release-plan.ts";
@@ -45,6 +46,8 @@ class UsageError extends Error {
 }
 const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/approval verification)
 
+  release-log roll --config FILE --automation FILE --repository DIR --event FILE
+      [--dry-run | --write]
   release-log select-cycle --config FILE --automation FILE --source SHA
   release-log collect --config FILE --repository DIR --source SHA
       (--baseline-tag TAG | --bootstrap-sha SHA) [--exclusions FILE]
@@ -69,6 +72,8 @@ const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/ap
       --asset-directory DIR [--dry-run | --write]
   release-log --help | --version
 
+roll routes merged PR events through pre-collection cycle selection or exact-landing
+tagging. It requires RELEASE_LOG_APP_TOKEN; default dry-run.
 select-cycle makes read-only GitHub requests to select a verified release boundary.
 collect makes bounded read-only GitHub.com requests using GITHUB_TOKEN and emits
 snapshot JSON. Initial adoption requires a version 2 config with a fixed
@@ -138,6 +143,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
   const command = args[0];
   const versionOptions = ["config", "snapshot", "current-version", "initial-version"];
   const commandOptions = new Map<string, readonly string[]>([
+    ["roll", ["config", "automation", "repository", "event", "dry-run", "write"]],
     ["select-cycle", ["config", "automation", "source"]],
     ["collect", ["config", "repository", "source", "baseline-tag", "bootstrap-sha", "exclusions"]],
     ["plan", versionOptions],
@@ -190,6 +196,29 @@ async function runCLI(args: readonly string[]): Promise<string> {
     throw new UsageError("--write and --dry-run are mutually exclusive.");
   const configJSON: unknown = JSON.parse(await readText(required(options, "config"), 1024 * 1024));
   const config = parseReleaseInputConfiguration(configJSON);
+  if (command === "roll") {
+    const token = process.env.RELEASE_LOG_APP_TOKEN;
+    if (!token?.trim())
+      throw new UsageError(
+        "roll requires RELEASE_LOG_APP_TOKEN from a repository-scoped App installation; no GITHUB_TOKEN fallback.",
+      );
+    const automation = parseReleaseAutomation(
+      JSON.parse(await readText(required(options, "automation"), 1024 * 1024)) as unknown,
+    );
+    const result = await rollRelease({
+      configuration: config,
+      automation,
+      repository: required(options, "repository"),
+      token,
+      eventName: process.env.GITHUB_EVENT_NAME ?? "",
+      event: JSON.parse(await readText(required(options, "event"), 4 * 1024 * 1024)) as unknown,
+      write: options.has("write"),
+    });
+    return (
+      JSON.stringify({ mode: options.has("write") ? "write" : "dry-run", ...result }, null, 2) +
+      "\n"
+    );
+  }
   if (command === "select-cycle") {
     const automation = parseReleaseAutomation(
       JSON.parse(await readText(required(options, "automation"), 1024 * 1024)) as unknown,

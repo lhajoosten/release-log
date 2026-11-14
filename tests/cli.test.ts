@@ -81,7 +81,12 @@ void test(
         cwd: consumer,
         timeout: 10_000,
         maxBuffer: 16 * 1024 * 1024,
-        env: { ...process.env, GITHUB_TOKEN: githubToken, GHCR_READ_TOKEN: registryToken },
+        env: {
+          ...process.env,
+          GITHUB_TOKEN: githubToken,
+          GHCR_READ_TOKEN: registryToken,
+          RELEASE_LOG_APP_TOKEN: "",
+        },
       });
     }
     assert.match((await run(["--help"])).stdout, /pyproject.toml/u);
@@ -335,6 +340,32 @@ void test(
     );
     const automationPath = join(path, "automation.json");
     await writeFile(automationPath, JSON.stringify({ schemaVersion: 1, botUserId: 42 }));
+    const eventPath = join(path, "event.json");
+    await writeFile(eventPath, JSON.stringify({ action: "closed" }));
+    await assert.rejects(
+      run(
+        [
+          "roll",
+          "--config",
+          configPath,
+          "--automation",
+          automationPath,
+          "--repository",
+          consumer,
+          "--event",
+          eventPath,
+        ],
+        "synthetic-default-actions-token",
+      ),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 2 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("RELEASE_LOG_APP_TOKEN") &&
+        !error.stderr.includes("synthetic-default-actions-token"),
+    );
     const tagArgs = [
       "tag-release",
       "--config",

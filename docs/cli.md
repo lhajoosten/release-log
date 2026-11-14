@@ -42,6 +42,20 @@ The commands above do not commit, push or open PRs. The separate explicit [propo
 
 `release-log select-cycle --config release-config.json --automation release-automation.json --source FULL_COMMIT_SHA` performs read-only GitHub checks using `GITHUB_TOKEN` and outputs the verified bootstrap or tagged baseline and version as JSON. A merged release without its exact tag fails with `release-tag-pending`; rerun `tag-release` for the reported PR and landing. Closed unmerged proposals and conflicting tags also stop selection. Bootstrap selection requires the current release-branch tip; tagged selection requires a source descended from the latest verified landing. This command does not fetch local Git tags, collect a snapshot, or create a proposal; callers must verify local tag evidence and invoke those steps separately. The existing `collect` and `propose` commands do not invoke this guard automatically.
 
+### Route a merged PR
+
+```sh
+release-log roll --config release-config.json --automation release-automation.json --repository . --event event.json --dry-run
+```
+
+`roll` consumes the GitHub event JSON with `GITHUB_EVENT_NAME=pull_request_target` (or `pull_request`) and requires `RELEASE_LOG_APP_TOKEN`, with no default `GITHUB_TOKEN` fallback. Supply a short-lived repository-scoped installation token at runtime. It defaults to dry-run; only separately approved `--write` mutates GitHub. Output is `{ mode, route, result }`, with route `proposal`, `tag`, or `ignored` (without a result). It never prints snapshots or credentials.
+
+The router re-reads the event PR and checks its repository, release branch and exact landing. Reserved-head or configured-bot candidates must pass the full generated proposal and merge/squash verification before tagging; verification failures stop, without falling through to collection. Titles and labels do not select the tag path. Non-merge events and other base branches are ignored.
+
+Ordinary merges capture the current remote source, including changes newer than a delayed trigger, and invoke cycle selection before collection. Pending tags, closed proposals, conflicting tags and divergent history stop. The local selected tag object and peeled commit must match the verified remote boundary. Fetch complete history and tags beforehand; stale/missing local evidence fails rather than guessing a baseline. Collection covers the entire selected range, then the proposal controller rechecks source and tag freshness before writes. A source race fails and requires a fresh run; partial/uncertain writes still require explicit reconciliation.
+
+The [reusable workflow and inactive caller](release-workflow.md#reusable-workflow-and-inactive-caller) build a packaged CLI from an explicitly reviewed tool SHA, without executing consumer source or dependencies. Neither ordinary `collect` nor `propose` changes its standalone interface; use `roll` for the integrated pre-collection guard.
+
 ### Tag a manually merged release PR
 
 The [rolling-release workflow](release-workflow.md) uses a separate tag-only path, not the publication executor:
@@ -54,7 +68,7 @@ release-log tag-release --config release-config.json --automation release-automa
 
 Default dry-run emits `{ mode, outcome, tag, landingSha, pullNumber }`; `outcome` is `would-create` or `unchanged`. Only separately authorized `--write` can create the absent version tag (`created`). A matching lightweight or annotated tag is reused without writes; a conflicting tag fails and is never moved. No PR, Release, asset, or image is created by this command. A failed/uncertain tag write requires inspecting state and explicitly rerunning for the same landing, not automatic write retries. Rebase release landings are unsupported. The corresponding library function is `reconcileReleaseTag()` from `release-log/tags`.
 
-The reusable event-driven workflow, automatic baseline selection, tag-pending guard, and subsequent-cycle proposal integration remain outstanding; this command alone does not enable them or provision the App.
+The reusable workflow calls `roll` to connect these components. Adding the reusable source does not enable a caller or provision the App.
 
 ### Existing approval and publication APIs
 

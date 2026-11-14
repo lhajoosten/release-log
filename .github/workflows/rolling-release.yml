@@ -1,0 +1,132 @@
+name: Reusable rolling release
+
+on:
+  workflow_call:
+    inputs:
+      tool-sha:
+        description: Reviewed full commit of lhajoosten/release-log containing this CLI
+        required: true
+        type: string
+      configuration:
+        description: Trusted release input configuration JSON, supplied by the caller
+        required: true
+        type: string
+      bot-user-id:
+        description: Expected numeric GitHub App bot account ID
+        required: true
+        type: string
+      release-branch:
+        required: true
+        type: string
+      app-id:
+        required: true
+        type: string
+      write:
+        description: Separately approved live writes (default is dry-run)
+        default: false
+        type: boolean
+    secrets:
+      app-private-key:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: release-log-${{ github.repository }}-${{ inputs.release-branch }}
+  cancel-in-progress: false
+
+jobs:
+  roll:
+    if: >-
+      (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') &&
+      github.event.action == 'closed' && github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == inputs.release-branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Require a pinned tool revision
+        env:
+          TOOL_SHA: ${{ inputs.tool-sha }}
+        run: '[[ "$TOOL_SHA" =~ ^[a-f0-9]{40}$ ]]'
+
+      - name: Check out only reviewed tool code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: lhajoosten/release-log
+          ref: ${{ inputs.tool-sha }}
+          path: tool
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: tool/.node-version
+          package-manager-cache: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
+        with:
+          package_json_file: tool/package.json
+          cache: false
+
+      - name: Build and install the pinned tarball without consumer code
+        working-directory: tool
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          mkdir -p "$RUNNER_TEMP/release-package" "$RUNNER_TEMP/release-cli"
+          pnpm pack --out "$RUNNER_TEMP/release-package/release-log.tgz"
+          tar -xzf "$RUNNER_TEMP/release-package/release-log.tgz" --strip-components=1 --directory "$RUNNER_TEMP/release-cli"
+          cp "$RUNNER_TEMP/release-cli/dist/dependency-lock.txt" "$RUNNER_TEMP/release-cli/pnpm-lock.yaml"
+          pnpm --dir "$RUNNER_TEMP/release-cli" install --offline --prod --frozen-lockfile --ignore-scripts
+
+      - name: Validate trusted caller configuration
+        env:
+          CONFIGURATION: ${{ inputs.configuration }}
+          BOT_USER_ID: ${{ inputs.bot-user-id }}
+          RELEASE_BRANCH: ${{ inputs.release-branch }}
+        run: |
+          node --input-type=module <<'JS'
+          import { writeFile } from 'node:fs/promises';
+          const { parseReleaseInputConfiguration } = await import(`${process.env.RUNNER_TEMP}/release-cli/dist/src/release-snapshot.js`);
+          const { parseReleaseAutomation } = await import(`${process.env.RUNNER_TEMP}/release-cli/dist/src/release-proposal.js`);
+          const config = parseReleaseInputConfiguration(JSON.parse(process.env.CONFIGURATION));
+          if (config.repository !== process.env.GITHUB_REPOSITORY || config.releaseBranch !== process.env.RELEASE_BRANCH) throw new Error('Caller repository/branch mismatch');
+          const automation = parseReleaseAutomation({ schemaVersion: 1, botUserId: Number(process.env.BOT_USER_ID) });
+          await writeFile(`${process.env.RUNNER_TEMP}/release-config.json`, JSON.stringify(config));
+          await writeFile(`${process.env.RUNNER_TEMP}/release-automation.json`, JSON.stringify(automation));
+          JS
+
+      - name: Check out current release source as data with complete tags and history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.release-branch }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Mint after queueing and tool installation. Never expose the key/token to
+      # consumer dependency scripts, source code, or a PR-head checkout.
+      - name: Mint a short-lived token for this repository only
+        id: app
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.app-private-key }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Route the merge through the packaged CLI
+        env:
+          RELEASE_LOG_APP_TOKEN: ${{ steps.app.outputs.token }}
+          RELEASE_WRITE: ${{ inputs.write }}
+        run: |
+          mode=--dry-run
+          if [ "$RELEASE_WRITE" = true ]; then mode=--write; fi
+          node "$RUNNER_TEMP/release-cli/dist/src/cli.js" roll \
+            --config "$RUNNER_TEMP/release-config.json" \
+            --automation "$RUNNER_TEMP/release-automation.json" \
+            --repository "$GITHUB_WORKSPACE/source" \
+            --event "$GITHUB_EVENT_PATH" "$mode"
