@@ -8,6 +8,8 @@ import { renderChangelog } from "./changelog.ts";
 import { createReleasePlan } from "./release-plan.ts";
 import { reconcileReleaseProposal, parseReleaseAutomation } from "./release-proposal.ts";
 import { reconcileReleaseTag } from "./release-tag.ts";
+import { selectReleaseCycle } from "./release-cycle.ts";
+import { ProposalConflictError } from "./github-proposals.ts";
 import type { ReleaseVersionConfiguration } from "./release-plan.ts";
 import {
   parseReleaseApproval,
@@ -43,6 +45,7 @@ class UsageError extends Error {
 }
 const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/approval verification)
 
+  release-log select-cycle --config FILE --automation FILE --source SHA
   release-log collect --config FILE --repository DIR --source SHA
       (--baseline-tag TAG | --bootstrap-sha SHA) [--exclusions FILE]
   release-log plan|render --config FILE --snapshot FILE
@@ -66,6 +69,7 @@ const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/ap
       --asset-directory DIR [--dry-run | --write]
   release-log --help | --version
 
+select-cycle makes read-only GitHub requests to select a verified release boundary.
 collect makes bounded read-only GitHub.com requests using GITHUB_TOKEN and emits
 snapshot JSON. Initial adoption requires a version 2 config with a fixed
 bootstrap baselineSha/onboardingSha record; old metadata becomes review warnings.
@@ -75,8 +79,8 @@ changes fixed local proposal files. It supports package.json and pyproject.toml.
 Configure changelog.verbosity as detailed (default), concise, or one-liner;
 all modes preserve breaking warnings and required actions.
 propose makes explicit GitHub reads; only propose --write creates/refreshes the
-reserved release branch and draft PR. It requires GITHUB_TOKEN and an expected
-numeric bot identity. tag-release verifies a manually merged generated proposal;
+reserved release branch and PR. New PRs are non-draft. It requires GITHUB_TOKEN
+and an expected numeric bot identity. tag-release verifies a manually merged generated proposal;
 only --write creates its immutable version tag at the exact supplied landing.
 It requires no approval receipt, application CI evidence, or publication policy.
 capture-review records the exact intended open proposal;
@@ -134,6 +138,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
   const command = args[0];
   const versionOptions = ["config", "snapshot", "current-version", "initial-version"];
   const commandOptions = new Map<string, readonly string[]>([
+    ["select-cycle", ["config", "automation", "source"]],
     ["collect", ["config", "repository", "source", "baseline-tag", "bootstrap-sha", "exclusions"]],
     ["plan", versionOptions],
     ["render", versionOptions],
@@ -185,6 +190,29 @@ async function runCLI(args: readonly string[]): Promise<string> {
     throw new UsageError("--write and --dry-run are mutually exclusive.");
   const configJSON: unknown = JSON.parse(await readText(required(options, "config"), 1024 * 1024));
   const config = parseReleaseInputConfiguration(configJSON);
+  if (command === "select-cycle") {
+    const automation = parseReleaseAutomation(
+      JSON.parse(await readText(required(options, "automation"), 1024 * 1024)) as unknown,
+    );
+    const token = process.env.GITHUB_TOKEN;
+    if (!token?.trim())
+      throw new UsageError("select-cycle requires GITHUB_TOKEN with repository/PR read access.");
+    const result = await selectReleaseCycle({
+      configuration: config,
+      automation,
+      sourceSha: required(options, "source"),
+      token,
+    });
+    if (result.outcome === "release-tag-pending")
+      throw new ProposalConflictError(
+        `release-tag-pending: tag ${result.tag} at ${result.landingSha} by rerunning tag-release for PR #${result.pullNumber}.`,
+      );
+    if (result.outcome === "closed-unmerged")
+      throw new ProposalConflictError(
+        `Closed unmerged release proposals require manual recovery: ${result.pullNumbers.join(", ")}.`,
+      );
+    return JSON.stringify(result, null, 2) + "\n";
+  }
   if (command === "tag-release") {
     const numberText = required(options, "pull-number");
     const pullNumber = Number(numberText);
@@ -457,6 +485,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
           "PullRequestAssociationError",
           "GitInspectionError",
           "ProposalConflictError",
+          "ReleaseCycleError",
           "ReleaseApprovalError",
           "ReleasePublicationError",
         ].includes(error.name));
