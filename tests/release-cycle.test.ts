@@ -3,12 +3,17 @@ import { test } from "node:test";
 import type { TestContext } from "node:test";
 
 import { reconcileReleaseProposal } from "../src/release-proposal.ts";
+import {
+  captureReleaseReview,
+  finalizeReleaseApproval,
+  verifyReleaseApproval,
+} from "../src/release-approval.ts";
 import { ReleaseCycleError, selectReleaseCycle } from "../src/release-cycle.ts";
 import type { ReleaseCycleRequest } from "../src/release-cycle.ts";
 import type { GitHubRead } from "../src/github.ts";
 import { fixture, json, object, text } from "./proposal-fixture.ts";
 
-async function mergedProposal(context: TestContext) {
+async function mergedProposal(context: TestContext, kind: "merge" | "squash" = "merge") {
   const f = await fixture(context);
   const proposalRequest = await f.request(true);
   const proposal = await reconcileReleaseProposal(proposalRequest, f.transport);
@@ -20,7 +25,13 @@ async function mergedProposal(context: TestContext) {
   const treeSha = f.git(["rev-parse", `${proposal.headSha}^{tree}`]).trim();
   const landingSha = f
     .git(
-      ["commit-tree", treeSha, "-p", sourceSha, "-p", proposal.headSha],
+      [
+        "commit-tree",
+        treeSha,
+        "-p",
+        sourceSha,
+        ...(kind === "merge" ? ["-p", proposal.headSha] : []),
+      ],
       "chore: merge release proposal\n",
     )
     .trim();
@@ -371,9 +382,14 @@ void test("a missing release tag stops proposal writes with release-tag-pending"
   assertReadOnly(state.f.calls, before);
 });
 
-for (const retained of [true, false]) {
-  void test(`a tagged release starts a new cycle with the prior branch ${retained ? "retained" : "deleted"}`, async (context) => {
-    const state = await mergedProposal(context);
+for (const [kind, retained] of [
+  ["merge", true],
+  ["merge", false],
+  ["squash", true],
+  ["squash", false],
+] as const) {
+  void test(`a ${kind}-landed tagged release starts a new cycle with the prior branch ${retained ? "retained" : "deleted"}`, async (context) => {
+    const state = await mergedProposal(context, kind);
     const priorHead = text(object(state.pull.head).sha);
     state.f.git(["tag", "v1.3.0", state.landingSha]);
     if (!retained) state.f.git(["update-ref", "-d", "refs/heads/release-log/main"]);
@@ -430,6 +446,43 @@ for (const retained of [true, false]) {
     );
     assert.equal(repeated.outcome, "unchanged");
     assert.equal(repeated.headSha, next.headSha);
+    const capture = {
+      repository: state.f.directory,
+      configuration: state.request.configuration,
+      policy: { schemaVersion: 1 as const, botUserId: 42, approverUserIds: [7] },
+      target: {
+        schemaVersion: 1 as const,
+        pullNumber: next.pullNumber,
+        headSha: next.headSha,
+        approverUserId: 7,
+      },
+      token: state.request.token,
+    };
+    const review = await captureReleaseReview(capture, cycleTransport(state.f));
+    const tree = state.f.git(["rev-parse", `${next.headSha}^{tree}`]).trim();
+    const landing = state.f
+      .git(["commit-tree", tree, "-p", next.sourceSha, "-p", next.headSha], "Merge release\n")
+      .trim();
+    state.f.git(["update-ref", "refs/heads/main", landing, next.sourceSha]);
+    const nextPull = state.f.pulls[1];
+    assert.ok(nextPull);
+    Object.assign(nextPull, {
+      state: "closed",
+      merged_at: "2026-11-14T12:00:00Z",
+      merge_commit_sha: landing,
+      merged_by: { id: 7, type: "User" },
+    });
+    const attestation = {
+      ...capture.target,
+      repositoryId: 17,
+      landingSha: landing,
+      mergeKind: "merge" as const,
+    };
+    const approval = await finalizeReleaseApproval(
+      { ...capture, review, attestation },
+      cycleTransport(state.f),
+    );
+    await verifyReleaseApproval({ ...capture, approval }, cycleTransport(state.f));
   });
 }
 
