@@ -379,14 +379,31 @@ for (const retained of [true, false]) {
     if (!retained) state.f.git(["update-ref", "-d", "refs/heads/release-log/main"]);
     state.f.git(["read-tree", "--reset", "-u", "HEAD"]);
     await state.f.advance("fix(api): preserve later changes");
+    const snapshot = await state.f.snapshot("v1.3.0");
+    const before = state.f.calls.length;
+    await assert.rejects(
+      reconcileReleaseProposal(
+        {
+          configuration: state.request.configuration,
+          automation: state.request.automation,
+          token: state.request.token,
+          write: true,
+          snapshot,
+          version: { currentVersion: "1.2.3", kind: "released" },
+        },
+        cycleTransport(state.f),
+      ),
+      /baseline or version is not the latest verified release/u,
+    );
+    assertReadOnly(state.f.calls, before);
     const next = await reconcileReleaseProposal(
       {
         configuration: state.request.configuration,
         automation: state.request.automation,
         token: state.request.token,
         write: true,
-        snapshot: await state.f.snapshot("v1.3.0"),
-        version: { kind: "released", currentVersion: "1.3.0" },
+        snapshot,
+        version: { currentVersion: "1.3.0", kind: "released" },
       },
       cycleTransport(state.f),
     );

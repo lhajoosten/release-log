@@ -112,7 +112,9 @@ export async function reconcileReleaseProposal(
       baseline.name !== cycle.baseline.name ||
       baseline.objectSha !== cycle.baseline.objectSha ||
       baseline.commitSha !== cycle.baseline.commitSha ||
-      JSON.stringify(selectedVersion) !== JSON.stringify(cycle.version)
+      selectedVersion.kind !== "released" ||
+      cycle.version.kind !== "released" ||
+      selectedVersion.currentVersion !== cycle.version.currentVersion
     )
       throw new ProposalConflictError(
         "The captured baseline or version is not the latest verified release; collect again.",
