@@ -145,6 +145,38 @@ async function verifyProposalHistory(
 
   const deadline = Date.now() + 300_000;
   let snapshotBytes = 0;
+  let completedHead: string | null | undefined;
+
+  const findCompletedHead = async (): Promise<string | null> => {
+    if (completedHead !== undefined) return completedHead;
+    completedHead = null;
+    if (expectedBaseline.kind !== "tag") return completedHead;
+    const landing = await localTree(repository, expectedBaseline.commitSha);
+    for (const candidateSha of history.commitShas) {
+      if (Date.now() >= deadline)
+        throw new ReleaseApprovalError(
+          "resource-limit",
+          "Proposal history verification exceeded five minutes; no exclusion is usable.",
+        );
+      if (candidateSha === headSha) continue;
+      const candidate = await localTree(repository, candidateSha);
+      const source = candidate.parents[0];
+      if (!source || candidate.treeSha !== landing.treeSha) continue;
+      const squash = landing.parents.length === 1 && landing.parents[0] === source;
+      const merge =
+        landing.parents.length === 2 &&
+        landing.parents[0] === source &&
+        landing.parents[1] === candidateSha;
+      if (!squash && !merge) continue;
+      if (completedHead !== null)
+        throw new ReleaseApprovalError(
+          "identity-mismatch",
+          "Multiple proposal heads match the tagged release landing.",
+        );
+      completedHead = candidateSha;
+    }
+    return completedHead;
+  };
 
   for (const commitSha of history.commitShas) {
     if (Date.now() >= deadline)
@@ -185,9 +217,18 @@ async function verifyProposalHistory(
       marker.sourceSha,
     );
 
+    if (JSON.stringify(capturedBaseline) !== JSON.stringify(expectedBaseline)) {
+      const completed = await findCompletedHead();
+      if (completed === null)
+        throw new ReleaseApprovalError(
+          "identity-mismatch",
+          "A prior proposal belongs to a different baseline without a matching tagged landing.",
+        );
+      await inspectPendingRelease(repository, { kind: "bootstrap", commitSha }, completed);
+    }
+
     if (
       snapshot.normalized.sourceCommitSha !== marker.sourceSha ||
-      JSON.stringify(capturedBaseline) !== JSON.stringify(expectedBaseline) ||
       JSON.stringify(range.baseline) !== JSON.stringify(capturedBaseline) ||
       JSON.stringify(range.commitShas.toSorted()) !==
         JSON.stringify(snapshot.input.range.commitShas.toSorted())
@@ -210,6 +251,15 @@ async function verifyProposalHistory(
       marker.version,
       await contents(repository, source),
     );
+    if (
+      commitSha === completedHead &&
+      `v${prepared.plan.nextVersion}` !==
+        (expectedBaseline.kind === "tag" ? expectedBaseline.name : "")
+    )
+      throw new ReleaseApprovalError(
+        "identity-mismatch",
+        "The completed proposal version does not match its tagged landing.",
+      );
     const description = describe(snapshot, prepared, botUserId, marker.previousHeadSha);
     const parents =
       marker.previousHeadSha && marker.previousHeadSha !== marker.sourceSha

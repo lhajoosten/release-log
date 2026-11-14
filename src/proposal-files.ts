@@ -141,7 +141,11 @@ export async function prepareReleaseFileContents(
     manifests.push({ path: "pyproject.toml", before: pyprojectTOML, after: pythonUpdate.content });
   const changelog = contents["CHANGELOG.md"];
   const rendered = await renderChangelog(snapshotJSON, expected, version);
-  const updatedChangelog = updateChangelog(changelog ?? "", rendered);
+  const updatedChangelog = updateChangelog(
+    changelog ?? "",
+    rendered,
+    version.kind === "released" ? version.currentVersion : undefined,
+  );
   if (!plan.release) return { plan, files: [] };
   const snapshot = await replayReleaseSnapshot(snapshotJSON, expected);
   const inputs = contents[".release-log/inputs.json"];

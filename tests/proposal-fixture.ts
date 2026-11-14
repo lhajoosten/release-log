@@ -127,39 +127,43 @@ export async function fixture(
           changelog: { verbosity: setup.changelogVerbosity },
         };
 
-  async function snapshot() {
+  async function snapshot(baselineTag?: string) {
     const source = git(["rev-parse", "refs/heads/main"]).trim();
     const range = await inspectPendingRelease(
       directory,
-      setup.bootstrap
-        ? { kind: "bootstrap", commitSha: baseline }
-        : { kind: "tag", name: "v1.2.3" },
+      baselineTag
+        ? { kind: "tag", name: baselineTag }
+        : setup.bootstrap
+          ? { kind: "bootstrap", commitSha: baseline }
+          : { kind: "tag", name: "v1.2.3" },
       source,
     );
     const pulls = await Promise.all(
-      changes.map(async (change, index) => {
-        const commit = await inspectCommit(directory, change.sha);
-        return {
-          number: index + 1,
-          id: index + 1001,
-          title: change.title,
-          body: "```release-log\nversion: 1\naudience: internal\nsummary: Preserve selected rows.\nimpact: Retain the selection.\nrequired_action: null\n```",
-          updatedAt: "2026-11-08T10:00:00Z",
-          mergedAt: "2026-11-08T09:00:00Z",
-          mergeCommitSha: change.sha,
-          commitCount: 1,
-          headSha: change.sha,
-          headRef: "feature",
-          headRepositoryId: 23,
-          baseRepositoryId: 17,
-          authorId: 7,
-          authorType: "User",
-          url: `https://github.com/example/project/pull/${index + 1}`,
-          landingKind: "linear" as const,
-          originalCommits: [commit],
-          landedCommits: [commit],
-        };
-      }),
+      changes
+        .filter((change) => range.commitShas.includes(change.sha))
+        .map(async (change, index) => {
+          const commit = await inspectCommit(directory, change.sha);
+          return {
+            number: index + 1,
+            id: index + 1001,
+            title: change.title,
+            body: "```release-log\nversion: 1\naudience: internal\nsummary: Preserve selected rows.\nimpact: Retain the selection.\nrequired_action: null\n```",
+            updatedAt: "2026-11-08T10:00:00Z",
+            mergedAt: "2026-11-08T09:00:00Z",
+            mergeCommitSha: change.sha,
+            commitCount: 1,
+            headSha: change.sha,
+            headRef: "feature",
+            headRepositoryId: 23,
+            baseRepositoryId: 17,
+            authorId: 7,
+            authorType: "User",
+            url: `https://github.com/example/project/pull/${index + 1}`,
+            landingKind: "linear" as const,
+            originalCommits: [commit],
+            landedCommits: [commit],
+          };
+        }),
     );
     return serializeReleaseSnapshot(
       await captureReleaseSnapshot(
@@ -326,7 +330,11 @@ export async function fixture(
     if (method === "PATCH" && path.startsWith("/pulls/")) {
       const pull = pulls.find((entry) => entry.number === Number(path.split("/")[2]));
       assert.ok(pull);
-      Object.assign(pull, { title: body.title, body: body.body });
+      Object.assign(pull, {
+        title: body.title,
+        body: body.body,
+        head: { ...object(pull.head), sha: ref("heads/release-log/main") },
+      });
       return json(currentPull(pull));
     }
     throw new Error(`Unexpected API request ${method} ${path}`);
