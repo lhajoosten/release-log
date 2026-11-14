@@ -1,10 +1,28 @@
-# Container vulnerability review — 2026-11-09
+# Container vulnerability review
 
-**Current local disposition: vulnerability threshold passed, private access/publication pending.** The locked Alpine build below has no High/Critical/Unknown matches with the recorded database; three Medium BusyBox matches remain visible. This does not close [#21](https://github.com/lhajoosten/release-log/issues/21), authorize publication, or establish private-registry access. These are scanner findings, not independently reproduced exploitability claims.
+## APK refresh — 2026-11-14
 
-## Locked Alpine remediation
+Alpine retired the locked Git 2.54.0 archives, causing the container build to fail with HTTP 404. A fresh `apk fetch --recursive git ca-certificates zlib` against Alpine 3.24/main/x86_64 signed indexes in the reviewed pinned base resolved 21 archives. All 21 passed `apk verify` with the base's trusted keys; only Git and `git-init-template` changed, to **2.54.1-r0**. SHA-256 values were calculated from the downloaded archives and recorded in `container/apk-lock.json`. The lock SHA-256 is `274ef1ee94db6c2e1b8a3cca44e16534db4576d6ca307cec0094853ad06b4e9d`. The Node base digest, offline installation, signature/checksum verification, disabled Docker RUN networking, and scan thresholds remain unchanged.
 
-The follow-up keeps Node 26.13.0 and the packaged CLI, but replaces Debian/glibc with Alpine/musl. Git 2.54.0, musl 1.2.6-r3, libcurl 8.23.0-r0, OpenSSL libraries 3.5.9-r0 and zlib 1.4-r0 are among the 21 archives in `container/apk-lock.json` (lock SHA-256 `d2956db8e5b01ff084387c5721fea211085f9db1a02a0f082cc88008ed97853c`). Package filenames and bytes are pinned; the Docker build installs them offline with signature verification and RUN networking disabled. No advisory ignore rule or severity threshold was weakened. See the [runtime/pinning tradeoffs](container.md#build-from-locked-inputs), especially musl compatibility and upstream APK availability.
+The refreshed image built from PR source `a8fdaa1` and the updated lock passed real Docker smoke tests: Node 26.13.0, Git 2.54.1, CLI 0.0.0, image size **325,012,865 bytes**. A separate scan of the refreshed local image at **2026-11-14 15:07:00 UTC** used Syft 1.57.0, Grype 0.121.2 and database v6.1.10 built 2026-11-14 06:19:25 UTC. It inventoried 122 packages and found **zero High/Critical/Unknown and five Medium matches**; the existing gate passed.
+
+- `CVE-2025-60876`: `busybox`, `busybox-binsh`, and `ssl_client` 1.37.0-r31; the report lists no fixed versions.
+- `CVE-2026-100407` and `CVE-2026-100408`: Git 2.54.1-r0; the report lists fix state `unknown` and no fixed versions.
+
+| Refreshed-image evidence          | Identity                                                                      |
+| --------------------------------- | ----------------------------------------------------------------------------- |
+| Local image ID                    | `sha256:e121fa1bcdee5ea8f6ade7e99b10e70b53252d30535569b2cb4c0b38d74a733e`     |
+| Exported archive SHA-256          | `f506076f8a52720f30c0d9aa638492fbdd1c53d0c0812fc0db74df1b155ac204`            |
+| SBOM SHA-256                      | `27dc56639672e8528980a82a7c40b24c2a6045cfbd8ccf2802ff2d03b85ced8d`            |
+| Findings report SHA-256           | `264592230e114053491b60b00320e0d13cfcf06a2e724cdeeb4b9e6b90bf6133`            |
+| Raw local scan                    | `.local/apk-refresh-20261114/pr54-a8fdaa1-scan-01/` in the canonical checkout |
+| Signed index and APK verification | `.local/apk-refresh-20261114/run-01/` in the `container-apk-refresh` worktree |
+
+These are scanner findings, not independently reproduced exploitability claims; the scan covers this image and database only. Neither this scan nor the historical evidence below authorizes publication or establishes private-registry access. Continue reviewing Medium findings and upstream fixes before release.
+
+## Historical locked Alpine remediation — 2026-11-09
+
+The follow-up kept Node 26.13.0 and the packaged CLI, but replaced Debian/glibc with Alpine/musl. Git 2.54.0, musl 1.2.6-r3, libcurl 8.23.0-r0, OpenSSL libraries 3.5.9-r0 and zlib 1.4-r0 were among the 21 archives in the original `container/apk-lock.json` (historical lock SHA-256 `d2956db8e5b01ff084387c5721fea211085f9db1a02a0f082cc88008ed97853c`). Package filenames and bytes are pinned; the Docker build installs them offline with signature verification and RUN networking disabled. No advisory ignore rule or severity threshold was weakened. See the [runtime/pinning tradeoffs](container.md#build-from-locked-inputs), especially musl compatibility and upstream APK availability.
 
 | Local candidate                             | Critical | High | Medium | Gate | Disposition                                                          |
 | ------------------------------------------- | -------: | ---: | -----: | ---- | -------------------------------------------------------------------- |

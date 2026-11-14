@@ -2,6 +2,8 @@
 
 Status: **accepted — owner approved on 2026-11-08**. Implements the policy-design portion of [#12](https://github.com/lhajoosten/release-log/issues/12), under feature [#7](https://github.com/lhajoosten/release-log/issues/7). Owner `lhajoosten` approved the draft in the implementation conversation. This approves the policy and dependent source implementation, not credential provisioning, live integration runs, repository settings, or publication.
 
+**Scope amendment — owner approved on 2026-11-14:** the [rolling-release workflow decision](release-workflow.md) supersedes the broader orchestration/publication requirements from the original design. Maintain one deterministic release PR; a human manually merges; automatically tag that exact landing. Version tags establish release boundaries, and repository-owned downstream jobs handle artifacts/deployment. Custom approval receipts, a publication host, and protected completion records are not required. PRs #52 and #53 were closed as superseded, not adopted. Existing component APIs are preserved.
+
 The existing conventional-message and version 1 context formats remain agreed component contracts. The release-policy decisions below are now accepted for implementation, including the metadata gate in [#14](https://github.com/lhajoosten/release-log/issues/14). Approval is not evidence that those capabilities are implemented or verified.
 
 ## Existing behavior and gap
@@ -15,9 +17,11 @@ See [Git inspection](git-tag-range.md), [conventional metadata](conventional-met
 
 ## Decision: a small controller over the deterministic CLI
 
-Use one release-log planning library/CLI as the authority for membership, captured metadata, version, and changelog. A thin controller maintains one proposal PR; a separate approved-publication path verifies it and reconciles remote artifacts. Workflow YAML invokes the same tested commands rather than implementing another engine.
+Use one release-log planning library/CLI as the authority for membership, captured metadata, version, and changelog. A thin reusable workflow maintains one proposal PR and tags its exact landing after manual merge. Artifact publication and deployment are separate consumer-owned workflows. Workflow YAML invokes the same tested commands rather than implementing another engine.
 
-### Reuse assessment
+### Original reuse assessment
+
+The comparison below records the 2026-11-08 assessment, including artifact-recovery work that is no longer required by the 2026-11-14 scope amendment. It is historical rationale, not a mandate to implement a publication system.
 
 release-please already maintains rolling release PRs, updates language-specific version files, and creates tags/GitHub Releases. Its manifest supports bootstrap SHAs, pre-1.0 bump options, and configurable PR titles. Its strategy, changelog, updater, and plugin interfaces provide genuine extension points; a custom implementation is not the only possible solution.
 
@@ -40,7 +44,7 @@ Sources reviewed on 2026-11-08: release-please [README](https://github.com/googl
 
 ### Baseline, bootstrap, and ancestry
 
-- A normal baseline is the exact `vMAJOR.MINOR.PATCH` tag of the last successfully completed release, with its tag object and peeled commit recorded. Do not select a tag by date or silently guess from unrelated repository tags. Initial adoption of an existing release requires the owner to identify that baseline explicitly; subsequent successful publication records its successor.
+- A normal baseline is the exact `vMAJOR.MINOR.PATCH` tag of the last successfully completed release, with its tag object and peeled commit recorded. Do not select a tag by date or silently guess from unrelated repository tags. Initial adoption of an existing release requires the owner to identify that baseline explicitly; subsequent release-PR merges automatically create their version tag as its successor. Downstream artifact publication is not a prerequisite for this baseline.
 - Accept only stable, three-component, nonnegative SemVer versions without leading zeroes, prerelease identifiers, or build metadata in this initial contract. Reject malformed versions, conflicting release records, missing/moved baseline tags, and a version file that disagrees with the released version.
 - Capture baseline and target source IDs once. The baseline must be an ancestor of the source. Reject divergent/reversed ranges, shallow or incomplete history, and non-commit targets. No fetch or ref refresh is an implicit part of offline planning.
 - With no released baseline, require an explicitly configured bootstrap commit SHA and initial version. The baseline is exclusive; it is not a fabricated tag or published release. Use `0.1.0` as the initial version, not an inferred consequence of the current `package.json` placeholder `0.0.0`.
@@ -123,36 +127,36 @@ Capture the resolved configuration and its identity with baseline/source IDs, no
 - Human edits, unrelated branch files, unexpected identity, or a manually closed/deleted proposal halt automatic updates and require explicit recovery. Do not force-rewrite a human branch or automatically reopen/recreate a deliberately closed proposal.
 - A no-release plan creates no PR. If an existing proposal no longer matches current policy/state, report a conflict for review instead of silently closing it.
 
-### Freshness and approved publication
+### Manual merge, automatic tag, and subsequent cycle
 
 A proposal describes the full baseline-to-source range at source `S`. Any new main commit before its merge makes it stale, even if the text still looks plausible. Refresh from the new source and review the new proposal.
 
-Publication must verify the actual landing commit `M`, not a later main HEAD:
+Tag the actual release landing `M`, not a later main HEAD:
 
-- For a merge commit, its first parent must equal `S`, its proposal head must be the reviewed head, and its tree change from `S` must equal the approved generated diff.
-- For a squash commit, its parent must equal `S` and its tree change must equal that diff; verify the reviewed PR/head mapping separately. Rebase merging of release PRs is deferred; ordinary PR rebase support does not imply approval of that release strategy.
-- Recompute snapshot/configuration/output identity and verify unchanged baseline, permitted automation identity, and validation evidence. A stale check result alone is insufficient. Fail on tampering or a source/merge mismatch with instructions to refresh/review rather than publish a different snapshot.
-- Later main changes after a valid `M` do not enter this release. Tag/build/upload exactly `M`; retain later changes for the next cycle. Do not require current HEAD to equal `M` or move a tag to catch up.
-- Ordinary merges only update proposals. A verified approved release merge enters publication directly in the trusted orchestration path, not by assuming a token-created tag will trigger another workflow.
-- Reconcile existing tag, GitHub Release, and configured artifact state before retry. Reuse matching state; conflicting commits, versions, or digests fail. Record completion only when all configured artifacts are verified. A partial publication blocks advancing the completed baseline and starting a competing cycle until recovered.
+- For a merge commit, require parents `S` and the generated proposal head, with the exact generated proposal tree.
+- For a squash commit, require parent `S` and that same tree. Rebase merging of release PRs is deferred; ordinary PR rebase support does not imply release-PR rebase support.
+- Reconstruct the generated proposal and verify its bot/repository/branch identity, captured inputs, output tree, and unchanged baseline. This requires no custom approval capture, receipt, or successful application-CI evidence; the human decides to release through normal PR review/manual merge.
+- Later main changes after valid `M` remain for the next cycle. Tag exactly `M`; do not require current main to equal `M` or retarget the tag to catch up.
+- A release-PR merge enters only the tag path, never proposal generation. Matching existing tags are no-ops; conflicting tags fail and are never moved.
+- An ordinary merge while the merged release's version tag is absent stops with `release-tag-pending`. After tagging, the next ordinary merge starts a new cycle from that tag. Do not fall back to the old tag or bootstrap.
 
-Required metadata/quality checks and an up-to-date branch policy support review, but the merge-to-publication verification is still mandatory. Repository protection changes, environments, App setup, and live publication require separate authorization; do not assume private-repository plan features are available.
+The tag establishes the release boundary. GitHub Release objects, image/asset publication, IaC, and deployment are downstream repository responsibilities, not completion gates for this workflow. App provisioning, live writes, CI-trigger changes, and branch-protection settings still require separate authorization.
 
 ### Events, credentials, and artifact access
 
-| Boundary                    | Event/runtime                                                                                                         | Minimum intended access                                                                             |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Ordinary metadata readiness | Dedicated metadata-only `pull_request_target` workflow on opened, synchronize, reopened, edited, and ready-for-review | Explicit `contents: read` and `pull-requests: read`; no secrets, write token, or App token          |
-| Source quality checks       | Existing unprivileged `pull_request` workflow                                                                         | Read-only; no release credentials                                                                   |
-| Collection/replay           | Explicit collection from trusted automation; offline replay separately                                                | Collection needs repository/PR reads; replay needs no credentials/network                           |
-| Proposal mutation           | Trusted release-branch push; controller verifies captured source and current state                                    | Repository-limited, short-lived App installation token with contents/PR write; no packages write    |
-| Approved publication        | Verified release merge handled by trusted orchestration                                                               | Contents write for tags/Release; packages write only in the configured OCI upload job; no broad PAT |
+| Boundary                    | Event/runtime                                                                                                         | Minimum intended access                                                                           |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Ordinary metadata readiness | Dedicated metadata-only `pull_request_target` workflow on opened, synchronize, reopened, edited, and ready-for-review | Explicit `contents: read` and `pull-requests: read`; no secrets, write token, or App token        |
+| Source quality checks       | Existing unprivileged `pull_request` workflow                                                                         | Read-only; no release credentials                                                                 |
+| Collection/replay           | Explicit collection from trusted automation; offline replay separately                                                | Collection needs repository/PR reads; replay needs no credentials/network                         |
+| Proposal mutation           | Trusted release-branch push; controller verifies captured source and current state                                    | Repository-limited, short-lived App installation token with contents/PR write; no packages write  |
+| Release tagging             | Generated release PR manually merged; verify and tag its exact landing                                                | Repository-limited App installation token with contents write; no artifact/deployment permissions |
 
 GitHub contents write also permits tag/Release mutations; the proposal token cannot be made PR-branch-only through that permission. Separate trusted entry points and code paths enforce the no-publication-on-ordinary-merge rule; do not describe it as permission-level isolation. Artifact upload credentials stay out of proposal jobs.
 
 `pull_request_target` is safe here only as a metadata-data boundary: run trusted base-revision validator/workflow code, never check out or execute the PR head/merge, load its configuration, run its install scripts, or consume its caches/artifacts as code. Fetch current title/body/head identity as data, validate size/schema, pass through JSON/files or argument arrays, and fail outdated results rather than report stale metadata as current. Keep source-testing jobs separate. If those restrictions cannot be maintained, do not use this event.
 
-The App token design allows automation-created PR checks to trigger without relying on `GITHUB_TOKEN` event propagation. GitHub's [triggering documentation](https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow) currently documents approval-required runs for some token-created PR events and no automatic runs for others, including edits; validate actual behavior in an approved sandbox. Do not assume App installation or required checks already exist.
+The App token design allows tag writes to trigger repository-owned downstream workflows without relying on `GITHUB_TOKEN` event propagation. The release roll does not wait for application CI; this decision does not disable existing checks or alter required-check settings. GitHub's [triggering documentation](https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow) currently documents approval-required runs for some token-created PR events and no automatic runs for others, including edits; validate actual behavior in an approved sandbox. Do not assume App installation or required checks already exist.
 
 Pin external Actions and distributed CLI/images immutably. Disable checkout credential persistence; never log tokens or include them in snapshots, images, or generated files. Private repository/package visibility stays unchanged. Image consumers need explicitly tested GHCR pull authorization; neither an anonymous pull nor an available paid environment is assumed. Provisioning and publication remain separate from this decision.
 
@@ -188,9 +192,10 @@ These are accepted expectations, not executed release-engine tests. Unless state
 | Spoofed/mixed automation    | Release-looking title/marker, wrong identity or unexpected source edit                         | No automation exemption                               | Ordinary metadata rules apply to human PRs; tampered automation fails           |
 | Stale before merge          | Proposal captured `S`, ordinary change `T` lands before release merge `M`                      | Publication rejected                                  | First parent is not `S`; refresh and review                                     |
 | New change after merge      | Approved fresh `M`, then ordinary change `T`                                                   | Publish only `M`; `T` belongs to next cycle           | Never tag later HEAD or drop `T`                                                |
-| Partial publication         | Matching tag at `M`, Release/image absent                                                      | Retry reconciles remaining artifacts                  | Matching tag reused; tag at another commit fails, never moves                   |
+| Release tag pending         | Release PR merged at `M`, version tag absent, ordinary change `T` lands                        | No new proposal until tag recovery                    | Report `release-tag-pending`; never reuse the old tag                           |
+| Tag retry                   | Version tag already resolves to `M`; downstream image absent                                   | Tagging is complete; downstream work is separate      | Matching tag reused; tag at another commit fails, never moves                   |
 
-## Approval and implementation handoff
+## Original approval and implementation handoff
 
 Owner approval covers:
 
@@ -201,4 +206,4 @@ Owner approval covers:
 
 Reviewer/owner: `lhajoosten`. Decision: approve the draft without amendments on 2026-11-08. No tracker item is closed by this record; each implementation still needs its own acceptance evidence.
 
-Implement #14 with fixtures for title/body edits, missing/duplicate/oversized context, internal audience, breaking conflicts, fork input, stale metadata, and spoofed automation. Validate event/check behavior in a separately approved controlled GitHub run. #13/#15/#16/#17/#18 implement collection, immutable inspection, snapshots, versioning, and rendering from the reviewed cases, not from undocumented defaults. #20/#22/#23 add controller, freshness, and publication evidence. This ADR does not implement those capabilities or satisfy feature #7's live-gate acceptance on its own.
+The original 2026-11-08 implementation handoff covered #14 metadata fixtures, #13/#15/#16/#17/#18 deterministic components, and #20/#22/#23 controller/freshness/publication work. That publication-oriented orchestration handoff is superseded by the 2026-11-14 [rolling-release workflow](release-workflow.md): implement the rolling PR, manual-merge tag path, tag-pending guard, and tag-bound next cycle. Artifact publication and custom approval/completion records are not release-roll acceptance gates. Historical component validation does not establish that the revised reusable workflow is deployed or live-tested.

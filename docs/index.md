@@ -4,17 +4,17 @@
 
 ## Current status
 
-The project is in development. Git inspection, PR association, validated snapshots, version planning, and deterministic changelog rendering are implemented as tested components, with a locally packable CLI. Node and Python version manifests are supported. A read-only PR metadata workflow is defined, but rollout limitations remain. Publication inspection and an explicit-write GitHub executor are implemented with fixture tests, but there is no deployed release controller, authenticated publication host, image publisher or AI integration yet.
+The project is in development. Git inspection, PR association, validated snapshots, version planning, and deterministic changelog rendering are implemented as tested components, with a locally packable CLI. Node and Python version manifests are supported. A read-only PR metadata workflow is defined, but rollout limitations remain. The [accepted rolling-release workflow](release-workflow.md) is narrower: maintain one release PR, let a human merge, and tag the exact landing automatically. That workflow is not deployed. Existing approval/publication APIs are separate components, not prerequisites for the release roll; downstream publication belongs to each repository.
 
 These docs describe the available components and their boundaries, not a released command-line interface. For development setup and repository checks, see the [contribution guide](https://github.com/lhajoosten/release-log/blob/main/CONTRIBUTING.md).
 
 ## Intended release flow
 
-1. Resolve the previous and target Git tags and inspect the commits between them.
-2. Associate those commits with merged GitHub PRs, rather than selecting PRs by merge date.
-3. Validate conventional metadata and structured release context from PR descriptions.
-4. Capture normalized release data for repeatable generation.
-5. Generate a deterministic changelog, with optional AI-written release notes as a separate artifact.
+1. After an ordinary merge, inspect the full range from the released version tag to captured main.
+2. Associate commits with merged GitHub PRs and validate their conventional metadata and release context.
+3. Capture inputs and deterministically regenerate the next version, manifests, and pending changelog.
+4. Create or append a non-force commit to the one release PR; a human reviews and manually merges it.
+5. Tag that exact release landing without starting another release roll. Repository-owned downstream jobs react to the tag.
 
 AI must not determine release membership, classification, or breaking-change status. It should preserve supported user impact, warnings, required actions, and source PR references. Ordinary changelog generation must not require AI credentials or an available provider.
 
@@ -22,7 +22,8 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 
 ## Component guides
 
-- [Release policy](release-policy.md): review the accepted release contract and automation architecture.
+- [Rolling release workflow](release-workflow.md): the accepted scope, manual-merge/automatic-tag lifecycle, bot setup, and remaining implementation work.
+- [Release policy](release-policy.md): deterministic membership, metadata, versioning, and changelog rules.
 - [Initial adoption](initial-adoption.md): start a reviewed first release without rewriting legacy PRs, with a fixed cutoff and strict rules for new changes.
 - [PR metadata readiness](pr-readiness.md): understand the read-only gate, diagnostics, and rollout limitations.
 - [PR release context](release-context.md): author the version 1 `release-log` block and understand its validation rules.

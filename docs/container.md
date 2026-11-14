@@ -1,6 +1,6 @@
 # Local OCI distribution
 
-The local image wraps the actual [packaged CLI](cli.md), Node.js and Git. `container/Dockerfile`, `scripts/build-container.ts`, `scripts/check-container.ts` and `scripts/scan-container.ts` implement the local build, smoke tests and vulnerability gate for [#21](https://github.com/lhajoosten/release-log/issues/21). Nothing pushes to a registry or creates a release; the package remains private at `0.0.0`. The recorded Alpine build passes the High/Critical vulnerability gate with three Medium matches; publication and private-registry access remain separate gates.
+The local image wraps the actual [packaged CLI](cli.md), Node.js and Git. `container/Dockerfile`, `scripts/build-container.ts`, `scripts/check-container.ts` and `scripts/scan-container.ts` implement the local build, smoke tests and vulnerability gate for [#21](https://github.com/lhajoosten/release-log/issues/21). Nothing pushes to a registry or creates a release; the package remains private at `0.0.0`. The refreshed Alpine build passes the High/Critical/Unknown vulnerability gate with five Medium matches; publication and private-registry access remain separate gates.
 
 ## Build from locked inputs
 
@@ -58,9 +58,9 @@ The unprivileged Quality workflow adds a separate `container` job on PRs/main/ma
 
 ## Size, security and registry gates
 
-The locked Alpine local smoke run measured **324,924,811 bytes uncompressed** (Docker image `Size`), with Node 26.13.0, Git 2.54.0 and packaged CLI 0.0.0. The first Bookworm build measured 516,838,822 bytes. These are not registry transfer sizes or size limits. The base layers and copied APK archives remain in image history even after runtime removal; this is not a distroless image. No Python interpreter/build backend is needed for static `pyproject.toml` edits.
+The 2026-11-14 refreshed Alpine local smoke run measured **325,012,865 bytes uncompressed** (Docker image `Size`), with Node 26.13.0, Git 2.54.1 and packaged CLI 0.0.0. The earlier Alpine run measured 324,924,811 bytes with Git 2.54.0; the first Bookworm build measured 516,838,822 bytes. These are not registry transfer sizes or size limits. The base layers and copied APK archives remain in image history even after runtime removal; this is not a distroless image. No Python interpreter/build backend is needed for static `pyproject.toml` edits.
 
-The [2026-11-09 local scan review](container-security.md) records actual before/after image identities, scanner/database identities, remediation, rejected candidates and remaining Medium findings. Dependency/base pinning is not a vulnerability verdict. Keep the Node tag/digest and APK closure pins explicit; review security updates before each release and promptly for relevant advisories, then rerun `pnpm verify`, `pnpm check:container` and the image scan below. Do not silently float the base or claim an old scan covers a new image.
+The [container scan review](container-security.md) records the 2026-11-14 refreshed image and its findings alongside historical image identities, scanner/database identities, remediation, and rejected candidates. Dependency/base pinning is not a vulnerability verdict. Keep the Node tag/digest and APK closure pins explicit; review security updates before each release and promptly for relevant advisories, then rerun `pnpm verify`, `pnpm check:container` and the image scan below. Do not silently float the base or claim an old scan covers a new image.
 
 ### Vulnerability gate
 
@@ -71,7 +71,7 @@ mkdir -p reports
 node scripts/scan-container.ts --image release-log-local:development --output reports/container-security
 ```
 
-The output directory must not already exist; choose a new directory for each run. Exit 0 means the scan completed with no High, Critical or Unknown-severity matches; exit 1 means a policy or operational failure. The recorded locked Alpine image exits 0 with three Medium BusyBox matches; the historical Debian and unpatched Alpine candidates failed. This command downloads checksum-pinned Syft 1.57.0 and Grype 0.121.2 release archives from GitHub, verifies them before extraction/execution, and downloads a fresh Grype database from `grype.anchore.io`. It needs public HTTPS access but no registry login, GitHub token or model service. TLS remains enabled.
+The output directory must not already exist; choose a new directory for each run. Exit 0 means the scan completed with no High, Critical or Unknown-severity matches; exit 1 means a policy or operational failure. The 2026-11-14 refreshed Alpine image exited 0 with five Medium matches (three BusyBox-related and two Git); the historical Debian and unpatched Alpine candidates failed. This command downloads checksum-pinned Syft 1.57.0 and Grype 0.121.2 release archives from GitHub, verifies them before extraction/execution, and downloads a fresh Grype database from `grype.anchore.io`. It needs public HTTPS access but no registry login, GitHub token or model service. TLS remains enabled.
 
 The scanner inspects an existing local image, exports it by immutable Docker ID (not a second lookup of its mutable tag), hashes that archive, and catalogs its squashed runtime filesystem with Syft. Grype matches that exact SBOM against the downloaded database. Neither tool runs the target image or sends its image/source/SBOM to an external analysis service. Scan subprocesses get an isolated home/cache/configuration and no inherited tokens, `GRYPE_*`/`SYFT_*` overrides or repository ignore rules. Docker uses the default local daemon; remote/rootless daemon configuration is not supported here.
 

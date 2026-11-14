@@ -335,6 +335,52 @@ void test(
     );
     const automationPath = join(path, "automation.json");
     await writeFile(automationPath, JSON.stringify({ schemaVersion: 1, botUserId: 42 }));
+    const tagArgs = [
+      "tag-release",
+      "--config",
+      configPath,
+      "--automation",
+      automationPath,
+      "--pull-number",
+      "1",
+      "--landing-sha",
+      "c".repeat(40),
+    ];
+    await assert.rejects(
+      run(tagArgs),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 2 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("GITHUB_TOKEN"),
+    );
+    for (const [option, value, expected] of [
+      ["--pull-number", "1.5", /positive safe integer/u],
+      ["--landing-sha", "main", /complete lowercase commit ID/u],
+    ] as const)
+      await assert.rejects(
+        run(tagArgs.with(tagArgs.indexOf(option) + 1, value)),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === 2 &&
+          "stderr" in error &&
+          typeof error.stderr === "string" &&
+          expected.test(error.stderr),
+      );
+    await assert.rejects(
+      run([...tagArgs, "--dry-run"], "synthetic-secret-never-print"),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === 1 &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr.includes("GitHub read failed") &&
+        !error.stderr.includes("synthetic-secret-never-print"),
+    );
     await assert.rejects(
       run(["propose", ...args, "--automation", automationPath]),
       (error: unknown) =>
@@ -839,7 +885,7 @@ void test(
       [
         "--input-type=module",
         "-e",
-        'import { inspectReleasePublication, publishGitHubRelease, parsePublicationPolicy, parsePublicationReceipt } from "release-log/publication"; import { reconcileReleaseProposal } from "release-log/proposals"; import { verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion, parseVerifiedReleaseApproval, parseReleaseExclusionAuthorities } from "release-log/approval"; if ([inspectReleasePublication, publishGitHubRelease, parsePublicationPolicy, parsePublicationReceipt, reconcileReleaseProposal, verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion, parseVerifiedReleaseApproval, parseReleaseExclusionAuthorities].some(value => typeof value !== "function")) throw new Error("Missing packaged proposal/approval API");',
+        'import { reconcileReleaseTag } from "release-log/tags"; import { inspectReleasePublication, publishGitHubRelease, parsePublicationPolicy, parsePublicationReceipt } from "release-log/publication"; import { reconcileReleaseProposal } from "release-log/proposals"; import { verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion, parseVerifiedReleaseApproval, parseReleaseExclusionAuthorities } from "release-log/approval"; if ([reconcileReleaseTag, inspectReleasePublication, publishGitHubRelease, parsePublicationPolicy, parsePublicationReceipt, reconcileReleaseProposal, verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion, parseVerifiedReleaseApproval, parseReleaseExclusionAuthorities].some(value => typeof value !== "function")) throw new Error("Missing packaged proposal/approval API");',
       ],
       { cwd: consumer, timeout: 10_000 },
     );

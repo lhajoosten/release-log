@@ -17,7 +17,8 @@
     ".": "./dist/src/release-plan.js",
     "./proposals": "./dist/src/release-proposal.js",
     "./approval": "./dist/src/release-approval.js",
-    "./publication": "./dist/src/release-publication.js"
+    "./publication": "./dist/src/release-publication.js",
+    "./tags": "./dist/src/release-tag.js"
   },
   "scripts": {
     "build": "node scripts/build.ts",

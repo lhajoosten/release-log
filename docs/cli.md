@@ -38,6 +38,24 @@ release-log prepare --config release-config.json --snapshot inputs.json --curren
 
 The commands above do not commit, push or open PRs. The separate explicit [proposal controller](release-proposal.md) command performs online reads by default and only `propose --write` creates/refreshes a reserved remote branch and draft PR. It requires separate automation configuration, credentials and execution approval; no workflow enables it automatically. Only the separate explicit `publish-github --write` executor can publish a GitHub Release; it has no enabled workflow and requires separate execution approval. No command merges, pushes images, calls AI, installs consumer dependencies, executes consumer lifecycle scripts, or runs a Python build backend. `prepare` output contains raw snapshot context: use approved storage and do not publish stdout indiscriminately. Exit codes are 0 for success (including no release), 1 for operation/validation failures, and 2 for usage errors. Errors omit raw bodies, tokens, and unexpected exception details.
 
+### Tag a manually merged release PR
+
+The [rolling-release workflow](release-workflow.md) uses a separate tag-only path, not the publication executor:
+
+```sh
+release-log tag-release --config release-config.json --automation release-automation.json --pull-number 123 --landing-sha FULL_RELEASE_LANDING_SHA --dry-run
+```
+
+`release-automation.json` contains the same numeric bot identity as `propose`. Supply the App installation token through `GITHUB_TOKEN`. The command reconstructs the merged generated proposal, derives its planned version, and verifies its exact merge/squash landing and unchanged baseline. It makes no application-CI, custom approval-record, receipt, registry, or GitHub Release requests. Later main commits never retarget the tag.
+
+Default dry-run emits `{ mode, outcome, tag, landingSha, pullNumber }`; `outcome` is `would-create` or `unchanged`. Only separately authorized `--write` can create the absent version tag (`created`). A matching lightweight or annotated tag is reused without writes; a conflicting tag fails and is never moved. No PR, Release, asset, or image is created by this command. A failed/uncertain tag write requires inspecting state and explicitly rerunning for the same landing, not automatic write retries. Rebase release landings are unsupported. The corresponding library function is `reconcileReleaseTag()` from `release-log/tags`.
+
+The reusable event-driven workflow, automatic baseline selection, tag-pending guard, and subsequent-cycle proposal integration remain outstanding; this command alone does not enable them or provision the App.
+
+### Existing approval and publication APIs
+
+These separate components are not prerequisites for the rolling-release workflow.
+
 The explicit read-only [approval verifier](release-approval.md) checks an independently trusted reviewed-head/landing record using GitHub reads and immutable local Git objects:
 
 ```sh
