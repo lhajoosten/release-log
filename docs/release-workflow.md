@@ -47,12 +47,21 @@ The release roll does not require custom approval capture, approval-policy check
 
 Existing components already implement Git/PR capture, snapshots, version calculation, Node/Python manifest updates, changelog generation, and first-pending-cycle proposal creation/refresh. The manual rehearsal remains read-only. The package is private at development version `0.0.0`; there is no published CLI/image identity to put in a consumer template yet.
 
-The tag-only library/CLI is implemented separately from the old publication executor; it is not yet connected to an automatic trigger. Remaining work is explicit:
+The tag-only command, tag-bound cycle selector, recurring proposal controller and integrated `roll` CLI are implemented. `.github/workflows/rolling-release.yml` is reusable only (`workflow_call`); no repository event caller is enabled. Source implementation is not approval to run it.
 
-1. Integrate ordinary-merge/release-merge routing and current-version tag selection in a reusable workflow calling the packaged CLI.
-2. Replace the proposal controller's blanket merged-history conflict with tag-bound next-cycle selection, including merge/squash history and retained or automatically deleted release branches, without force pushes or lost ordinary changes.
-3. Apply `release-tag-pending` before collection/proposal writes. A missing expected tag is not permission to fall back to bootstrap or the previous release tag.
-4. Wire App-token inputs and an opt-in repository caller. Provisioning, live proposal/tag writes, publication, and repository settings still need their separate execution approval; implementing source is not authorization to run it.
+## Reusable workflow and inactive caller
+
+The inactive template is `examples/rolling-release.yml`. After separate owner authorization, replace both `REVIEWED_FULL_COMMIT_SHA` placeholders with the reviewed immutable tool/workflow revision that contains `roll`, supply the repository's configuration, and copy the caller into `.github/workflows/`. The template defaults to `write: false`. For this repository it preserves the fixed bootstrap and onboarding SHAs exactly. Other consumers must supply their own agreed boundaries and repository identity.
+
+The reusable workflow requires a full tool SHA, trusted configuration JSON, release branch, expected numeric bot user ID, App ID and private-key secret. It checks out `lhajoosten/release-log` at that SHA, installs frozen tool dependencies without lifecycle scripts, builds/packs locally, and installs the tarball with only offline frozen production dependencies. This is a source-pinned packaged distribution, not an invented registry release of the private development package. Review the tool revision, workflow and dependency lock together; use the same immutable SHA for the workflow and tool in the caller.
+
+Consumer history is checked out separately at the current configured release branch with complete tags, without persisted credentials. Consumer code, configuration files, dependencies and PR-head scripts are never executed. Configuration comes from the trusted caller input. The CLI reads Git objects and re-reads current GitHub state; if the source advances beyond the fetched objects, rerun with fresh history. Both routes share the repository/release-branch concurrency group with cancellation disabled. GitHub concurrency is not a durable event queue: pending ordinary jobs may be replaced safely because collection uses the complete current range, but a canceled tag event must be recovered by rerunning its original merge run (or explicit `tag-release` at its exact landing). The pending guard prevents duplicate proposals while it is missing.
+
+After queueing and installation, pinned `actions/create-github-app-token` mints a short-lived token for the current repository (owner/repositories omitted intentionally, using the action's current-repository default), requesting contents/PR writes. It revokes the token at job completion. Only the routing step receives it through `RELEASE_LOG_APP_TOKEN`; no fallback to the default Actions token is allowed. The App key is passed only to the token action. The CLI cannot infer token provenance from an opaque token, so callers of the standalone command must supply an installation token explicitly.
+
+GitHub documents [reusable input/secret forwarding](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows) and [App-token event propagation](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow). Source/fixture checks cannot prove installation permissions, private consumer access, event delivery or downstream tag workflow behavior. No application CI or custom approval record gates the roll, and existing CI triggers, hooks and protections are unchanged.
+
+Recovery remains explicit: `release-tag-pending` identifies the merged PR and exact landing. Rerun that tag event or use `tag-release` with the same trusted config/bot and App token; never tag current HEAD, move a conflicting tag or advance the bootstrap boundary. A canceled/stale ordinary event can be rerun to collect current source. Partial branch/PR writes require inspecting state before retrying, as described in the proposal guide.
 
 ## Acceptance evidence to collect
 
