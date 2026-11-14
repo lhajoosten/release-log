@@ -7,6 +7,7 @@ import { GitHubReadError } from "./github.ts";
 import { renderChangelog } from "./changelog.ts";
 import { createReleasePlan } from "./release-plan.ts";
 import { reconcileReleaseProposal, parseReleaseAutomation } from "./release-proposal.ts";
+import { reconcileReleaseTag } from "./release-tag.ts";
 import type { ReleaseVersionConfiguration } from "./release-plan.ts";
 import {
   parseReleaseApproval,
@@ -50,6 +51,8 @@ const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/ap
       (--current-version VERSION | --initial-version 0.1.0) [--dry-run | --write]
   release-log propose --config FILE --snapshot FILE --automation FILE
       (--current-version VERSION | --initial-version 0.1.0) [--dry-run | --write]
+  release-log tag-release --config FILE --automation FILE --pull-number NUMBER
+      --landing-sha SHA [--dry-run | --write]
   release-log capture-review --config FILE --target FILE --policy FILE --repository DIR
   release-log finalize-approval --config FILE --review FILE --attestation FILE
       --policy FILE --repository DIR
@@ -73,7 +76,10 @@ Configure changelog.verbosity as detailed (default), concise, or one-liner;
 all modes preserve breaking warnings and required actions.
 propose makes explicit GitHub reads; only propose --write creates/refreshes the
 reserved release branch and draft PR. It requires GITHUB_TOKEN and an expected
-numeric bot identity. capture-review records the exact intended open proposal;
+numeric bot identity. tag-release verifies a manually merged generated proposal;
+only --write creates its immutable version tag at the exact supplied landing.
+It requires no approval receipt, application CI evidence, or publication policy.
+capture-review records the exact intended open proposal;
 finalize-approval binds that stored review to an explicit trusted merge action.
 Both are read-only, require GITHUB_TOKEN and do not authenticate the caller or
 provision trusted storage. verify-approval performs read-only GitHub/Git checks
@@ -133,6 +139,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
     ["render", versionOptions],
     ["prepare", [...versionOptions, "repository", "dry-run", "write"]],
     ["propose", [...versionOptions, "automation", "dry-run", "write"]],
+    ["tag-release", ["config", "automation", "pull-number", "landing-sha", "dry-run", "write"]],
     ["capture-review", ["config", "target", "policy", "repository"]],
     ["finalize-approval", ["config", "review", "attestation", "policy", "repository"]],
     ["verify-approval", ["config", "approval", "policy", "repository"]],
@@ -178,6 +185,34 @@ async function runCLI(args: readonly string[]): Promise<string> {
     throw new UsageError("--write and --dry-run are mutually exclusive.");
   const configJSON: unknown = JSON.parse(await readText(required(options, "config"), 1024 * 1024));
   const config = parseReleaseInputConfiguration(configJSON);
+  if (command === "tag-release") {
+    const numberText = required(options, "pull-number");
+    const pullNumber = Number(numberText);
+    if (!/^[1-9][0-9]*$/u.test(numberText) || !Number.isSafeInteger(pullNumber))
+      throw new UsageError("--pull-number must be a positive safe integer.");
+    const landingSha = required(options, "landing-sha");
+    if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(landingSha))
+      throw new UsageError("--landing-sha must be a complete lowercase commit ID.");
+    const automationJSON: unknown = JSON.parse(
+      await readText(required(options, "automation"), 1024 * 1024),
+    );
+    const automation = parseReleaseAutomation(automationJSON);
+    const token = process.env.GITHUB_TOKEN;
+    if (!token?.trim())
+      throw new UsageError("tag-release requires a repository-limited GITHUB_TOKEN.");
+    const result = await reconcileReleaseTag({
+      configuration: config,
+      automation,
+      pullNumber,
+      landingSha,
+      token,
+      write: options.has("write"),
+    });
+    return (
+      JSON.stringify({ mode: options.has("write") ? "write" : "dry-run", ...result }, null, 2) +
+      "\n"
+    );
+  }
   if (command === "collect") {
     if (options.has("baseline-tag") === options.has("bootstrap-sha"))
       throw new UsageError("Select exactly one --baseline-tag or --bootstrap-sha.");
