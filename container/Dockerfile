@@ -11,11 +11,13 @@ RUN rm -rf /usr/local/lib/node_modules/npm /opt/yarn-* \
 
 COPY runtime/ /opt/release-log/
 ARG TOOL_VERSION
+ARG SOURCE_REVISION
 LABEL org.opencontainers.image.title="release-log" \
       org.opencontainers.image.description="Deterministic release CLI; no automatic publication" \
       org.opencontainers.image.source="https://github.com/lhajoosten/release-log" \
       org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.version="${TOOL_VERSION}"
+      org.opencontainers.image.version="${TOOL_VERSION}" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}"
 
 ENV HOME=/tmp \
     GIT_TERMINAL_PROMPT=0 \

@@ -47,7 +47,7 @@ jobs:
       - name: Scan the image with checksum-pinned Syft and Grype
         run: |
           mkdir -p reports
-          node scripts/scan-container.ts --image release-log-security:scan --output reports/container-security
+          pnpm container:scan --image release-log-security:scan --output reports/container-security
 
       - name: Preserve inventory, findings and failure evidence
         if: always()

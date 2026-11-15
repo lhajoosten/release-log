@@ -43,7 +43,9 @@
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
     "check": "pnpm check:format && pnpm check:lint && pnpm check:types && pnpm test && pnpm docs:build",
-    "verify": "pnpm check"
+    "verify": "pnpm check",
+    "container:scan": "node scripts/scan-container.ts",
+    "container:release": "node scripts/container-release.ts"
   },
   "dependencies": {
     "@commitlint/config-conventional": "21.2.4",

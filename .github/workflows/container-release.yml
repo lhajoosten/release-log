@@ -1,0 +1,77 @@
+name: Container release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+
+# Every authorized version writer must use this group. Never cancel a partial push.
+concurrency:
+  group: container-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event.created == true && github.event.deleted == false && github.repository == 'lhajoosten/release-log'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out the event source without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
+        with:
+          cache: true
+
+      - name: Validate exact stable tag and package version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: pnpm container:release validate
+
+      - name: Install locked dependencies without lifecycle scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build candidate from tagged source
+        run: pnpm container:build --tag release-log-candidate:release
+
+      - name: Smoke test the candidate without rebuilding
+        run: pnpm check:container --image release-log-candidate:release
+
+      - name: Apply vulnerability policy to the candidate
+        run: |
+          mkdir -p reports/container-release
+          pnpm container:scan --image release-log-candidate:release --output reports/container-release/candidate-scan
+
+      - name: Publish or verify the retained release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_SHA: ${{ github.sha }}
+          GHCR_ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm container:release publish
+
+      - name: Preserve digest, source, inventory and policy evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: container-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: reports/container-release/
+          if-no-files-found: warn
+          retention-days: 90

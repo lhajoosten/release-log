@@ -26,18 +26,24 @@ if (process.platform !== "linux" || process.arch !== "x64")
 const uid = process.getuid?.();
 const gid = process.getgid?.();
 assert.ok(uid !== undefined && gid !== undefined);
+const options = process.argv.slice(2);
+if (options.length !== 0 && (options.length !== 2 || options[0] !== "--image" || !options[1]))
+  throw new Error("Usage: pnpm check:container [--image LOCAL_IMAGE]");
 const directory = await mkdtemp(join(tmpdir(), "release-container-smoke-"));
-const image = `release-log-smoke:${randomUUID()}`;
+const suppliedImage = options[1];
+const image = suppliedImage ?? `release-log-smoke:${randomUUID()}`;
 let built = false;
 try {
-  const build = await execute("pnpm", ["container:build", "--tag", image], {
-    cwd: root,
-    timeout: 360_000,
-    maxBuffer: 12 * 1024 * 1024,
-  });
-  built = true;
-  process.stdout.write(build.stdout);
-  process.stderr.write(build.stderr);
+  if (!suppliedImage) {
+    const build = await execute("pnpm", ["container:build", "--tag", image], {
+      cwd: root,
+      timeout: 360_000,
+      maxBuffer: 12 * 1024 * 1024,
+    });
+    built = true;
+    process.stdout.write(build.stdout);
+    process.stderr.write(build.stderr);
+  }
   await chmod(directory, 0o755);
   const snapshot = await releaseFixture([{ title: "fix(api): retain selected rows" }]);
   await writeFile(join(directory, "config.json"), JSON.stringify(fixtureConfiguration));
@@ -182,6 +188,11 @@ try {
       "org.opencontainers.image.version" in config.Labels,
   );
   assert.equal(config.Labels["org.opencontainers.image.version"], manifest.version);
+  assert.ok("org.opencontainers.image.revision" in config.Labels);
+  assert.equal(
+    config.Labels["org.opencontainers.image.revision"],
+    (await execute("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim(),
+  );
   assert.ok(!JSON.stringify(config.Env).includes("GITHUB_TOKEN"));
   await run(
     [

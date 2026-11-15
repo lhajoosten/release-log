@@ -49,7 +49,8 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 
 - [Publication reconciliation and GitHub execution](release-publication.md): inspect approved outputs or explicitly execute GitHub tag/Release/asset steps, with documented trust, retry and rollout limits.
 
-- [Local OCI distribution](container.md): build and smoke-test the packaged CLI in a pinned Linux/amd64 image without publishing it.
+- [Container runtime and local builds](container.md): build and smoke-test the packaged CLI in a pinned Linux/amd64 image.
+- [Stable-tag container publication](container-release.md): the accepted GHCR contract, version/digest identity, gates, safe retries and pending live publication/pull verification.
 
 ## Maintaining these docs
 
