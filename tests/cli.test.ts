@@ -90,7 +90,14 @@ void test(
       });
     }
     assert.match((await run(["--help"])).stdout, /pyproject.toml/u);
-    assert.equal((await run(["--version"])).stdout, "0.0.0\n");
+    const sourceManifest: unknown = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    assert.ok(
+      typeof sourceManifest === "object" &&
+        sourceManifest !== null &&
+        "version" in sourceManifest &&
+        typeof sourceManifest.version === "string",
+    );
+    assert.equal((await run(["--version"])).stdout, `${sourceManifest.version}\n`);
     await assert.rejects(
       run(["unknown"]),
       (error: unknown) =>

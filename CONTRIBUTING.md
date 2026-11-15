@@ -42,7 +42,7 @@ CI uses `--ignore-scripts` because it runs checks directly and does not need loc
 
 `pnpm check:pr-metadata` validates current PR title/context and commit evidence through read-only API calls in the trusted metadata workflow; it requires the GitHub event environment described in [PR metadata readiness](docs/pr-readiness.md).
 
-Dependencies are exact-pinned and the pnpm lockfile is committed. Generated lockfile formatting is left to pnpm, not Oxfmt.
+Dependencies are exact-pinned and the pnpm lockfile is committed. Generated lockfile formatting is left to pnpm, not Oxfmt. The tracked `.release-log/inputs.json` snapshot is also excluded from Oxfmt: its canonical bytes belong to the release serializer and proposal verification. Keep it tracked and do not hand-format generated release evidence.
 
 Type checks cover tooling configuration and maintained TypeScript source and tests. Tests run directly through Node.js 26's TypeScript support, without a transpiler or test-framework dependency. `pnpm build` compiles the distributable CLI/library; `pnpm pack` builds a local tarball. The package test installs it with only cached production dependencies in a temporary directory and exercises the executable without network access; project installation must populate the package-manager cache first. See the [CLI guide](docs/cli.md) for commands and Node/Python version-file support. The separate documentation build uses VitePress; its configuration is included in type checks.
 
