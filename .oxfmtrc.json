@@ -3,6 +3,7 @@
   "ignorePatterns": [
     ".worktrees",
     "pnpm-lock.yaml",
+    "CHANGELOG.md",
     ".release-log/inputs.json",
     "docs/.vitepress/cache/**",
     "docs/.vitepress/dist/**"

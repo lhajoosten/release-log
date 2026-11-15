@@ -1,6 +1,12 @@
 pre-commit:
+  piped: true
   commands:
+    format:
+      priority: 1
+      run: pnpm format:files {staged_files}
+      stage_fixed: true
     check:
+      priority: 2
       run: node scripts/check-hook.ts
 
 commit-msg:

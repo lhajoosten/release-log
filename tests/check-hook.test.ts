@@ -16,7 +16,13 @@ void test("pre-commit delegates to the isolated runner without changing commit-m
     await readFile(new URL("../lefthook.yml", import.meta.url), "utf8"),
   );
   assert.deepEqual(config, {
-    "pre-commit": { commands: { check: { run: "node scripts/check-hook.ts" } } },
+    "pre-commit": {
+      piped: true,
+      commands: {
+        format: { priority: 1, run: "pnpm format:files {staged_files}", stage_fixed: true },
+        check: { priority: 2, run: "node scripts/check-hook.ts" },
+      },
+    },
     "commit-msg": {
       commands: { "conventional-commit": { run: 'pnpm check:commits --edit "{1}"' } },
     },

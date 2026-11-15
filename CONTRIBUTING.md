@@ -25,6 +25,7 @@ CI uses `--ignore-scripts` because it runs checks directly and does not need loc
 | `pnpm build`                                                | Compile the CLI/library and copy trusted replay runtime assets.         |
 | `pnpm pack`                                                 | Build and pack a local distributable tarball without publishing.        |
 | `pnpm format`                                               | Format supported maintained files with Oxfmt.                           |
+| `pnpm format:files <paths...>`                              | Format selected maintained files, used by the pre-commit hook.          |
 | `pnpm check:format`                                         | Check formatting without changing files.                                |
 | `pnpm check:lint`                                           | Run type-aware Oxlint; warnings and unused suppression directives fail. |
 | `pnpm check:types`                                          | Run strict TypeScript checks without emitting files.                    |
@@ -42,7 +43,7 @@ CI uses `--ignore-scripts` because it runs checks directly and does not need loc
 
 `pnpm check:pr-metadata` validates current PR title/context and commit evidence through read-only API calls in the trusted metadata workflow; it requires the GitHub event environment described in [PR metadata readiness](docs/pr-readiness.md).
 
-Dependencies are exact-pinned and the pnpm lockfile is committed. Generated lockfile formatting is left to pnpm, not Oxfmt. The tracked `.release-log/inputs.json` snapshot is also excluded from Oxfmt: its canonical bytes belong to the release serializer and proposal verification. Keep it tracked and do not hand-format generated release evidence.
+Dependencies are exact-pinned and the pnpm lockfile is committed. Generated lockfile formatting is left to pnpm, not Oxfmt. The generated root `CHANGELOG.md` and tracked `.release-log/inputs.json` snapshot are also excluded from Oxfmt: their canonical bytes belong to the changelog renderer, release serializer and proposal verification. The changelog renderer preserves released sections byte for byte, including whitespace; a general formatter must not rewrite that history. Keep these files tracked and do not hand-format generated release evidence.
 
 Type checks cover tooling configuration and maintained TypeScript source and tests. Tests run directly through Node.js 26's TypeScript support, without a transpiler or test-framework dependency. `pnpm build` compiles the distributable CLI/library; `pnpm pack` builds a local tarball. The package test installs it with only cached production dependencies in a temporary directory and exercises the executable without network access; project installation must populate the package-manager cache first. See the [CLI guide](docs/cli.md) for commands and Node/Python version-file support. The separate documentation build uses VitePress; its configuration is included in type checks.
 
@@ -52,7 +53,11 @@ The [documentation site guide](docs/github-pages.md) explains local previewing, 
 
 ## Hooks and conventional messages
 
-Lefthook runs the same `pnpm check` command before a commit through `scripts/check-hook.ts`. The runner clears Git's repository-local environment variables before starting checks, so Git fixture commands cannot inherit a linked worktree's absolute repository/index paths. It preserves the check exit status; no checks are skipped. The hook checks maintained files across the working tree without rewriting or automatically staging them; the documentation build writes ignored output and cache files. Unstaged changes can therefore block a commit; resolve the issue rather than bypassing the hook.
+Lefthook first formats staged maintained files through `pnpm format:files` and automatically restages those fixes, then runs the same `pnpm check` command through `scripts/check-hook.ts`. The commands run sequentially and a formatter failure stops the commit. Lefthook hides and restores unstaged portions of partially staged files, so formatting selected content does not stage the remaining edits. Generated changelog/snapshot bytes and lockfile formatting remain owned by their generators.
+
+The runner clears Git's repository-local environment variables before starting checks, so Git fixture commands cannot inherit a linked worktree's absolute repository/index paths. It preserves the check exit status; no checks are skipped.
+
+Only originally staged maintained files are formatted and restaged; unrelated files are not added. The subsequent checks still cover maintained files across the working tree, so unrelated unstaged formatting errors can block a commit. The documentation build writes ignored output and cache files. Resolve failed checks rather than bypassing the hook. CI runs `pnpm verify` without formatting or pushing changes, checking the committed result.
 
 The `commit-msg` hook requires an unscoped conventional message (`type: description`). For example:
 

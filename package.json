@@ -32,6 +32,7 @@
     "test": "node --test --experimental-test-coverage tests/*.test.ts",
     "prepare": "lefthook install",
     "format": "oxfmt --write .",
+    "format:files": "oxfmt --write --no-error-on-unmatched-pattern --",
     "check:format": "oxfmt --check .",
     "check:lint": "oxlint --deny-warnings .",
     "check:types": "tsc --noEmit",
