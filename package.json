@@ -4,6 +4,10 @@
   "private": true,
   "description": "Deterministic PR-based changelogs and AI-assisted release notes",
   "license": "MIT",
+  "author": {
+    "name": "Luc Joosten",
+    "email": "lhajoosten@outlook.com"
+  },
   "bin": {
     "release-log": "dist/src/cli.js"
   },
