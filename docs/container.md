@@ -1,6 +1,6 @@
-# Local OCI distribution
+# Container runtime and local builds
 
-The local image wraps the actual [packaged CLI](cli.md), Node.js and Git. `container/Dockerfile`, `scripts/build-container.ts`, `scripts/check-container.ts` and `scripts/scan-container.ts` implement the local build, smoke tests and vulnerability gate for [#21](https://github.com/lhajoosten/release-log/issues/21). Nothing pushes to a registry or creates a release; the package remains private at `0.0.0`. The refreshed Alpine build passes the High/Critical/Unknown vulnerability gate with five Medium matches; publication and private-registry access remain separate gates.
+The image wraps the actual [packaged CLI](cli.md), Node.js and Git. `container/Dockerfile`, `scripts/build-container.ts`, `scripts/check-container.ts` and `scripts/scan-container.ts` implement local builds, smoke tests and the vulnerability gate. The separate [stable-tag publication workflow](container-release.md) publishes to GHCR under the [accepted distribution contract](adr/0001-container-distribution.md). No registry publication or public pull access has yet been verified for that workflow. Historical version and scan results below describe those specific local runs, not the current release or a registry verdict.
 
 ## Build from locked inputs
 
@@ -9,6 +9,8 @@ On a Linux x86-64 host with the pinned development Node/pnpm, Docker Engine, `ta
 ```sh
 pnpm container:build --tag release-log-local:development
 pnpm check:container
+# To check an existing image without rebuilding or removing it:
+pnpm check:container --image release-log-local:development
 ```
 
 The first command requires an explicit local tag and leaves that image available. It does not accept a push option. The second builds a uniquely named temporary image, exercises it, and removes that image and its temporary repositories. It does not prune unrelated Docker state. Rootless engines, user-namespace remapping, remote Docker daemons, non-Linux bind mounts and other CPU architectures are not validated; the bind-mount smoke test requires a local Linux/amd64 daemon.
@@ -43,7 +45,7 @@ To use `prepare --write`, deliberately mount a trusted isolated workspace writab
 
 Git's normal safe-directory ownership checks stay enabled: mismatched repository ownership fails, rather than adding `safe.directory=*`. The image ignores system/global Git configuration and uses an ephemeral `/tmp` home; it does not import host Git credentials or configuration. Prefer matching ownership. Any narrowly scoped exception needs explicit operator configuration, not a blanket image exemption. Complete local history and required objects/tags must already be available; inspection does not fetch them. Git reading never checks out the inspected repository or executes its hooks.
 
-Online `collect`, `propose` or `verify-approval` require separately approved execution, deliberate network access and a runtime-only repository-limited `GITHUB_TOKEN`. Pass it through the runtime environment, not build arguments, image layers, command-line token values, configuration or captured inputs. Credentials do not grant release authority; the proposal/approval trust contracts still apply. No workflow here supplies credentials or enables proposal writes/publication.
+Online `collect`, `propose` or `verify-approval` require separately approved execution, deliberate network access and a runtime-only repository-limited `GITHUB_TOKEN`. Pass it through the runtime environment, not build arguments, image layers, command-line token values, configuration or captured inputs. Credentials do not grant release authority; the proposal/approval trust contracts still apply. The image publication workflow supplies registry credentials only to its final publication step; runtime GitHub access is independent.
 
 ## Tests and CI
 
@@ -85,4 +87,4 @@ The dedicated **Container security** workflow uses read-only repository permissi
 
 Update scanner version/checksum pairs together after reviewing upstream releases; verify the archive SHA-256 against the upstream release assets/checksum records, not a newly fetched binary alone. Database content intentionally stays current rather than permanently pinned; each report records its schema/build/source checksum so historical findings are attributable. Review scheduled failures, relevant advisories and pins before each release. Base/APK-lock or production-dependency changes need a fresh build, full checks, Docker smoke and scan. No expiry bypass or ignore list is accepted merely to make CI green.
 
-Proposed publication contract (not created): `ghcr.io/lhajoosten/release-log:vX.Y.Z`, matching the approved tool version, plus an immutable `@sha256:...` reference for consumers/CI. Do not rely on mutable `latest`. Publication belongs to #23 and needs approved credentials/visibility/recovery; no package access policy or registry settings were changed. Private-package pulls must be tested with an explicitly approved reader identity and denied without access where intended. The repository being public does not establish package visibility or prove anonymous pull works. That access/authentication evidence remains an open gate in #21. The local vulnerability threshold passed for the recorded image/database only; passing build/smoke/scan checks does not establish approved publication or private access.
+The [accepted GHCR contract and publication workflow](container-release.md) define version/digest references, intended public visibility, authentication and safe recovery. First publication, settings changes and public pull verification remain pending authorization and live execution. No package access policy or registry settings were changed. Historical local vulnerability results above apply only to their recorded image/database; passing build/smoke/scan checks does not establish registry publication or pull access.

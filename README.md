@@ -38,7 +38,7 @@ node dist/src/cli.js --help
 
 The [CLI guide](docs/cli.md) covers online collection, offline planning/rendering, dry-run preparation, explicit proposal writes and exact-landing tagging. The [container guide](docs/container.md) covers the local Linux/amd64 image and its smoke/security checks.
 
-The package is private at `0.1.0`. Local/runner tarballs and CI container builds are available; no GitHub Release assets, npm package or published OCI image is established by this rollout. Registry distribution is separate work.
+The package is private at `0.1.0`. Local/runner tarballs and CI container builds are available; no GitHub Release assets, npm package or published OCI image is established by this rollout. The [stable-tag container workflow](docs/container-release.md) targets GHCR with version tags and digest references; first publication and public pull access remain unverified.
 
 ## Set up release automation
 

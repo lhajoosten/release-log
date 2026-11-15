@@ -65,6 +65,7 @@ try {
     await readFile(join(root, "container", "apk-lock.json"), "utf8"),
   );
   await stageContainerApks(join(context, "apks"), readApkLock(apkLock));
+  const revision = (await execute("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim();
   const built = await execute(
     "docker",
     [
@@ -75,6 +76,8 @@ try {
       "none",
       "--build-arg",
       `TOOL_VERSION=${manifest.version}`,
+      "--build-arg",
+      `SOURCE_REVISION=${revision}`,
       "--tag",
       tag,
       context,

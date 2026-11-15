@@ -55,6 +55,18 @@ export function checkInventory(value: unknown) {
   return { packageCount: packages.length, nodeVersion };
 }
 
+export function archiveConfigPath(value: unknown) {
+  if (!Array.isArray(value) || value.length !== 1)
+    throw new Error("Expected one platform in Docker archive manifest.");
+  const path = record(value[0]).Config;
+  if (
+    typeof path !== "string" ||
+    !/^(?:blobs\/sha256\/[a-f0-9]{64}|[a-f0-9]{64}\.json)$/u.test(path)
+  )
+    throw new Error("Invalid Docker archive config path.");
+  return path;
+}
+
 export function summarizeMatches(value: unknown) {
   const report = record(value);
   if (!Array.isArray(report.matches)) throw new Error("Missing vulnerability matches.");
@@ -140,6 +152,18 @@ export async function scanContainer(image: string, output: string) {
     const archive = join(directory, "image.tar");
     await run("docker", ["image", "save", "--output", archive, metadata.Id]);
     const archiveSha256 = await digest(archive);
+    // Docker's local Id may name a config, platform manifest or index, depending on the image store.
+    // The saved runtime config binds this exact scanned archive to the registry's config descriptor.
+    const configPath = archiveConfigPath(
+      JSON.parse((await run("tar", ["-xOf", archive, "manifest.json"])).stdout),
+    );
+    const configBytes = (await run("tar", ["-xOf", archive, configPath])).stdout;
+    const configDigest = `sha256:${createHash("sha256").update(configBytes).digest("hex")}`;
+    const expectedConfig = configPath.startsWith("blobs/")
+      ? configPath.slice("blobs/sha256/".length)
+      : configPath.slice(0, -5);
+    if (configDigest !== `sha256:${expectedConfig}`)
+      throw new Error("Docker archive config digest mismatch.");
     const [syft, grype] = await Promise.all([
       installScanner("syft", directory),
       installScanner("grype", directory),
@@ -204,6 +228,7 @@ export async function scanContainer(image: string, output: string) {
     const evidence = {
       scannedAt: new Date().toISOString(),
       imageId: metadata.Id,
+      configDigest,
       repoDigests: metadata.RepoDigests,
       archiveSha256,
       sbomSha256: await digest(sbomPath),
