@@ -13,9 +13,9 @@ permissions:
 jobs:
   release:
     if: github.event.pull_request.merged == true
-    uses: lhajoosten/release-log/.github/workflows/rolling-release.yml@2a72b57d983067308ec0198ba7977586683351e1
+    uses: lhajoosten/release-log/.github/workflows/rolling-release.yml@777f16f3877e7e34199fdb2ac05ea40acf2c3622
     with:
-      tool-sha: 2a72b57d983067308ec0198ba7977586683351e1
+      tool-sha: 777f16f3877e7e34199fdb2ac05ea40acf2c3622
       release-branch: main
       app-id: ${{ vars.RELEASE_APP_ID }}
       bot-user-id: ${{ vars.RELEASE_BOT_USER_ID }}
