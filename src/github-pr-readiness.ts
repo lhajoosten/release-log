@@ -2,6 +2,8 @@ import { GitHubReadError, readGitHubJson } from "./github.ts";
 import type { GitHubRead } from "./github.ts";
 import { validatePullRequestMetadata } from "./pr-readiness.ts";
 import type { PullRequestCommit, PullRequestReadiness } from "./pr-readiness.ts";
+import { isReleaseContextPolicy } from "./release-context.ts";
+import type { ReleaseContextPolicy } from "./release-context.ts";
 
 const fullSha = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 
@@ -136,6 +138,7 @@ export async function checkGitHubPullRequest(
     readonly number: number;
     readonly headSha: string;
     readonly token: string;
+    readonly contextPolicy?: ReleaseContextPolicy;
   },
   read: GitHubRead = fetch,
 ): Promise<{
@@ -144,6 +147,10 @@ export async function checkGitHubPullRequest(
   readonly result: PullRequestReadiness;
 }> {
   requireRepository(request.repository);
+  const contextPolicy = request.contextPolicy === undefined ? "required" : request.contextPolicy;
+  if (!isReleaseContextPolicy(contextPolicy))
+    throw new PullRequestCheckError("Context policy must be required or optional.");
+
   if (!isPositiveInteger(request.number) || !isSha(request.headSha) || !request.token.trim()) {
     throw new PullRequestCheckError(
       "Provide a PR number, full event head SHA, and a read-only GitHub token.",
@@ -207,7 +214,12 @@ export async function checkGitHubPullRequest(
     );
   }
 
-  const result = await validatePullRequestMetadata(initial.title, initial.body, commits);
+  const result = await validatePullRequestMetadata(
+    initial.title,
+    initial.body,
+    commits,
+    contextPolicy,
+  );
   const final = readPullRequest((await get()).data, request.repository, request.number);
   if (JSON.stringify(initial) !== JSON.stringify(final)) {
     throw new PullRequestCheckError(

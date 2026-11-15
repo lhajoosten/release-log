@@ -98,18 +98,26 @@ export async function renderChangelog(
     lines.push(`### ${heading}`, "");
 
     for (const pull of entries) {
-      const label = pull.context.audience === "internal" ? " [internal]" : "";
+      const label = pull.context?.audience === "internal" ? " [internal]" : "";
       const details: string[] = [];
 
-      if (verbosity === "detailed") details.push(`Impact: ${escapeText(pull.context.impact)}`);
+      if (pull.context === null)
+        details.push(
+          "Release context: unavailable; audience and impact are unknown. Review the linked PR.",
+        );
+      else if (verbosity === "detailed") details.push(`Impact: ${escapeText(pull.context.impact)}`);
       if (pull.title.breaking)
         details.push(`**Breaking change:** ${pull.breakingChanges.map(escapeText).join("; ")}`);
-      if (pull.context.requiredAction !== null)
+      if (pull.context === null && pull.title.breaking)
+        details.push(
+          "**Required action:** migration instructions are missing; review the linked PR.",
+        );
+      if (pull.context !== null && pull.context.requiredAction !== null)
         details.push(`**Required action:** ${escapeText(pull.context.requiredAction)}`);
 
       appendEntry(
         lines,
-        `- **${escapeText(pull.title.scope ?? "")}**${label}: ${escapeText(pull.context.summary)} ([#${pull.number}](${pull.url}))`,
+        `- **${escapeText(pull.title.scope ?? "")}**${label}: ${escapeText(pull.context?.summary ?? pull.title.description)} ([#${pull.number}](${pull.url}))`,
         details,
         verbosity,
       );

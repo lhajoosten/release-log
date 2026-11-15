@@ -91,8 +91,8 @@ void test("readiness validates scoped titles and v1 context with separate unscop
   ]);
   assert.ok(result.valid);
   assert.equal(result.title.scope, "exports");
-  assert.equal(result.context.audience, "users");
-  assert.equal(result.context.requiredAction, null);
+  assert.equal(result.context?.audience, "users");
+  assert.equal(result.context?.requiredAction, null);
 });
 
 for (const [name, title, description, code] of [
@@ -131,7 +131,7 @@ void test("readiness retains internal context without assigning a bump or exempt
     commit(),
   ]);
   assert.ok(result.valid);
-  assert.equal(result.context.audience, "internal");
+  assert.equal(result.context?.audience, "internal");
   assert.equal("version" in result, false);
   expectIssue(
     await validatePullRequestMetadata("feat: add cache", body("internal"), [commit()]),
@@ -207,7 +207,7 @@ void test("readiness preserves warnings and treats shell/workflow-like text only
     commit(head, "feat: add exports\nBody without a blank line."),
   ]);
   assert.ok(result.valid);
-  assert.equal(result.context.summary, "$(touch sentinel) ::error:: untrusted");
+  assert.equal(result.context?.summary, "$(touch sentinel) ::error:: untrusted");
   assert.ok(result.warnings.some((issue) => issue.code === "body-leading-blank"));
 });
 
@@ -529,7 +529,10 @@ void test("metadata workflow runs only trusted base source with read-only permis
     }
     if ("run" in step && step.run === "pnpm check:pr-metadata") {
       assert.ok("env" in step);
-      assert.deepEqual(step.env, { GITHUB_TOKEN: "${{ github.token }}" });
+      assert.deepEqual(step.env, {
+        RELEASE_LOG_CONTEXT_POLICY: "required",
+        GITHUB_TOKEN: "${{ github.token }}",
+      });
     } else {
       assert.equal("env" in step, false);
     }
@@ -574,6 +577,7 @@ void test("metadata command exercises successful and failing checks with only th
   );
   const env = {
     ...process.env,
+    RELEASE_LOG_CONTEXT_POLICY: "required",
     GITHUB_EVENT_NAME: "pull_request_target",
     GITHUB_API_URL: "https://api.github.com",
     GITHUB_EVENT_PATH: eventPath,
@@ -591,6 +595,38 @@ void test("metadata command exercises successful and failing checks with only th
   });
   assert.deepEqual(JSON.parse(success.stdout), { valid: true, number: 7, headSha: head });
   assert.equal(success.stderr, "");
+  const missing = pull({ body: "No structured release context." });
+  await writeFile(responses, JSON.stringify([missing, [remoteCommit()], missing]));
+  const optional = await execute(process.execPath, ["--import", loader, script], {
+    cwd: directory,
+    timeout: 10_000,
+    env: { ...env, RELEASE_LOG_CONTEXT_POLICY: "optional" },
+  });
+  const diagnostics = optional.stdout
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(diagnostics[0].code, "block-missing");
+  assert.deepEqual(diagnostics[1], { valid: true, number: 7, headSha: head });
+  assert.equal(optional.stderr, "");
+
+  await writeFile(responses, "[]");
+  await assert.rejects(
+    execute(process.execPath, ["--import", loader, script], {
+      cwd: directory,
+      timeout: 10_000,
+      env: { ...env, RELEASE_LOG_CONTEXT_POLICY: "ignore" },
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error && "stderr" in error);
+      assert.match(
+        String(error.stderr),
+        /RELEASE_LOG_CONTEXT_POLICY must be required or optional/u,
+      );
+      return true;
+    },
+  );
+
   const invalid = pull({
     body: body().replace("version: 1", '"::error:: injected": value\nversion: 1'),
   });
@@ -666,5 +702,57 @@ void test("metadata command fails closed offline for bad runtime/event inputs an
         return true;
       },
     );
+  }
+});
+
+void test("GitHub metadata gate applies only trusted caller policy and preserves boundary failures", async () => {
+  const current = pull({ body: "Workflow description without release context." });
+  const optionalApi = api(
+    Response.json(current),
+    Response.json([remoteCommit()]),
+    Response.json(current),
+  );
+  const checked = await checkGitHubPullRequest(
+    { ...request, contextPolicy: "optional" },
+    optionalApi.read,
+  );
+  assert.ok(checked.result.valid);
+  assert.equal(checked.result.context, null);
+  assert.deepEqual(
+    checked.result.warnings.map((issue) => issue.code),
+    ["block-missing"],
+  );
+
+  const strictApi = api(
+    Response.json(current),
+    Response.json([remoteCommit()]),
+    Response.json(current),
+  );
+  expectIssue((await checkGitHubPullRequest(request, strictApi.read)).result, "block-missing");
+
+  const editedApi = api(
+    Response.json(current),
+    Response.json([remoteCommit()]),
+    Response.json({ ...current, body: "Edited" }),
+  );
+  await assert.rejects(
+    checkGitHubPullRequest({ ...request, contextPolicy: "optional" }, editedApi.read),
+    /changed during validation/u,
+  );
+  const failedApi = api(new Response(null, { status: 403 }));
+  await assert.rejects(
+    checkGitHubPullRequest({ ...request, contextPolicy: "optional" }, failedApi.read),
+    PullRequestCheckError,
+  );
+
+  for (const contextPolicy of ["ignore", null, "", false]) {
+    const invalid = { ...request };
+    Reflect.set(invalid, "contextPolicy", contextPolicy);
+    const boundary = api();
+    await assert.rejects(
+      checkGitHubPullRequest(invalid, boundary.read),
+      /Context policy must be required or optional/u,
+    );
+    assert.equal(boundary.calls.length, 0);
   }
 });

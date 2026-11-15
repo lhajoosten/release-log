@@ -8,7 +8,9 @@ The heading is `## vMAJOR.MINOR.PATCH`, without a clock-derived date. Groups fol
 
 Entries retain scope, context summary, the constructed source PR link, explicit breaking evidence, and nonempty required actions. Internal entries are visibly marked. The selected verbosity controls routine impact/diagnostic detail, never membership, audience, version calculation or validation. The snapshot retains complete impact/context, original titles/commits and validation warnings; the changelog does not turn contribution-format warnings into product-impact claims.
 
-Context and scope are plain text, not trusted Markdown: whitespace is folded to one space and punctuation/control/Markdown-active characters are emitted as numeric character references. Context cannot inject headings, HTML, image loads, links, code, or owned-section markers. Only source links constructed from validated repository identity are generated. This intentionally does not preserve authored Markdown formatting or paragraph layout. Golden output and Markdown-AST tests check this boundary.
+Under the [optional context policy](release-context.md#consumer-context-policy), an ordinary PR without a block uses its conventional title description and scope instead of a context summary. Every mode shows its PR link and a notice that audience and impact are unknown. Breaking entries also retain explicit breaking evidence and visibly flag missing migration instructions. No audience marker or missing context values are invented; original title/body/commits and warnings stay in the snapshot.
+
+Context, title fallback and scope are plain text, not trusted Markdown: whitespace is folded to one space and punctuation/control/Markdown-active characters are emitted as numeric character references. Context cannot inject headings, HTML, image loads, links, code, or owned-section markers. Only source links constructed from validated repository identity are generated. This intentionally does not preserve authored Markdown formatting or paragraph layout. Golden output and Markdown-AST tests check this boundary.
 
 ## Verbosity
 
