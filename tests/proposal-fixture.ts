@@ -227,7 +227,7 @@ export async function fixture(
       const commit = await inspectCommit(directory, sha);
       return json({
         sha,
-        message: commit.message,
+        message: commit.message.replace(/\n$/u, ""),
         parents: commit.parentShas.map((parentSha) => ({ sha: parentSha })),
         tree: { sha: git(["rev-parse", `${sha}^{tree}`]).trim() },
       });

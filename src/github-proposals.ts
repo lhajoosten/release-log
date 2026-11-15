@@ -159,7 +159,9 @@ export class GitHubProposalRepository {
     return {
       commitSha,
       treeSha,
-      message: commit.message,
+      // GitHub's Git commits API omits the terminal LF present in raw Git
+      // messages. Restore only that delimiter; preserve all other message bytes.
+      message: commit.message.endsWith("\n") ? commit.message : `${commit.message}\n`,
       parents: commit.parents.map((parent: unknown) => proposalSha(proposalObject(parent).sha)),
       entries,
     };

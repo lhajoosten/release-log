@@ -8,7 +8,7 @@ import {
 } from "../src/release-snapshot.ts";
 import { reconcileReleaseProposal } from "../src/release-proposal.ts";
 import { requestGitHubJson, GitHubReadError } from "../src/github.ts";
-import { fixture, json, text, botId } from "./proposal-fixture.ts";
+import { fixture, json, object, text, botId } from "./proposal-fixture.ts";
 
 for (const mode of ["node", "python", "both"] as const) {
   void test(`${mode}: real Git branch creation, stable rolling PR refresh, and retries preserve the complete generated diff`, async (context) => {
@@ -426,4 +426,66 @@ void test("optional-context proposals reconstruct deterministically and reject p
   pull.body += "\nWorkflow-added text.\n";
   await assert.rejects(reconcileReleaseProposal(request, f.transport), /Proposal metadata/u);
   assert.equal(f.calls.filter(({ method }) => method !== "GET").length, writes);
+});
+
+void test("GitHub commit messages without the final newline support creation, retry and refresh", async (context) => {
+  const f = await fixture(context);
+  const transport: typeof f.transport = async (url, options) => {
+    const response = await f.transport(url, options);
+    if (options.method === "GET" && url.includes("/git/commits/")) {
+      const data = object(await response.json());
+      return json({ ...data, message: text(data.message).replace(/\n$/u, "") });
+    }
+    return response;
+  };
+  const request = await f.request(true);
+  const created = await reconcileReleaseProposal(request, transport);
+  assert.equal(created.outcome, "created");
+  assert.equal((await reconcileReleaseProposal(request, transport)).outcome, "unchanged");
+  await f.advance("fix(api): retain keys");
+  assert.equal(
+    (await reconcileReleaseProposal(await f.request(true), transport)).outcome,
+    "refreshed",
+  );
+});
+
+for (const corruption of ["message", "extra-newline", "parents"] as const) {
+  void test(`API newline normalization still rejects altered proposal ${corruption} before ref writes`, async (context) => {
+    const f = await fixture(context);
+    const transport: typeof f.transport = async (url, options) => {
+      const response = await f.transport(url, options);
+      if (options.method !== "GET" || !url.includes("/git/commits/")) return response;
+      const data = object(await response.json());
+      const message = text(data.message);
+      if (!message.includes("Release-Log-Proposal:")) return json(data);
+      if (corruption === "parents") return json({ ...data, parents: [] });
+      return json({
+        ...data,
+        message:
+          corruption === "extra-newline"
+            ? `${message}\n\n`
+            : message.replace("chore: prepare", "chore: publish"),
+      });
+    };
+    await assert.rejects(
+      reconcileReleaseProposal(await f.request(true), transport),
+      /unexpected proposal commit evidence/u,
+    );
+    assert.equal(f.ref("heads/release-log/main"), null);
+    assert.equal(f.pulls.length, 0);
+    assert.ok(!f.calls.some((call) => call.method !== "GET" && call.path.startsWith("/git/refs")));
+  });
+}
+
+void test("API messages retaining their terminal newline are accepted unchanged", async (context) => {
+  const f = await fixture(context);
+  const transport: typeof f.transport = async (url, options) => {
+    const response = await f.transport(url, options);
+    if (options.method !== "GET" || !url.includes("/git/commits/")) return response;
+    const data = object(await response.json());
+    return json({ ...data, message: `${text(data.message)}\n` });
+  };
+  const request = await f.request(true);
+  assert.equal((await reconcileReleaseProposal(request, transport)).outcome, "created");
+  assert.equal((await reconcileReleaseProposal(request, transport)).outcome, "unchanged");
 });
