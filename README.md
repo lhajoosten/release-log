@@ -1,6 +1,6 @@
 # release-log
 
-A GitHub-first TypeScript CLI that maintains a release PR, generates deterministic changelogs, and tags the exact commit you merge.
+<img width="2172" height="724" alt="image" src="https://github.com/user-attachments/assets/e414345c-7151-4dbc-8277-d2791a54e147" />
 
 ## How it works
 
