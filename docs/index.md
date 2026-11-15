@@ -4,9 +4,11 @@
 
 ## Current status
 
-The project is in development. Git inspection, PR association, validated snapshots, version planning, and deterministic changelog rendering are implemented as tested components, with a locally packable CLI. Node and Python version manifests are supported. A read-only PR metadata workflow is defined, but rollout limitations remain. The [accepted rolling-release workflow](release-workflow.md) is narrower: maintain one release PR, let a human merge, and tag the exact landing automatically. That workflow is not deployed. Existing approval/publication APIs are separate components, not prerequisites for the release roll; downstream publication belongs to each repository.
+Git inspection, PR association, validated snapshots, version planning, and deterministic changelog rendering are implemented with tests and a locally packable CLI. Node and Python version manifests are supported. This repository runs the [rolling-release workflow](release-workflow.md) with source-pinned tool/workflow revisions and proposal/tag writes enabled. Its first live cycle refreshed [release PR #62](https://github.com/lhajoosten/release-log/pull/62), then tagged its exact manual-merge landing as `v0.1.0`. [Evidence and remaining live validation](release-workflow.md#live-evidence-and-remaining-validation) cover the subsequent tag-bound cycle and controlled safety/recovery exercises still outstanding.
 
-These docs describe the available components and their boundaries, not a released command-line interface. For development setup and repository checks, see the [contribution guide](https://github.com/lhajoosten/release-log/blob/main/CONTRIBUTING.md).
+The package remains private at `0.1.0`. Runner/local tarball packaging and CI container builds do not establish published distribution: this rollout delivered no GitHub Release, downloadable CLI assets, npm package, or published OCI image. AI-written release notes remain unimplemented, with no provider/model configured. Existing approval/publication APIs are separate components; downstream publication belongs to each repository. The read-only [PR metadata workflow](pr-readiness.md) retains rollout limitations.
+
+For development setup and repository checks, see the [contribution guide](https://github.com/lhajoosten/release-log/blob/main/CONTRIBUTING.md).
 
 ## Intended release flow
 
@@ -22,7 +24,7 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 
 ## Component guides
 
-- [Rolling release workflow](release-workflow.md): the accepted scope, manual-merge/automatic-tag lifecycle, packaged event routing, inactive caller, and separate live-setup boundary.
+- [Rolling release workflow](release-workflow.md): the accepted scope, manual-merge/automatic-tag lifecycle, source-pinned live caller, first-cycle evidence, and remaining validation.
 - [Release policy](release-policy.md): deterministic membership, metadata, versioning, and changelog rules.
 - [Initial adoption](initial-adoption.md): start a reviewed first release without rewriting legacy PRs, with a fixed cutoff and strict rules for new changes.
 - [PR metadata readiness](pr-readiness.md): understand the read-only gate, diagnostics, and rollout limitations.
