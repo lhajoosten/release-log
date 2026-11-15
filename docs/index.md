@@ -4,13 +4,13 @@
 
 ## Current status
 
-Git inspection, PR association, validated snapshots, version planning, and deterministic changelog rendering are implemented with tests and a locally packable CLI. Node and Python version manifests are supported. This repository runs the [rolling-release workflow](release-workflow.md) with source-pinned tool/workflow revisions and proposal/tag writes enabled. Its first live cycle refreshed [release PR #62](https://github.com/lhajoosten/release-log/pull/62), then tagged its exact manual-merge landing as `v0.1.0`. [Evidence and remaining live validation](release-workflow.md#live-evidence-and-remaining-validation) cover the subsequent tag-bound cycle and controlled safety/recovery exercises still outstanding.
+Git inspection, PR association, validated snapshots, version planning, and deterministic changelog rendering are implemented with tests and a locally packable CLI. Node and Python version manifests are supported. This repository runs the [rolling-release workflow](release-workflow.md) with source-pinned tool/workflow revisions and proposal/tag writes enabled. Its first live cycle refreshed [release PR #62](https://github.com/lhajoosten/release-log/pull/62), then tagged its exact manual-merge landing as `v0.1.0`. A private sandbox has since demonstrated same-PR refresh, a subsequent `v0.1.0` → `v0.2.0` cycle with byte-preserved released changelog content, exact-landing tagging without a recursive proposal, and a successful matching-tag retry with unchanged refs/files. [Evidence and remaining live validation](release-workflow.md#live-evidence-and-remaining-validation) distinguish those results from outstanding controlled safety/recovery exercises and production subsequent-cycle validation.
 
 The package remains private at `0.1.0`. Runner/local tarball packaging and CI container builds do not establish published distribution: this rollout delivered no GitHub Release, downloadable CLI assets, npm package, or published OCI image. AI-written release notes remain unimplemented, with no provider/model configured. Existing approval/publication APIs are separate components; downstream publication belongs to each repository. The read-only [PR metadata workflow](pr-readiness.md) retains rollout limitations.
 
 For development setup and repository checks, see the [contribution guide](https://github.com/lhajoosten/release-log/blob/main/CONTRIBUTING.md).
 
-## Intended release flow
+## Release flow
 
 1. After an ordinary merge, inspect the full range from the released version tag to captured main.
 2. Associate commits with merged GitHub PRs and validate their conventional metadata and release context.
@@ -24,7 +24,7 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 
 ## Component guides
 
-- [Rolling release workflow](release-workflow.md): the accepted scope, manual-merge/automatic-tag lifecycle, source-pinned live caller, first-cycle evidence, and remaining validation.
+- [Rolling release workflow](release-workflow.md): the accepted scope, manual-merge/automatic-tag lifecycle, source-pinned live caller, successive sandbox cycles, matching-tag retry evidence, and remaining validation.
 - [Release policy](release-policy.md): deterministic membership, metadata, versioning, and changelog rules.
 - [Initial adoption](initial-adoption.md): start a reviewed first release without rewriting legacy PRs, with a fixed cutoff and strict rules for new changes.
 - [PR metadata readiness](pr-readiness.md): understand the read-only gate, diagnostics, and rollout limitations.
