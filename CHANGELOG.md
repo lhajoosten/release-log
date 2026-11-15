@@ -1,6 +1,22 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:107fb1d27e085b84e13f46f363aaf6a27b5fc2e54e9147b9e82f589b79739c5d -->
+<!-- release-log:pending:v1 sha256:5bac57d2ba538f7665d06bb942b7bbcf3c3fb33eaa4b12768217f052c59df72a -->
+
+## v0.2.0
+
+### Features
+
+- Add GHCR container publication for stable version tags&#46; ([#68](https://github.com/lhajoosten/release-log/pull/68))
+
+<details>
+<summary>Internal maintenance</summary>
+
+- Correct operational documentation after the first live tag&#45;only release&#46; ([#66](https://github.com/lhajoosten/release-log/pull/66))
+- Document the verified rolling release lifecycle and matching&#45;tag retry&#46; ([#67](https://github.com/lhajoosten/release-log/pull/67))
+
+</details>
+
+<!-- release-log:pending:end -->
 
 ## v0.1.0
 
@@ -89,4 +105,3 @@ Initial release of the captured repository state.
 
 </details>
 
-<!-- release-log:pending:end -->
