@@ -16,7 +16,7 @@ Release history should be accurate, reproducible, and understandable. Convention
 1. Resolve the previous and target tags to commit SHAs.
 2. Identify commits reachable from the target but not the previous tag, rather than selecting PRs by merge date.
 3. Associate those commits with merged GitHub PRs.
-4. Validate conventional commit messages, conventional PR titles, and required structured release context in PR descriptions.
+4. Validate conventional commit messages, conventional PR titles, and structured release context in PR descriptions under a trusted required/optional policy.
 5. Capture the normalized release data so generation can be repeated without fetching mutable PR descriptions again.
 6. Generate the changelog with stable grouping and ordering, without AI.
 7. Optionally generate separate release notes through a structured AI input/output contract.
@@ -38,6 +38,8 @@ AI output is not guaranteed to be reproducible. It is a separate artifact, and a
 - Conventional commits and PR titles.
 - Structured release context extracted from PR descriptions.
 - Deterministic changelog generation before optional AI-assisted writing.
+
+Consumers may configure [optional PR release context](docs/release-context.md#consumer-context-policy); omission preserves strict validation, and this repository explicitly keeps context required.
 
 The [accepted release-policy ADR](docs/release-policy.md) defines bootstrap, membership, versioning, orchestration, and safety rules with worked acceptance examples. The [PR metadata gate](docs/pr-readiness.md) checks ordinary PR readiness using the [version 1 release-context format](docs/release-context.md); controlled GitHub rollout validation is still required.
 

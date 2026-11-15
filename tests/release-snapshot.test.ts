@@ -325,7 +325,7 @@ void test("later source metadata edits neither mutate an existing snapshot nor t
   pull.originalCommits[0]?.parentShas.push("c".repeat(40));
   assert.equal(await serializeReleaseSnapshot(snapshot), before);
   const replayed = await replayReleaseSnapshot(before, config);
-  assert.equal(replayed.normalized.pullRequests[0]?.context.audience, "users");
+  assert.equal(replayed.normalized.pullRequests[0]?.context?.audience, "users");
   assert.equal(replayed.normalized.pullRequests[0]?.title.type, "feat");
   const refreshed = await captureReleaseSnapshot(
     {
@@ -431,7 +431,7 @@ void test("breaking evidence, internal context, and warnings survive normalizati
     "feat: remove old exports\nBody without a blank line.\n\nBREAKING CHANGE: use the new command";
   const snapshot = await captureReleaseSnapshot(source, config);
   const normalized = snapshot.normalized.pullRequests[0];
-  assert.ok(normalized);
+  assert.ok(normalized?.context);
   assert.equal(normalized.context.audience, "internal");
   assert.equal(normalized.context.requiredAction, "Use the new export command.");
   assert.ok(normalized.breakingChanges.includes("use the new command"));

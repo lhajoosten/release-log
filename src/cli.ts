@@ -81,6 +81,8 @@ bootstrap baselineSha/onboardingSha record; old metadata becomes review warnings
 plan emits decision JSON; render emits Markdown (empty for no
 release). prepare defaults to dry-run and emits plan/files JSON; only --write
 changes fixed local proposal files. It supports package.json and pyproject.toml.
+Configure contextPolicy as required (default) or optional; optional missing context
+retains title/source evidence and visible warnings, while malformed blocks fail.
 Configure changelog.verbosity as detailed (default), concise, or one-liner;
 all modes preserve breaking warnings and required actions.
 propose makes explicit GitHub reads; only propose --write creates/refreshes the

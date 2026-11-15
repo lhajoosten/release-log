@@ -1,7 +1,7 @@
 import { validateConventionalMessage } from "./conventional.ts";
 import type { ConventionalMetadata } from "./conventional.ts";
-import { parseReleaseContext } from "./release-context.ts";
-import type { ReleaseContextV1 } from "./release-context.ts";
+import { isReleaseContextPolicy, parseReleaseContext } from "./release-context.ts";
+import type { ReleaseContextPolicy, ReleaseContextV1 } from "./release-context.ts";
 
 export interface PullRequestCommit {
   readonly sha: string;
@@ -21,7 +21,7 @@ export type PullRequestReadiness =
   | {
       readonly valid: true;
       readonly title: ConventionalMetadata;
-      readonly context: ReleaseContextV1;
+      readonly context: ReleaseContextV1 | null;
       readonly warnings: readonly ReadinessIssue[];
     }
   | {
@@ -34,13 +34,35 @@ export async function validatePullRequestMetadata(
   title: string,
   body: string,
   commits: readonly PullRequestCommit[],
+  contextPolicy: ReleaseContextPolicy = "required",
 ): Promise<PullRequestReadiness> {
+  if (!isReleaseContextPolicy(contextPolicy))
+    throw new TypeError("Context policy must be required or optional.");
+
   const errors: ReadinessIssue[] = [];
   const warnings: ReadinessIssue[] = [];
   const context = parseReleaseContext(body);
 
+  const missingAllowed =
+    contextPolicy === "optional" &&
+    !context.valid &&
+    context.errors.length === 1 &&
+    context.errors[0]?.code === "block-missing";
+
   if (!context.valid) {
-    errors.push(...context.errors.map((issue) => ({ ...issue, location: "context" as const })));
+    const issues = missingAllowed ? warnings : errors;
+    issues.push(
+      ...context.errors.map((issue) => ({
+        ...issue,
+        location: "context" as const,
+        ...(missingAllowed
+          ? {
+              message:
+                "Release context is missing; audience and impact are unknown. Review the linked PR.",
+            }
+          : {}),
+      })),
+    );
   }
 
   if (Buffer.byteLength(title, "utf8") > 1024 || /[\r\n]/u.test(title)) {
@@ -155,9 +177,23 @@ export async function validatePullRequestMetadata(
     });
   }
 
-  if (errors.length > 0 || !conventional.valid || !context.valid) {
+  if (missingAllowed && conventional.valid && conventional.commit.breaking) {
+    warnings.push({
+      location: "context",
+      field: "required_action",
+      code: "breaking-action-missing",
+      message: "Migration instructions are missing for this breaking change; review the linked PR.",
+    });
+  }
+
+  if (errors.length > 0 || !conventional.valid || (!context.valid && !missingAllowed)) {
     return { valid: false, errors, warnings };
   }
 
-  return { valid: true, title: conventional.commit, context: context.context, warnings };
+  return {
+    valid: true,
+    title: conventional.commit,
+    context: context.valid ? context.context : null,
+    warnings,
+  };
 }

@@ -2,6 +2,21 @@
 
 This is the structured PR-description format agreed for the release-context parser. Conventional metadata remains authoritative for change type and breaking declarations; the block supplies human-written explanation, not release membership or version-bump policy.
 
+## Consumer context policy
+
+Trusted version-1 or version-2 release configuration accepts `contextPolicy: "required" | "optional"`. Omission preserves `required` without inserting a default into captured configuration. This repository explicitly selects `required` in `release-log.config.json` and its PR metadata workflow.
+
+- `required`: every ordinary post-onboarding PR and every ordinary PR in a tagged cycle needs exactly one valid v1 block. Breaking PRs need nonempty `required_action`.
+- `optional`: a missing top-level block is allowed with a `block-missing` warning. Capture retains the original body, conventional title, commits and PR link, with `context: null` and `rawBlock: null`. Rendering uses the conventional title description and scope, marks audience and impact as unknown, and links to the PR for review. A breaking PR remains breaking and also warns that migration instructions are missing (`breaking-action-missing`). These notices stay visible in every verbosity mode.
+
+Optional means absent, not unchecked: if a top-level `release-log` block is present, all five fields and parsing rules below still apply. Duplicate, malformed, unclosed or oversized blocks/descriptions fail. A supplied breaking block must still contain nonempty `required_action`. Markdown examples that the parser does not recognize as top-level context remain examples; they do not provide context under either policy.
+
+Neither policy infers audience, impact or migration instructions from free prose. Git membership, conventional classification/versioning, commit validation, association completeness and external-boundary errors remain unchanged. Historical onboarding treatment remains separate and unchanged.
+
+The selected value is part of configuration, snapshot and proposal identity. Explicit selection binds a context-policy normalizer revision; prior snapshots without the field retain their strict interpretation and identity. A policy change requires fresh capture and review. Replay cannot substitute another policy, including an explicit value for an omitted one. Use a compatible pinned tool when opting in.
+
+The [PR metadata gate](pr-readiness.md) takes its policy from trusted caller configuration separately. Generated release proposals still contain structured context and require an exact match of the complete generated body during proposal verification. Optional ordinary context does not relax that edit-detection check.
+
 ## Authoring a PR
 
 Include exactly one top-level, explicitly closed code block whose language label is `release-log`. The heading is recommended for readability, not required by the parser.
@@ -51,7 +66,7 @@ Unknown fields are reported in sorted order, followed by required-field errors i
 
 ## Scope
 
-The PR template adopts this format for new descriptions. The separate [PR metadata gate](pr-readiness.md) validates current PR readiness above this parser, including requiring nonempty action text for breaking PRs. Historical/missing-context handling follows the [accepted release policy](release-policy.md); the parser itself reports missing context explicitly and does not rewrite historical PRs.
+The PR template adopts this format for new descriptions. The separate [PR metadata gate](pr-readiness.md) applies the selected context policy above this parser, including requiring nonempty action text in supplied breaking blocks. Historical/missing-context handling follows the [accepted release policy](release-policy.md); the parser itself reports missing context explicitly and does not rewrite historical PRs.
 
 There are no GitHub calls, AI calls, release filtering, changelog rendering, or provider requirements in this component. Parser success does not prove the factual accuracy or writing quality of a summary. Those remain review responsibilities.
 

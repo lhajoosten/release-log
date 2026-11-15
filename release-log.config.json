@@ -4,6 +4,7 @@
   "repositoryId": 1449550207,
   "releaseBranch": "main",
   "releasePolicy": "release-policy-v1",
+  "contextPolicy": "required",
   "changelog": {
     "verbosity": "concise"
   },

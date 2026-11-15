@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { inspectCommit } from "../src/git.ts";
+import {
+  captureReleaseSnapshot,
+  replayReleaseSnapshot,
+  serializeReleaseSnapshot,
+} from "../src/release-snapshot.ts";
 import { reconcileReleaseProposal } from "../src/release-proposal.ts";
 import { requestGitHubJson, GitHubReadError } from "../src/github.ts";
 import { fixture, json, text, botId } from "./proposal-fixture.ts";
@@ -383,4 +388,42 @@ void test("shared write transport bounds requests, rejects redirects/failures an
       error.message.includes("reconcile remote") &&
       !error.message.includes("private response"),
   );
+});
+
+void test("optional-context proposals reconstruct deterministically and reject policy changes and body additions", async (context) => {
+  const f = await fixture(context);
+  const original = await f.request(true);
+  const captured = await replayReleaseSnapshot(original.snapshot, original.configuration);
+  const configuration = { ...original.configuration, contextPolicy: "optional" } as const;
+  const snapshot = await serializeReleaseSnapshot(
+    await captureReleaseSnapshot(
+      {
+        ...captured.input,
+        pullRequests: captured.input.pullRequests.map((pull) => ({
+          ...pull,
+          body: "Dynamic ordinary PR description.",
+        })),
+      },
+      configuration,
+    ),
+  );
+  const request = { ...original, configuration, snapshot };
+  const created = await reconcileReleaseProposal(request, f.transport);
+  assert.equal(created.outcome, "created");
+  const retry = await reconcileReleaseProposal(request, f.transport);
+  assert.equal(retry.outcome, "unchanged");
+  assert.equal(retry.proposalId, created.proposalId);
+  const writes = f.calls.filter(({ method }) => method !== "GET").length;
+  await assert.rejects(
+    reconcileReleaseProposal(
+      { ...request, configuration: { ...configuration, contextPolicy: "required" } },
+      f.transport,
+    ),
+    { code: "configuration-mismatch" },
+  );
+  const pull = f.pulls[0];
+  assert.ok(pull);
+  pull.body += "\nWorkflow-added text.\n";
+  await assert.rejects(reconcileReleaseProposal(request, f.transport), /Proposal metadata/u);
+  assert.equal(f.calls.filter(({ method }) => method !== "GET").length, writes);
 });

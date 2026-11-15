@@ -78,6 +78,8 @@ Merge commits, squash merges, and rebase merges are supported by this CI policy.
 
 ## PR release context
 
+This repository explicitly selects the required context policy in release configuration and the trusted metadata workflow. Consumers may select the [optional policy](docs/release-context.md#consumer-context-policy); it does not exempt PRs here.
+
 Use the PR template's `release-log` block to provide the [version 1 release context](docs/release-context.md). Fill in a summary, impact, and any required action; select `users` or `internal` explicitly. The template's empty text values deliberately fail validation until completed.
 
 The parser reports missing or invalid context without returning partial data. The separate [PR metadata gate](docs/pr-readiness.md) validates current title/body and commit evidence through read-only API calls, including title/body edits and internal PRs. Breaking commits require `!` in the PR title, and breaking PRs require nonempty `required_action`. There is no blanket bot or release-PR exemption.

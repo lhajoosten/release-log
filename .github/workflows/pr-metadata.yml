@@ -41,5 +41,6 @@ jobs:
 
       - name: Validate current PR metadata through read-only API calls
         env:
+          RELEASE_LOG_CONTEXT_POLICY: required
           GITHUB_TOKEN: ${{ github.token }}
         run: pnpm check:pr-metadata

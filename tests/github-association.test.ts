@@ -910,7 +910,7 @@ void test("real Git and mocked HTTP collection feed a validated offline snapshot
     [1],
   );
   assert.equal(replayed.normalized.sourceCommitSha, fixture.source);
-  assert.equal(replayed.normalized.pullRequests[0]?.context.audience, "internal");
+  assert.equal(replayed.normalized.pullRequests[0]?.context?.audience, "internal");
   assert.equal(await serializeReleaseSnapshot(replayed), encoded);
 });
 

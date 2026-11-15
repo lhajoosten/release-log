@@ -5,6 +5,12 @@ import type { YAMLMap } from "yaml";
 const maximumDescriptionBytes = 1024 * 1024;
 const fieldNames = new Set(["version", "audience", "summary", "impact", "required_action"]);
 
+export type ReleaseContextPolicy = "required" | "optional";
+
+export function isReleaseContextPolicy(value: unknown): value is ReleaseContextPolicy {
+  return value === "required" || value === "optional";
+}
+
 export interface ReleaseContextV1 {
   readonly version: 1;
   readonly audience: "users" | "internal";

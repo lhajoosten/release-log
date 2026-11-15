@@ -5,6 +5,7 @@ import {
   pullRequestFromEvent,
   PullRequestCheckError,
 } from "../src/github-pr-readiness.ts";
+import { isReleaseContextPolicy } from "../src/release-context.ts";
 
 try {
   if (
@@ -37,8 +38,12 @@ try {
     );
   }
 
+  const contextPolicy = process.env.RELEASE_LOG_CONTEXT_POLICY ?? "required";
+  if (!isReleaseContextPolicy(contextPolicy))
+    throw new PullRequestCheckError("RELEASE_LOG_CONTEXT_POLICY must be required or optional.");
+
   const pull = pullRequestFromEvent(event, repository);
-  const check = await checkGitHubPullRequest({ repository, ...pull, token });
+  const check = await checkGitHubPullRequest({ repository, ...pull, token, contextPolicy });
   for (const issue of check.result.warnings) {
     console.log(JSON.stringify({ level: "warning", ...issue }));
   }

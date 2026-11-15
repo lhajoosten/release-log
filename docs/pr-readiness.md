@@ -4,13 +4,17 @@ The read-only `PR metadata` workflow implements the ordinary-PR gate from [#14](
 
 ## Rules
 
-Every ordinary PR, including draft, fork, and bot PRs, must provide:
+Under the default/required context policy, every ordinary PR, including draft, fork, and bot PRs, must provide:
 
 - A single-line scoped conventional title, such as `feat(exports): add selected rows`.
 - Exactly one valid [version 1 release-context block](release-context.md), including for `audience: internal`.
 - Valid unscoped conventional authored commits. Actual multi-parent merges are structural and are not parsed as conventional messages; a single-parent message merely looking like a merge is still validated.
 - A title marked `!` when any PR commit declares breaking through `!`, `BREAKING CHANGE`, or `BREAKING-CHANGE`.
 - Nonempty `required_action` for a breaking PR. The underlying context parser still accepts explicit null; the gate adds this policy rule above it.
+
+Consumers may select the [optional context policy](release-context.md#consumer-context-policy) through the trusted caller: `validatePullRequestMetadata(title, body, commits, contextPolicy)` or `checkGitHubPullRequest({ ..., contextPolicy })`. Omission selects `required`; unknown policy values fail before GitHub reads. The command accepts `RELEASE_LOG_CONTEXT_POLICY=required|optional` from its trusted workflow environment, with omission retaining `required`. Set this to match `contextPolicy` in the release configuration; neither API responses nor PR text choose the policy. This repository explicitly pins both to `required`.
+
+With `optional`, absent context becomes a warning and a null context result, including for breaking PRs (which also warn about missing migration instructions). A supplied block remains fully validated, including required actions for breaking changes. Title/commit checks, pagination, permissions and mutation checks stay enforced. The command still exits successfully with warning diagnostics for accepted missing context.
 
 Failures identify the title/context field or commit SHA and the relevant rule. Warning-level conventional rules stay warnings. Internal audience does not skip checks or suppress a version bump; this gate does not calculate versions.
 

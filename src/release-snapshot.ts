@@ -17,8 +17,8 @@ import type {
 } from "./git.ts";
 import { validatePullRequestMetadata } from "./pr-readiness.ts";
 import type { ReadinessIssue } from "./pr-readiness.ts";
-import { parseReleaseContext } from "./release-context.ts";
-import type { ReleaseContextV1 } from "./release-context.ts";
+import { isReleaseContextPolicy, parseReleaseContext } from "./release-context.ts";
+import type { ReleaseContextPolicy, ReleaseContextV1 } from "./release-context.ts";
 
 const maximumBytes = 16 * 1024 * 1024;
 
@@ -50,6 +50,7 @@ interface ReleaseRepositoryConfiguration {
   readonly repositoryId: number;
   readonly releaseBranch: string;
   readonly releasePolicy: "release-policy-v1";
+  readonly contextPolicy?: ReleaseContextPolicy;
   readonly changelog?: { readonly verbosity: ChangelogVerbosity };
   readonly automationExclusions?: readonly {
     readonly pullNumber: number;
@@ -102,8 +103,8 @@ export interface NormalizedReleaseInputs {
     readonly number: number;
     readonly url: string;
     readonly title: ConventionalMetadata;
-    readonly context: ReleaseContextV1;
-    readonly rawBlock: string;
+    readonly context: ReleaseContextV1 | null;
+    readonly rawBlock: string | null;
     readonly breakingChanges: readonly string[];
     readonly commits: readonly {
       readonly source: "original" | "landed";
@@ -284,6 +285,21 @@ const exclusionTool = {
   normalizerId: digest({ baseNormalizerId: tool.normalizerId, exclusionNormalizationVersion: 1 }),
 };
 
+function snapshotTool(config: ReleaseInputConfiguration): typeof tool {
+  const base = config.automationExclusions ? exclusionTool : tool;
+
+  // Keep prior strict captures replayable; explicit policy opts into this revision.
+  return config.contextPolicy === undefined
+    ? { ...base }
+    : {
+        ...base,
+        normalizerId: digest({
+          baseNormalizerId: base.normalizerId,
+          contextPolicyNormalizationVersion: 1,
+        }),
+      };
+}
+
 export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConfiguration {
   const item = object(
     value,
@@ -294,6 +310,7 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
       "releaseBranch",
       "releasePolicy",
       ...(isObject(value) && value.schemaVersion === 2 ? ["bootstrap"] : []),
+      ...(isObject(value) && Object.hasOwn(value, "contextPolicy") ? ["contextPolicy"] : []),
       ...(isObject(value) && Object.hasOwn(value, "changelog") ? ["changelog"] : []),
       ...(isObject(value) && Object.hasOwn(value, "automationExclusions")
         ? ["automationExclusions"]
@@ -317,6 +334,10 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
     /[\0\r\n]/u.test(releaseBranch)
   )
     return invalid("Invalid repository identity or release branch in configuration.");
+  if (Object.hasOwn(item, "contextPolicy") && !isReleaseContextPolicy(item.contextPolicy))
+    return invalid("Context policy must be required or optional.");
+
+  const contextPolicy = isReleaseContextPolicy(item.contextPolicy) ? item.contextPolicy : undefined;
   let changelog: ReleaseRepositoryConfiguration["changelog"];
 
   if (Object.hasOwn(item, "changelog")) {
@@ -366,6 +387,7 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
     repositoryId: positive(item.repositoryId, "repository ID"),
     releaseBranch,
     releasePolicy: "release-policy-v1",
+    ...(contextPolicy === undefined ? {} : { contextPolicy }),
     ...(changelog === undefined ? {} : { changelog }),
     ...(automationExclusions === undefined ? {} : { automationExclusions }),
   };
@@ -830,6 +852,8 @@ export async function captureReleaseSnapshot(
       ...pull.originalCommits.map((entry) => ({ source: "original" as const, ...entry })),
       ...pull.landedCommits.map((entry) => ({ source: "landed" as const, ...entry })),
     ];
+    // Historical adoption keeps its own warning-bearing normalization contract.
+    const historicalPull = pull.landedCommits.every((entry) => historical.has(entry.sha));
     const readiness = await validatePullRequestMetadata(
       pull.title,
       pull.body,
@@ -838,8 +862,9 @@ export async function captureReleaseSnapshot(
         message: entry.message,
         parentCount: entry.parentShas.length,
       })),
+      historicalPull ? "required" : selected.contextPolicy,
     );
-    if (!readiness.valid && pull.landedCommits.every((entry) => historical.has(entry.sha))) {
+    if (!readiness.valid && historicalPull) {
       const context = parseReleaseContext(pull.body);
       const explanations = await Promise.all([
         readHistoricalBreakingChanges(pull.title),
@@ -866,12 +891,6 @@ export async function captureReleaseSnapshot(
         readiness.errors,
       );
     const context = parseReleaseContext(pull.body);
-    if (!context.valid)
-      throw new ReleaseSnapshotError(
-        "metadata-invalid",
-        `PR #${pull.number} context could not be captured.`,
-        context.errors.map((issue) => ({ ...issue, location: "context" })),
-      );
     const commits: NormalizedReleaseInputs["pullRequests"][number]["commits"][number][] = [];
     for (const entry of sourceCommits) {
       if (entry.parentShas.length > 1) continue;
@@ -888,7 +907,7 @@ export async function captureReleaseSnapshot(
       url: pull.url,
       title: readiness.title,
       context: readiness.context,
-      rawBlock: context.rawBlock,
+      rawBlock: context.valid ? context.rawBlock : null,
       breakingChanges: [
         ...new Set([
           ...readiness.title.breakingChanges,
@@ -950,7 +969,7 @@ export async function captureReleaseSnapshot(
 
   const payload = {
     schemaVersion: selected.automationExclusions ? (4 as const) : (3 as const),
-    tool: { ...(selected.automationExclusions ? exclusionTool : tool) },
+    tool: snapshotTool(selected),
     configuration: selected,
     configurationId: digest(selected),
     input: captured,
@@ -993,7 +1012,8 @@ async function validateSnapshot(
       "Unsupported release snapshot schema version; no automatic migration is performed.",
     );
   const capturedTool = object(item.tool, ["version", "normalizerId"], "tool identity");
-  const expectedTool = item.schemaVersion === 4 ? exclusionTool : tool;
+  const config = parseReleaseInputConfiguration(item.configuration);
+  const expectedTool = snapshotTool(config);
 
   if (
     capturedTool.version !== expectedTool.version ||
@@ -1003,7 +1023,6 @@ async function validateSnapshot(
       "normalizer-mismatch",
       "Replay requires the captured tool version, normalization policy, and runtime dependency versions.",
     );
-  const config = parseReleaseInputConfiguration(item.configuration);
   if (
     digest(config) !== digest(parseReleaseInputConfiguration(expected)) ||
     item.configurationId !== digest(config)
