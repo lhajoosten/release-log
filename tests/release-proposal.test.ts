@@ -489,3 +489,130 @@ void test("API messages retaining their terminal newline are accepted unchanged"
   assert.equal((await reconcileReleaseProposal(request, transport)).outcome, "created");
   assert.equal((await reconcileReleaseProposal(request, transport)).outcome, "unchanged");
 });
+
+void test("refresh reasserts the configured base so GitHub drops already-merged source files from the PR diff", async (context) => {
+  const f = await fixture(context);
+  await reconcileReleaseProposal(await f.request(true), f.transport);
+  await f.advance("fix(api): retain keys");
+  await reconcileReleaseProposal(await f.request(true), f.transport);
+  const update = f.calls.findLast(
+    (call) => call.method === "PATCH" && call.path.startsWith("/pulls/"),
+  );
+  assert.equal(update?.body?.base, "main");
+  assert.equal(object(f.pulls[0]?.base).sha, f.ref("heads/main"));
+  const head = f.ref("heads/release-log/main");
+  assert.ok(head);
+  assert.deepEqual(
+    f
+      .git(["diff", "--name-only", `refs/heads/main...${head}`])
+      .trim()
+      .split("\n"),
+    [".release-log/inputs.json", "CHANGELOG.md", "package.json"],
+  );
+});
+
+void test("compact format refresh verifies the old proposal in its original format and preserves replay identity", async (context) => {
+  const f = await fixture(context, "node", "feat(api): export rows", {
+    changelogVerbosity: "concise",
+  });
+  const original = await f.request(true);
+  await reconcileReleaseProposal(original, f.transport);
+  await f.advance("fix(api): retain keys");
+  const current = await f.request(true);
+  const captured = await replayReleaseSnapshot(current.snapshot, current.configuration);
+  const configuration = {
+    ...current.configuration,
+    changelog: { verbosity: "concise", format: "compact" },
+  } as const;
+  const snapshot = await serializeReleaseSnapshot(
+    await captureReleaseSnapshot(captured.input, configuration),
+  );
+  await assert.rejects(replayReleaseSnapshot(original.snapshot, configuration), {
+    code: "configuration-mismatch",
+  });
+  const request = { ...current, configuration, snapshot };
+  const refreshed = await reconcileReleaseProposal(request, f.transport);
+  assert.equal(refreshed.outcome, "refreshed");
+  assert.ok(refreshed.headSha);
+  const changelog = f.git(["show", `${refreshed.headSha}:CHANGELOG.md`]);
+  assert.ok(changelog.includes("<summary>Internal maintenance</summary>"));
+  assert.ok(!changelog.includes("[internal]"));
+  assert.equal((await reconcileReleaseProposal(request, f.transport)).outcome, "unchanged");
+  assert.equal(f.pulls.length, 1);
+});
+
+void test("presentation transition cannot change context policy or verbosity", async (context) => {
+  const f = await fixture(context, "node", "feat(api): export rows", {
+    changelogVerbosity: "concise",
+  });
+  const original = await f.request(true);
+  await reconcileReleaseProposal(original, f.transport);
+  const captured = await replayReleaseSnapshot(original.snapshot, original.configuration);
+  for (const configuration of [
+    {
+      ...original.configuration,
+      contextPolicy: "optional" as const,
+      changelog: { verbosity: "concise" as const, format: "compact" as const },
+    },
+    {
+      ...original.configuration,
+      changelog: { verbosity: "detailed" as const, format: "compact" as const },
+    },
+  ]) {
+    const snapshot = await serializeReleaseSnapshot(
+      await captureReleaseSnapshot(captured.input, configuration),
+    );
+    await assert.rejects(
+      reconcileReleaseProposal({ ...original, configuration, snapshot }, f.transport),
+      { code: "configuration-mismatch" },
+    );
+  }
+});
+
+void test("compact format selection preserves omitted verbosity's detailed interpretation", async (context) => {
+  const f = await fixture(context);
+  const original = await f.request(true);
+  await reconcileReleaseProposal(original, f.transport);
+  const captured = await replayReleaseSnapshot(original.snapshot, original.configuration);
+  const configuration = {
+    ...original.configuration,
+    changelog: { verbosity: "detailed", format: "compact" },
+  } as const;
+  const snapshot = await serializeReleaseSnapshot(
+    await captureReleaseSnapshot(captured.input, configuration),
+  );
+  assert.equal(
+    (await reconcileReleaseProposal({ ...original, configuration, snapshot }, f.transport)).outcome,
+    "refreshed",
+  );
+});
+
+void test("compact format selection cannot advance the trusted onboarding boundary", async (context) => {
+  const f = await fixture(context, "node", "feat(api): export rows", {
+    bootstrap: true,
+    adoption: true,
+    changelogVerbosity: "concise",
+  });
+  const original = await f.request(true);
+  await reconcileReleaseProposal(original, f.transport);
+  await f.advance("fix(api): retain keys");
+  const current = await f.request(true);
+  assert.equal(current.configuration.schemaVersion, 2);
+  if (current.configuration.schemaVersion !== 2) throw new Error("Expected onboarding fixture");
+  const captured = await replayReleaseSnapshot(current.snapshot, current.configuration);
+  const configuration = {
+    ...current.configuration,
+    bootstrap: {
+      ...current.configuration.bootstrap,
+      onboardingSha: captured.input.range.sourceCommitSha,
+    },
+    changelog: { verbosity: "concise", format: "compact" },
+  } as const;
+  const snapshot = await serializeReleaseSnapshot(
+    await captureReleaseSnapshot(captured.input, configuration),
+  );
+  await assert.rejects(
+    reconcileReleaseProposal({ ...current, configuration, snapshot }, f.transport),
+    { code: "configuration-mismatch" },
+  );
+});

@@ -322,7 +322,7 @@ export async function fixture(
         merged_at: null,
         user: { id: botId, type: "Bot" },
         head: { ref: "release-log/main", sha: ref("heads/release-log/main"), repo: { id: 17 } },
-        base: { ref: "main", repo: { id: 17 } },
+        base: { ref: "main", sha: ref("heads/main"), repo: { id: 17 } },
       };
       pulls.push(pull);
       return json(pull, 201);
@@ -333,6 +333,9 @@ export async function fixture(
       Object.assign(pull, {
         title: body.title,
         body: body.body,
+        base: body.base
+          ? { ...object(pull.base), ref: body.base, sha: ref("heads/main") }
+          : pull.base,
         head: { ...object(pull.head), sha: ref("heads/release-log/main") },
       });
       return json(currentPull(pull));

@@ -43,7 +43,7 @@ required_action: null
 
 Use `internal` for changes that belong in the technical changelog but not user-facing notes. The parser preserves internal context; filtering belongs to the later renderer. Do not omit internal changes or invent a user benefit for them.
 
-Do not add a breaking-change override. A conventional `!` header or breaking footer remains the source of that classification. Describe necessary action in `required_action`; use `null` only when there is no required action.
+Do not add a breaking-change override. A conventional `!` header or breaking footer remains the source of that classification. Describe actions release readers actually need to take in `required_action`, such as migration or configuration steps; use `null` when there is no required reader action. Routine PR review, CI observation and release-approval instructions belong in PR review/verification guidance, rather than this field. Existing authored actions are preserved by the renderer; it does not infer that an instruction can be discarded.
 
 ## Parsing rules
 

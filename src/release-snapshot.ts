@@ -51,7 +51,10 @@ interface ReleaseRepositoryConfiguration {
   readonly releaseBranch: string;
   readonly releasePolicy: "release-policy-v1";
   readonly contextPolicy?: ReleaseContextPolicy;
-  readonly changelog?: { readonly verbosity: ChangelogVerbosity };
+  readonly changelog?: {
+    readonly verbosity: ChangelogVerbosity;
+    readonly format?: "classic" | "compact";
+  };
   readonly automationExclusions?: readonly {
     readonly pullNumber: number;
     readonly verificationId: string;
@@ -341,13 +344,24 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
   let changelog: ReleaseRepositoryConfiguration["changelog"];
 
   if (Object.hasOwn(item, "changelog")) {
-    const options = object(item.changelog, ["verbosity"], "changelog configuration");
+    const options = object(
+      item.changelog,
+      [
+        "verbosity",
+        ...(isObject(item.changelog) && Object.hasOwn(item.changelog, "format") ? ["format"] : []),
+      ],
+      "changelog configuration",
+    );
     const verbosity = options.verbosity;
 
     if (verbosity !== "detailed" && verbosity !== "concise" && verbosity !== "one-liner")
       return invalid("Changelog verbosity must be detailed, concise or one-liner.");
 
-    changelog = { verbosity };
+    const format = options.format;
+    if (Object.hasOwn(options, "format") && format !== "classic" && format !== "compact")
+      return invalid("Changelog format must be classic or compact.");
+
+    changelog = { verbosity, ...(format === "classic" || format === "compact" ? { format } : {}) };
   }
 
   let automationExclusions: ReleaseRepositoryConfiguration["automationExclusions"];

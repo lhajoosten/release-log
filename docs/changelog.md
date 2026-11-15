@@ -12,6 +12,29 @@ Under the [optional context policy](release-context.md#consumer-context-policy),
 
 Context, title fallback and scope are plain text, not trusted Markdown: whitespace is folded to one space and punctuation/control/Markdown-active characters are emitted as numeric character references. Context cannot inject headings, HTML, image loads, links, code, or owned-section markers. Only source links constructed from validated repository identity are generated. This intentionally does not preserve authored Markdown formatting or paragraph layout. Golden output and Markdown-AST tests check this boundary.
 
+## Format
+
+Trusted configuration may select `changelog.format` as `classic` or `compact`, alongside the required `verbosity` field. Omission retains classic output byte for byte. This repository explicitly selects compact with concise verbosity.
+
+```json
+{
+  "changelog": {
+    "verbosity": "concise",
+    "format": "compact"
+  }
+}
+```
+
+Compact puts each authored summary first and keeps its source link, without repeating scope or internal-audience labels. Visible changes retain the existing type-group order and use numeric PR order within groups. Explicitly internal entries appear once under a collapsed `<details>` section titled **Internal maintenance**, ordered by PR number; commit-only and historical entries preserve their real source identity and captured ordering. Unknown audience is never inferred as internal. Nothing is filtered out.
+
+All breaking evidence appears in a visible **Breaking changes** section. Every nonempty authored action appears in a visible **Required actions** section, including actions associated with collapsed internal changes. Breaking entries without migration instructions explicitly flag the missing instructions. These sections cross-reference their source PR/commit; each change still has one primary entry. No existing action is silently discarded or rewritten as a process note.
+
+Detailed verbosity includes available impact and historical diagnostics; concise omits routine detail; one-liner keeps each entry's notices inline. Missing-context notices remain visible. Source text is escaped with the existing rules; only the fixed disclosure tags are emitted as HTML. No AI shortening or inferred reader benefit is introduced.
+
+The selected format participates in configuration/snapshot/proposal identity. Direct replay still requires the exact captured configuration. During a proposal refresh or completed-proposal verification, an explicit format selection permits a presentation-only transition: all other effective settings must match (omitted verbosity means detailed). The old snapshot is replayed and its files/body/identity reconstructed under its original format before a fresh capture renders the selected format. Context policy, verbosity, repository identity, exclusion pins and onboarding boundaries cannot change through this exception. Select explicit `classic` to return to the old layout. Consumers need a compatible pinned tool.
+
+Only pending generated content changes format. Released sections retain their existing bytes and layout.
+
 ## Verbosity
 
 Set the optional `changelog` field in trusted version-1 or version-2 release configuration:
@@ -32,9 +55,9 @@ This is a configuration fragment, not a complete repository configuration. Suppo
 | `concise`   | Summary/source, with nested breaking warnings and required actions only. Historical review warnings are consolidated into the release-level notice; original historical titles and source links remain.       |
 | `one-liner` | The same reduced detail, but each change occupies one physical Markdown line. Breaking warnings and required actions stay inline on that line. Group headings and the release-level historical notice remain. |
 
-Omitting `changelog` preserves `detailed` output byte for byte. An explicitly supplied object must contain exactly `verbosity`; empty objects, unsupported values, casing/whitespace variants and extra settings fail rather than silently falling back. This repository explicitly selects `concise` in `release-log.config.json`.
+Omitting `changelog` preserves `detailed` output byte for byte. An explicitly supplied object requires `verbosity` and may additionally select `format`; empty objects, unsupported values, casing/whitespace variants and extra settings fail rather than silently falling back. This repository explicitly selects `concise` with `format: compact` in `release-log.config.json`.
 
-All modes retain every change, internal markers, source links and all available breaking/migration instructions. One-liner is a layout choice, **not** automatic text shortening: authored summaries/actions can make a long line. No AI rewrite or inferred impact/action is introduced. Audience filtering is not a verbosity feature. For historical entries without structured context, no mode invents missing migration instructions.
+All modes retain every change, source links, audience information through classic markers or compact grouping, and all available breaking/migration instructions. One-liner is a layout choice, **not** automatic text shortening: authored summaries/actions can make a long line. No AI rewrite or inferred impact/action is introduced. Audience filtering is not a verbosity feature. For historical entries without structured context, no mode invents missing migration instructions.
 
 The option is captured in configuration/snapshot identity and generated-file/proposal digests. `render`, `prepare`, proposal refresh and approval verification all use that captured value; there is no unpinned render-only override. Changing verbosity requires a fresh capture and review rather than replaying old inputs under a different configuration. Existing snapshots without the option still replay in detailed mode with this tool; existing input schemas do not change. Older pinned tools may reject the new optional field, so use a compatible pinned tool when opting in.
 

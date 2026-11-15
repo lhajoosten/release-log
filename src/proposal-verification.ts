@@ -1,19 +1,45 @@
+import { isDeepStrictEqual } from "node:util";
 import { describe, capturedIdentity, verifyGeneratedTree } from "./proposal-identity.ts";
 import type { Description } from "./proposal-identity.ts";
-import { ProposalConflictError } from "./github-proposals.ts";
+import { ProposalConflictError, proposalObject } from "./github-proposals.ts";
 import type {
   GitHubProposalRepository,
   ProposalPullRequest,
   ProposalTree,
 } from "./github-proposals.ts";
 import { prepareReleaseFileContents } from "./proposal-files.ts";
-import { replayReleaseSnapshot } from "./release-snapshot.ts";
+import { parseReleaseInputConfiguration, replayReleaseSnapshot } from "./release-snapshot.ts";
 import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
 
 export interface VerifiedProposal extends Description {
   readonly source: ProposalTree;
   readonly head: ProposalTree;
   readonly nextVersion: string;
+}
+
+function withoutChangelogFormat(config: ReleaseInputConfiguration) {
+  return { ...config, changelog: { verbosity: config.changelog?.verbosity ?? "detailed" } };
+}
+
+function capturedPresentationConfiguration(
+  serialized: string,
+  expected: ReleaseInputConfiguration,
+): ReleaseInputConfiguration {
+  const current = parseReleaseInputConfiguration(expected);
+  if (current.changelog?.format === undefined) return current;
+
+  let value: unknown;
+  try {
+    value = JSON.parse(serialized);
+  } catch {
+    throw new ProposalConflictError("The proposal snapshot is not valid JSON.");
+  }
+  const captured = parseReleaseInputConfiguration(proposalObject(value).configuration);
+  // An explicit format selection permits only a presentation transition. Verify
+  // the prior proposal with its original renderer/configuration, never new rules.
+  return isDeepStrictEqual(withoutChangelogFormat(captured), withoutChangelogFormat(current))
+    ? captured
+    : current;
 }
 
 export async function verifyPrevious(
@@ -27,7 +53,8 @@ export async function verifyPrevious(
   const contents = await api.contents(head);
   const capturedJSON = contents[".release-log/inputs.json"];
   if (capturedJSON === null) throw new ProposalConflictError("The proposal snapshot is missing.");
-  const snapshot = await replayReleaseSnapshot(capturedJSON, expected);
+  const capturedConfiguration = capturedPresentationConfiguration(capturedJSON, expected);
+  const snapshot = await replayReleaseSnapshot(capturedJSON, capturedConfiguration);
   if (snapshot.normalized.sourceCommitSha !== marker.sourceSha)
     throw new ProposalConflictError(
       "The proposal snapshot source differs from its commit identity.",
@@ -35,7 +62,7 @@ export async function verifyPrevious(
   const source = await api.tree(marker.sourceSha);
   const prepared = await prepareReleaseFileContents(
     capturedJSON,
-    expected,
+    capturedConfiguration,
     marker.version,
     await api.contents(source),
   );
