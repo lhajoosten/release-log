@@ -85,6 +85,8 @@ Configure contextPolicy as required (default) or optional; optional missing cont
 retains title/source evidence and visible warnings, while malformed blocks fail.
 Configure changelog.verbosity as detailed (default), concise, or one-liner;
 all modes preserve breaking warnings and required actions.
+Set changelog.format to compact for summary-first entries and collapsed internal
+maintenance; omitted format retains classic output. Safety sections stay visible.
 propose makes explicit GitHub reads; only propose --write creates/refreshes the
 reserved release branch and PR. New PRs are non-draft. It requires GITHUB_TOKEN
 and an expected numeric bot identity. tag-release verifies a manually merged generated proposal;

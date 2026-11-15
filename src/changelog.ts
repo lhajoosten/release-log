@@ -3,7 +3,11 @@ import { fromMarkdown } from "mdast-util-from-markdown";
 import { createReleasePlan } from "./release-plan.ts";
 import type { ReleaseVersionConfiguration } from "./release-plan.ts";
 import { replayReleaseSnapshot } from "./release-snapshot.ts";
-import type { ChangelogVerbosity, ReleaseInputConfiguration } from "./release-snapshot.ts";
+import type {
+  ChangelogVerbosity,
+  ReleaseInputConfiguration,
+  ReleaseSnapshot,
+} from "./release-snapshot.ts";
 
 export class ChangelogError extends Error {
   constructor(message: string) {
@@ -50,6 +54,149 @@ function appendEntry(
   else lines.push(entry, ...details.map((detail) => `  - ${detail}`));
 }
 
+interface CompactEntry {
+  readonly type: string | null;
+  readonly summary: string;
+  readonly reference: string;
+  readonly url: string;
+  readonly internal: boolean;
+  readonly context: ReleaseSnapshot["normalized"]["pullRequests"][number]["context"];
+  readonly breaking: boolean;
+  readonly breakingChanges: readonly string[];
+  readonly missing: string | null;
+  readonly warnings: readonly string[];
+}
+
+function renderCompactChangelog(
+  snapshot: ReleaseSnapshot,
+  nextVersion: string | null,
+  verbosity: ChangelogVerbosity,
+  initialAdoption: boolean,
+): string {
+  const entries: CompactEntry[] = snapshot.normalized.pullRequests.map((pull) => ({
+    type: pull.title.type,
+    summary: pull.context?.summary ?? pull.title.description,
+    reference: `#${pull.number}`,
+    url: pull.url,
+    internal: pull.context?.audience === "internal",
+    context: pull.context,
+    breaking: pull.title.breaking,
+    breakingChanges: pull.breakingChanges,
+    missing:
+      pull.context === null
+        ? "Context unavailable; audience and impact are unknown. Review the linked PR."
+        : null,
+    warnings: [],
+  }));
+
+  entries.push(
+    ...snapshot.normalized.bootstrapCommits.map((entry) => ({
+      type: entry.metadata.type,
+      summary: `[bootstrap commit] ${entry.metadata.description}`,
+      reference: entry.sha.slice(0, 12),
+      url: entry.url,
+      internal: false,
+      context: null,
+      breaking: entry.metadata.breaking,
+      breakingChanges: entry.metadata.breakingChanges,
+      missing: "Bootstrap context unavailable; impact and migration instructions are not inferred.",
+      warnings: [],
+    })),
+  );
+
+  entries.push(
+    ...snapshot.normalized.historicalEntries.map((entry) => ({
+      type: null,
+      summary: `[historical ${entry.source.kind === "pull-request" ? "PR" : "commit"}] ${entry.title}`,
+      reference:
+        entry.source.kind === "pull-request"
+          ? `#${entry.source.number}`
+          : entry.source.sha.slice(0, 12),
+      url: entry.source.url,
+      internal: entry.context?.audience === "internal",
+      context: entry.context,
+      breaking: entry.breakingChanges.length > 0,
+      breakingChanges: entry.breakingChanges,
+      missing:
+        entry.context === null ? "Historical context unavailable; review the linked source." : null,
+      warnings: entry.warnings.map((issue) => issue.code),
+    })),
+  );
+
+  entries.sort((left, right) => {
+    const leftPull = left.reference.startsWith("#");
+    const rightPull = right.reference.startsWith("#");
+    if (leftPull && rightPull)
+      return Number(left.reference.slice(1)) - Number(right.reference.slice(1));
+    if (leftPull !== rightPull) return leftPull ? -1 : 1;
+    return left.url < right.url ? -1 : left.url > right.url ? 1 : 0;
+  });
+
+  const lines = [`## v${nextVersion}`, ""];
+  if (initialAdoption) lines.push("Initial release of the captured repository state.", "");
+  if (snapshot.normalized.historicalEntries.length)
+    lines.push(
+      "> Historical entries predate onboarding and may lack current release metadata. Review their sources and breaking warnings; no missing impact or migration instructions are inferred.",
+      "",
+    );
+
+  const reference = (entry: CompactEntry) => `([${entry.reference}](${entry.url}))`;
+  const append = (entry: CompactEntry) => {
+    const details: string[] = [];
+    if (entry.missing !== null) details.push(entry.missing);
+    if (verbosity === "detailed" && entry.type === null && entry.context !== null)
+      details.push(`Summary: ${escapeText(entry.context.summary)}`);
+    if (verbosity === "detailed" && entry.context !== null)
+      details.push(`Impact: ${escapeText(entry.context.impact)}`);
+    if (verbosity === "detailed" && entry.warnings.length)
+      details.push(`Metadata review: ${entry.warnings.map(escapeText).join(", ")}`);
+    appendEntry(lines, `- ${escapeText(entry.summary)} ${reference(entry)}`, details, verbosity);
+  };
+
+  for (const [type, heading] of [...groups, [null, "Historical changes"]] as const) {
+    const visible = entries.filter((entry) => !entry.internal && entry.type === type);
+    if (!visible.length) continue;
+    lines.push(`### ${heading}`, "");
+    visible.forEach(append);
+    lines.push("");
+  }
+
+  const breaking = entries.filter((entry) => entry.breaking);
+  if (breaking.length) {
+    lines.push("### Breaking changes", "");
+    for (const entry of breaking)
+      lines.push(`- ${entry.breakingChanges.map(escapeText).join("; ")} ${reference(entry)}`);
+    lines.push("");
+  }
+
+  const actions = entries.filter(
+    (entry) =>
+      entry.context?.requiredAction != null ||
+      (entry.breaking && entry.context?.requiredAction == null),
+  );
+  if (actions.length) {
+    lines.push("### Required actions", "");
+    for (const entry of actions) {
+      const action = entry.context?.requiredAction;
+      lines.push(
+        `- ${action == null ? "Migration instructions are missing; review the linked source." : escapeText(action)} ${reference(entry)}`,
+      );
+    }
+    lines.push("");
+  }
+
+  const internal = entries.filter((entry) => entry.internal);
+  if (internal.length) {
+    lines.push("<details>", "<summary>Internal maintenance</summary>", "");
+    internal.forEach(append);
+    lines.push("", "</details>", "");
+  }
+
+  const rendered = lines.join("\n");
+  bounded(rendered);
+  return rendered;
+}
+
 export async function renderChangelog(
   serializedSnapshot: string,
   expected: ReleaseInputConfiguration,
@@ -59,6 +206,14 @@ export async function renderChangelog(
   if (!plan.release) return null;
   const snapshot = await replayReleaseSnapshot(serializedSnapshot, expected);
   const verbosity = snapshot.configuration.changelog?.verbosity ?? "detailed";
+  if (snapshot.configuration.changelog?.format === "compact")
+    return renderCompactChangelog(
+      snapshot,
+      plan.nextVersion,
+      verbosity,
+      plan.onboardingSha !== null,
+    );
+
   const lines = [`## v${plan.nextVersion}`, ""];
 
   if (plan.onboardingSha !== null)

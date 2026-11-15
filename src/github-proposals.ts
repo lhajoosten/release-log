@@ -366,11 +366,12 @@ export class GitHubProposalRepository {
           {
             title,
             body,
+            // Reasserting the same base makes GitHub refresh its cached PR diff.
+            base: this.config.releaseBranch,
             ...(previous
               ? {}
               : {
                   head: this.headRef,
-                  base: this.config.releaseBranch,
                   draft: false,
                   maintainer_can_modify: false,
                 }),

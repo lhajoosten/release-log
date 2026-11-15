@@ -13,14 +13,14 @@ permissions:
 jobs:
   release:
     if: github.event.pull_request.merged == true
-    uses: lhajoosten/release-log/.github/workflows/rolling-release.yml@777f16f3877e7e34199fdb2ac05ea40acf2c3622
+    uses: lhajoosten/release-log/.github/workflows/rolling-release.yml@8828be515345d761a7375b5c00b1beff0cfabaeb
     with:
-      tool-sha: 777f16f3877e7e34199fdb2ac05ea40acf2c3622
+      tool-sha: 8828be515345d761a7375b5c00b1beff0cfabaeb
       release-branch: main
       app-id: ${{ vars.RELEASE_APP_ID }}
       bot-user-id: ${{ vars.RELEASE_BOT_USER_ID }}
       write: true
       configuration: >-
-        {"schemaVersion":2,"repository":"lhajoosten/release-log","repositoryId":1449550207,"releaseBranch":"main","releasePolicy":"release-policy-v1","contextPolicy":"required","changelog":{"verbosity":"concise"},"bootstrap":{"baselineSha":"bb0033fb274e69a8aabad6a17d71f18ec9292f60","onboardingSha":"c28fe6faa4d516847fbc725e9186cc80ac8873af"}}
+        {"schemaVersion":2,"repository":"lhajoosten/release-log","repositoryId":1449550207,"releaseBranch":"main","releasePolicy":"release-policy-v1","contextPolicy":"required","changelog":{"verbosity":"concise","format":"compact"},"bootstrap":{"baselineSha":"bb0033fb274e69a8aabad6a17d71f18ec9292f60","onboardingSha":"c28fe6faa4d516847fbc725e9186cc80ac8873af"}}
     secrets:
       app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
