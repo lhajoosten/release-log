@@ -42,11 +42,11 @@ Every authority is freshly verified. The normal association checks still apply: 
 
 ## Offline capture and replay
 
-With exclusion pins, snapshots use **schema 4**, with a separate exclusion normalizer identity. The raw `input` retains all PRs, landed/original commit evidence, the original full range and explicit `verifiedAutomation` evidence. Nothing is removed from Git membership to make a disconnected graph look complete.
+With exclusion pins, legacy snapshots use **schema 4**, with a separate exclusion normalizer identity. New online captures use [schema 5](release-snapshot.md#capture-metadata-schema-5), retaining that exclusion contract alongside capture time and PR-author evidence. The raw `input` retains all PRs, landed/original commit evidence, the original full range and explicit `verifiedAutomation` evidence. Nothing is removed from Git membership to make a disconnected graph look complete.
 
 Capture/replay strictly parse each verification record, recompute its verification digest, match it to the independently supplied configuration pins, and validate the raw PR identity/metadata/footprint against it. Unknown fields, forged output flags, changed evidence, missing records, changed pins and partial footprints fail. Validation never substitutes the snapshot's own configuration for the caller's trusted expected configuration.
 
-`normalized.excludedPullRequests` records the verified automation PR number/source URL, verification ID and commit IDs. These PRs do not enter normal product contributions or rendered changelog entries. All ordinary changes stay eligible, including legitimate edits to version/changelog paths. A schema-4 plan exposes the same evidence as `excludedContributions`.
+`normalized.excludedPullRequests` records the verified automation PR number/source URL, verification ID and commit IDs. These PRs do not enter normal product contributions or rendered changelog entries. All ordinary changes stay eligible, including legitimate edits to version/changelog paths. A schema-4 or schema-5 plan exposes the same evidence as `excludedContributions`.
 
 ```sh
 release-log plan --config current-release-config.json --snapshot inputs.json --current-version 1.2.3
@@ -55,7 +55,7 @@ release-log render --config current-release-config.json --snapshot inputs.json -
 
 Offline commands need neither the authority file nor credentials/network: the captured proof is checked against the separately trusted pins. They do not reauthenticate the host, prove publication or replace a fresh verification immediately before an authorized remote mutation.
 
-Configurations without exclusion pins continue producing/replaying schema-3 snapshots and plans with the existing normalizer and byte format. There is no silent format upgrade, relabeling or automatic migration of old inputs. Exclusion-enabled snapshots require a compatible pinned tool and trusted configuration; their full JSON envelope remains bounded to 16 MiB.
+Legacy configurations without exclusion pins retain schema-3 replay with the existing normalizer and byte format. New online captures use schema 5 with or without pins. There is no silent format upgrade, relabeling or automatic migration of old inputs. Exclusion-enabled snapshots require a compatible pinned tool and trusted configuration; their full JSON envelope remains bounded to 16 MiB.
 
 ## Completed cycles and remaining gates
 

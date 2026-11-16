@@ -616,3 +616,44 @@ void test("compact format selection cannot advance the trusted onboarding bounda
     { code: "configuration-mismatch" },
   );
 });
+
+void test("schema-5 collection retries retain the first capture time while changed author evidence refreshes", async (context) => {
+  const f = await fixture(context);
+  const request = await f.request(true);
+  const legacy = await replayReleaseSnapshot(request.snapshot, request.configuration);
+  const capture = async (capturedAt: string, login = "octocat") =>
+    serializeReleaseSnapshot(
+      await captureReleaseSnapshot(
+        {
+          ...legacy.input,
+          pullRequests: legacy.input.pullRequests.map((pull) => ({ ...pull, authorLogin: login })),
+        },
+        request.configuration,
+        capturedAt,
+      ),
+    );
+  const firstTime = "2026-11-16T20:00:00.000Z";
+  const nextTime = "2026-11-17T20:00:00.000Z";
+  const created = await reconcileReleaseProposal(
+    { ...request, snapshot: await capture(firstTime) },
+    f.transport,
+  );
+  const writes = f.calls.filter(({ method }) => method !== "GET").length;
+  const retry = await reconcileReleaseProposal(
+    { ...request, snapshot: await capture(nextTime) },
+    f.transport,
+  );
+  assert.equal(retry.outcome, "unchanged");
+  assert.equal(retry.snapshotId, created.snapshotId);
+  assert.equal(f.calls.filter(({ method }) => method !== "GET").length, writes);
+  const refreshed = await reconcileReleaseProposal(
+    { ...request, snapshot: await capture(nextTime, "new-author") },
+    f.transport,
+  );
+  assert.equal(refreshed.outcome, "refreshed");
+  assert.ok(refreshed.headSha);
+  assert.ok(f.git(["show", `${refreshed.headSha}:.release-log/inputs.json`]).includes(nextTime));
+  assert.ok(
+    f.git(["show", `${refreshed.headSha}:CHANGELOG.md`]).includes("https://github.com/new-author"),
+  );
+});

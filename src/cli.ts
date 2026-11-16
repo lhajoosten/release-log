@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { readFile, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { backfillChangelog, writeBackfilledChangelog } from "./changelog-backfill.ts";
 import { inspectPendingRelease } from "./git.ts";
 import { collectMergedPullRequests } from "./github-association.ts";
 import { GitHubReadError } from "./github.ts";
@@ -51,6 +53,7 @@ const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/ap
   release-log select-cycle --config FILE --automation FILE --source SHA
   release-log collect --config FILE --repository DIR --source SHA
       (--baseline-tag TAG | --bootstrap-sha SHA) [--exclusions FILE]
+  release-log backfill --config FILE --repository DIR [--dry-run | --write]
   release-log plan|render --config FILE --snapshot FILE
       (--current-version VERSION | --initial-version 0.1.0)
   release-log prepare --config FILE --snapshot FILE --repository DIR
@@ -76,7 +79,11 @@ roll routes merged PR events through pre-collection cycle selection or exact-lan
 tagging. It requires RELEASE_LOG_APP_TOKEN; default dry-run.
 select-cycle makes read-only GitHub requests to select a verified release boundary.
 collect makes bounded read-only GitHub.com requests using GITHUB_TOKEN and emits
-snapshot JSON. Initial adoption requires a version 2 config with a fixed
+snapshot JSON. Captures persist a UTC input-capture time, distinct from release time.
+backfill previews enriched released CHANGELOG.md sections using local tags and
+current GitHub PR authors (GITHUB_TOKEN); --write replaces only CHANGELOG.md.
+It preserves pending content and never invents historical capture timestamps.
+Initial adoption requires a version 2 config with a fixed
 bootstrap baselineSha/onboardingSha record; old metadata becomes review warnings.
 plan emits decision JSON; render emits Markdown (empty for no
 release). prepare defaults to dry-run and emits plan/files JSON; only --write
@@ -102,7 +109,7 @@ human's actual head-specific review and successful pinned workflow/job/App check
 audit-exclusion verifies the complete generated Git
 footprint and reports excluded/retained commit IDs. collect --exclusions requires
 independently trusted approval authorities and matching configuration pins;
-it freshly verifies exclusions while retaining the complete raw graph in schema-4 snapshots.
+it freshly verifies exclusions while retaining the complete raw graph in schema-5 snapshots.
 inspect-publication reads tag/Release/artifact state and emits a reconciliation
 plan without writes. Images require a separate GHCR_READ_TOKEN registry bearer.
 publish-github defaults to dry-run; only explicit --write creates the approved
@@ -150,6 +157,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
     ["roll", ["config", "automation", "repository", "event", "dry-run", "write"]],
     ["select-cycle", ["config", "automation", "source"]],
     ["collect", ["config", "repository", "source", "baseline-tag", "bootstrap-sha", "exclusions"]],
+    ["backfill", ["config", "repository", "dry-run", "write"]],
     ["plan", versionOptions],
     ["render", versionOptions],
     ["prepare", [...versionOptions, "repository", "dry-run", "write"]],
@@ -200,6 +208,16 @@ async function runCLI(args: readonly string[]): Promise<string> {
     throw new UsageError("--write and --dry-run are mutually exclusive.");
   const configJSON: unknown = JSON.parse(await readText(required(options, "config"), 1024 * 1024));
   const config = parseReleaseInputConfiguration(configJSON);
+  if (command === "backfill") {
+    const repository = required(options, "repository");
+    const token = process.env.GITHUB_TOKEN;
+    if (!token?.trim())
+      throw new UsageError("Backfill requires GITHUB_TOKEN for explicit GitHub author reads.");
+    const before = await readText(join(repository, "CHANGELOG.md"));
+    const after = await backfillChangelog(before, config, repository, token);
+    if (options.has("write")) await writeBackfilledChangelog(repository, before, after);
+    return after;
+  }
   if (command === "roll") {
     const token = process.env.RELEASE_LOG_APP_TOKEN;
     if (!token?.trim())
@@ -323,6 +341,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
             : {}),
         }),
         config,
+        new Date().toISOString(),
       ),
     );
   }

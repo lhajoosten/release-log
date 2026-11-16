@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { describe, verifyGeneratedTree } from "./proposal-identity.ts";
 import {
   GitHubProposalRepository,
@@ -11,7 +12,11 @@ import { selectReleaseCycle } from "./release-cycle.ts";
 import { prepareReleaseFileContents } from "./proposal-files.ts";
 import { validatePullRequestMetadata } from "./pr-readiness.ts";
 import type { ReleaseVersionConfiguration } from "./release-plan.ts";
-import { parseReleaseInputConfiguration, replayReleaseSnapshot } from "./release-snapshot.ts";
+import {
+  parseReleaseInputConfiguration,
+  replayReleaseSnapshot,
+  serializeReleaseSnapshot,
+} from "./release-snapshot.ts";
 import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
 
 export interface ReleaseAutomationConfiguration {
@@ -67,13 +72,13 @@ export async function reconcileReleaseProposal(
 ): Promise<ReleaseProposalResult> {
   const config = parseReleaseInputConfiguration(request.configuration);
   const automation = parseReleaseAutomation(request.automation);
-  const snapshotJSON = request.snapshot;
+  let snapshotJSON = request.snapshot;
   const selectedVersion = structuredClone(request.version);
   const token = request.token;
   const write = request.write === true;
   if (request.write !== undefined && typeof request.write !== "boolean")
     throw new ProposalConflictError("An explicit boolean write option is required.");
-  const snapshot = await replayReleaseSnapshot(snapshotJSON, config);
+  let snapshot = await replayReleaseSnapshot(snapshotJSON, config);
   const api = new GitHubProposalRepository(config, automation.botUserId, token, transport);
   const sourceSha = snapshot.normalized.sourceCommitSha;
   const baseline = snapshot.input.range.baseline;
@@ -154,6 +159,19 @@ export async function reconcileReleaseProposal(
       "The proposal belongs to another baseline; review the release lifecycle before refreshing.",
     );
   if (prior) await api.requireDescendant(prior.identity.sourceSha, sourceSha);
+  if (
+    prior?.snapshot.schemaVersion === 5 &&
+    snapshot.schemaVersion === 5 &&
+    isDeepStrictEqual(
+      { ...prior.snapshot, capturedAt: null, snapshotId: null },
+      { ...snapshot, capturedAt: null, snapshotId: null },
+    )
+  ) {
+    // An identical collection retry retains the first capture instead of creating
+    // a proposal commit solely to advance its timestamp.
+    snapshot = prior.snapshot;
+    snapshotJSON = await serializeReleaseSnapshot(snapshot);
+  }
   const source = await api.tree(sourceSha);
   const prepared = await prepareReleaseFileContents(
     snapshotJSON,

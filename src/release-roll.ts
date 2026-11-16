@@ -173,6 +173,7 @@ export async function rollRelease(
       transport,
     ),
     configuration,
+    new Date().toISOString(),
   );
   return {
     route: "proposal",
