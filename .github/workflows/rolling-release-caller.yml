@@ -1,4 +1,4 @@
-# Live proposal/tag writes are enabled; generated release PRs require human merge.
+# Live proposal/tag/GitHub Release writes are enabled; release PRs require human merge.
 name: Rolling release caller
 
 on:
@@ -13,14 +13,16 @@ permissions:
 jobs:
   release:
     if: github.event.pull_request.merged == true
-    uses: lhajoosten/release-log/.github/workflows/rolling-release.yml@8828be515345d761a7375b5c00b1beff0cfabaeb
+    uses: lhajoosten/release-log/.github/workflows/rolling-release.yml@e3f2d317370447f6608be17941ade53b099d8fd2
     with:
-      tool-sha: 8828be515345d761a7375b5c00b1beff0cfabaeb
+      tool-sha: e3f2d317370447f6608be17941ade53b099d8fd2
+      verification-runtimes: >-
+        [{"sha":"8828be515345d761a7375b5c00b1beff0cfabaeb","legacy":true}]
       release-branch: main
       app-id: ${{ vars.RELEASE_APP_ID }}
       bot-user-id: ${{ vars.RELEASE_BOT_USER_ID }}
       write: true
       configuration: >-
-        {"schemaVersion":2,"repository":"lhajoosten/release-log","repositoryId":1449550207,"releaseBranch":"main","releasePolicy":"release-policy-v1","contextPolicy":"required","changelog":{"verbosity":"concise","format":"compact"},"bootstrap":{"baselineSha":"bb0033fb274e69a8aabad6a17d71f18ec9292f60","onboardingSha":"c28fe6faa4d516847fbc725e9186cc80ac8873af"}}
+        {"schemaVersion":2,"repository":"lhajoosten/release-log","repositoryId":1449550207,"releaseBranch":"main","releasePolicy":"release-policy-v1","contextPolicy":"required","selfUpgrade":true,"githubRelease":true,"changelog":{"verbosity":"concise","format":"compact"},"bootstrap":{"baselineSha":"bb0033fb274e69a8aabad6a17d71f18ec9292f60","onboardingSha":"c28fe6faa4d516847fbc725e9186cc80ac8873af"}}
     secrets:
       app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
