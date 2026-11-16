@@ -1,6 +1,25 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:9a27ba550c713a5dc6b38bb937435804330e1d929d52cef6540187a0e75acead -->
+<!-- release-log:pending:v1 sha256:1139c0e3ecbdf431ae9c7517850bfcf46bcd6c0aa745cf21db0c0b440746867f -->
+
+## v0.3.0
+
+### Features
+
+- Add capture timestamps&#44; contributor credits&#44; section emojis and full comparison links to changelogs&#44; plus an optional command to enrich existing releases with recorded tag&#45;date fallbacks&#46; ([#81](https://github.com/lhajoosten/release-log/pull/81))
+
+### Documentation
+
+- Document the published CLI and current release operations&#46; ([#74](https://github.com/lhajoosten/release-log/pull/74))
+
+<details>
+<summary>Internal maintenance</summary>
+
+- Record worker findings and owner&#45;requested issue closures&#46; ([#79](https://github.com/lhajoosten/release-log/pull/79))
+
+</details>
+
+<!-- release-log:pending:end -->
 
 ## v0.2.1
 
@@ -8,7 +27,6 @@
 
 - Fix dependency installation for tagged container releases&#46; ([#72](https://github.com/lhajoosten/release-log/pull/72))
 
-<!-- release-log:pending:end -->
 
 ## v0.2.0
 
