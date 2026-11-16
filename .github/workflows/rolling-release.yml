@@ -7,6 +7,10 @@ on:
         description: Reviewed full commit of lhajoosten/release-log containing this CLI
         required: true
         type: string
+      verification-runtimes:
+        description: Trusted producer SHA/legacy pairs for prior proposal verification (executable authority)
+        default: "[]"
+        type: string
       configuration:
         description: Trusted release input configuration JSON, supplied by the caller
         required: true
@@ -81,19 +85,29 @@ jobs:
           cp "$RUNNER_TEMP/release-cli/dist/dependency-lock.txt" "$RUNNER_TEMP/release-cli/pnpm-lock.yaml"
           pnpm --dir "$RUNNER_TEMP/release-cli" install --offline --prod --frozen-lockfile --ignore-scripts
 
+      - name: Install explicitly trusted producer runtimes before credentials
+        working-directory: tool
+        env:
+          TOOL_SHA: ${{ inputs.tool-sha }}
+          CONFIGURATION: ${{ inputs.configuration }}
+          VERIFICATION_RUNTIMES: ${{ inputs.verification-runtimes }}
+        run: node scripts/install-producer-runtimes.ts
+
       - name: Validate trusted caller configuration
+        id: configuration
         env:
           CONFIGURATION: ${{ inputs.configuration }}
           BOT_USER_ID: ${{ inputs.bot-user-id }}
           RELEASE_BRANCH: ${{ inputs.release-branch }}
         run: |
           node --input-type=module <<'JS'
-          import { writeFile } from 'node:fs/promises';
+          import { appendFile, writeFile } from 'node:fs/promises';
           const { parseReleaseInputConfiguration } = await import(`${process.env.RUNNER_TEMP}/release-cli/dist/src/release-snapshot.js`);
           const { parseReleaseAutomation } = await import(`${process.env.RUNNER_TEMP}/release-cli/dist/src/release-proposal.js`);
           const config = parseReleaseInputConfiguration(JSON.parse(process.env.CONFIGURATION));
           if (config.repository !== process.env.GITHUB_REPOSITORY || config.releaseBranch !== process.env.RELEASE_BRANCH) throw new Error('Caller repository/branch mismatch');
           const automation = parseReleaseAutomation({ schemaVersion: 1, botUserId: Number(process.env.BOT_USER_ID) });
+          await appendFile(process.env.GITHUB_OUTPUT, `self-upgrade=${config.selfUpgrade === true}\n`);
           await writeFile(`${process.env.RUNNER_TEMP}/release-config.json`, JSON.stringify(config));
           await writeFile(`${process.env.RUNNER_TEMP}/release-automation.json`, JSON.stringify(automation));
           JS
@@ -115,6 +129,8 @@ jobs:
         with:
           app-id: ${{ inputs.app-id }}
           private-key: ${{ secrets.app-private-key }}
+          permission-actions: ${{ steps.configuration.outputs.self-upgrade == 'true' && 'read' || '' }}
+          permission-workflows: ${{ steps.configuration.outputs.self-upgrade == 'true' && 'write' || '' }}
           permission-contents: write
           permission-pull-requests: write
 
@@ -126,6 +142,7 @@ jobs:
           mode=--dry-run
           if [ "$RELEASE_WRITE" = true ]; then mode=--write; fi
           node "$RUNNER_TEMP/release-cli/dist/src/cli.js" roll \
+            --producer-runtimes "$RUNNER_TEMP/release-producer-runtimes.json" \
             --config "$RUNNER_TEMP/release-config.json" \
             --automation "$RUNNER_TEMP/release-automation.json" \
             --repository "$GITHUB_WORKSPACE/source" \

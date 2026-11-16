@@ -168,6 +168,12 @@ export class GitHubProposalRepository {
   }
   async contents(tree: ProposalTree): Promise<ReleaseFileContents> {
     const get = async (path: string): Promise<string | null> => {
+      if (path.startsWith(".github/"))
+        for (const directory of [".github", ".github/workflows"]) {
+          const entry = tree.entries.get(directory);
+          if (entry && (entry.type !== "tree" || entry.mode !== "040000"))
+            throw new ProposalConflictError("Workflow directories must be ordinary Git trees.");
+        }
       const parent = tree.entries.get(".release-log");
       if (
         path.startsWith(".release-log/") &&
@@ -214,6 +220,9 @@ export class GitHubProposalRepository {
       return text;
     };
     return {
+      ".github/workflows/rolling-release-caller.yml": this.config.selfUpgrade
+        ? await get(".github/workflows/rolling-release-caller.yml")
+        : null,
       "package.json": await get("package.json"),
       "pyproject.toml": await get("pyproject.toml"),
       "CHANGELOG.md": await get("CHANGELOG.md"),

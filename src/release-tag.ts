@@ -1,3 +1,5 @@
+import { reconcileTaggedGitHubRelease, taggedReleaseNotes } from "./github-release.ts";
+import type { TaggedGitHubReleaseResult } from "./github-release.ts";
 import {
   GitHubProposalRepository,
   ProposalConflictError,
@@ -28,6 +30,7 @@ export interface ReleaseTagResult {
   readonly tag: string;
   readonly landingSha: string;
   readonly pullNumber: number;
+  readonly release?: TaggedGitHubReleaseResult;
 }
 
 function samePull(left: ProposalPullRequest, right: ProposalPullRequest): boolean {
@@ -159,16 +162,40 @@ export async function reconcileReleaseTag(
   await requireLandingOnCurrentMain(api, configuration, landingSha);
 
   const tag = `v${verified.nextVersion}`;
+  const finish = async (outcome: ReleaseTagResult["outcome"]): Promise<ReleaseTagResult> => {
+    const result = { outcome, tag, landingSha, pullNumber };
+    if (!configuration.githubRelease) return result;
+    const release = await reconcileTaggedGitHubRelease(
+      api,
+      configuration.repository,
+      tag,
+      landingSha,
+      taggedReleaseNotes(verified.changelog, verified.nextVersion),
+      write,
+      async () => {
+        if (
+          !samePull(pull, await api.readPull(pullNumber)) ||
+          (await readTagTarget(api, tag)) !== landingSha
+        )
+          throw new ProposalConflictError(
+            "The verified release PR or tag changed before GitHub Release creation.",
+          );
+        await requireBaselineUnchanged(api, baseline);
+        await requireLandingOnCurrentMain(api, configuration, landingSha);
+      },
+    );
+    return { ...result, release };
+  };
   const existingTarget = await readTagTarget(api, tag);
   if (existingTarget !== null) {
     if (existingTarget !== landingSha)
       throw new ProposalConflictError(
         "The version tag already points to another commit; never move or overwrite it.",
       );
-    return { outcome: "unchanged", tag, landingSha, pullNumber };
+    return finish("unchanged");
   }
 
-  if (!write) return { outcome: "would-create", tag, landingSha, pullNumber };
+  if (!write) return finish("would-create");
 
   const currentPull = await api.readPull(pullNumber);
   if (!samePull(pull, currentPull))
@@ -184,7 +211,7 @@ export async function reconcileReleaseTag(
       throw new ProposalConflictError(
         "The version tag changed during reconciliation and points elsewhere; never move or overwrite it.",
       );
-    return { outcome: "unchanged", tag, landingSha, pullNumber };
+    return finish("unchanged");
   }
 
   const created = proposalObject(
@@ -205,5 +232,5 @@ export async function reconcileReleaseTag(
       "GitHub returned an unexpected tag creation response; inspect remote state before retrying.",
     );
 
-  return { outcome: "created", tag, landingSha, pullNumber };
+  return finish("created");
 }

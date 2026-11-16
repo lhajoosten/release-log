@@ -22,6 +22,7 @@
   "exports": {
     ".": "./dist/src/release-plan.js",
     "./proposals": "./dist/src/release-proposal.js",
+    "./runtimes": "./dist/src/producer-runtime.js",
     "./approval": "./dist/src/release-approval.js",
     "./publication": "./dist/src/release-publication.js",
     "./tags": "./dist/src/release-tag.js",

@@ -7,6 +7,7 @@ import type { ReleaseSnapshot } from "./release-snapshot.ts";
 
 interface ProposalIdentity {
   readonly schemaVersion: 1;
+  readonly producerSha?: string;
   readonly repositoryId: number;
   readonly releaseBranch: string;
   readonly botUserId: number;
@@ -33,6 +34,7 @@ export function describe(
   prepared: PreparedRelease,
   botUserId: number,
   previousHeadSha: string | null,
+  producerSha?: string,
 ): Description {
   const nextVersion = prepared.plan.nextVersion;
   if (nextVersion === null)
@@ -42,6 +44,7 @@ export function describe(
       throw new ProposalConflictError("Controller output files exceed the 2 MiB per-file limit.");
   const identity: ProposalIdentity = {
     schemaVersion: 1,
+    ...(producerSha === undefined ? {} : { producerSha: proposalSha(producerSha) }),
     repositoryId: snapshot.configuration.repositoryId,
     releaseBranch: snapshot.configuration.releaseBranch,
     botUserId,
@@ -83,6 +86,7 @@ export function describe(
 }
 export function capturedIdentity(message: string): {
   sourceSha: string;
+  producerSha?: string;
   version: ReleaseVersionConfiguration;
   previousHeadSha: string | null;
 } {
@@ -107,6 +111,7 @@ export function capturedIdentity(message: string): {
   else throw new ProposalConflictError("Unsupported proposal version configuration.");
   return {
     sourceSha: proposalSha(object.sourceSha),
+    ...(object.producerSha === undefined ? {} : { producerSha: proposalSha(object.producerSha) }),
     version: selected,
     previousHeadSha: object.previousHeadSha === null ? null : proposalSha(object.previousHeadSha),
   };
@@ -120,7 +125,11 @@ export function verifyGeneratedTree(
   for (const path of new Set([...source.entries.keys(), ...head.entries.keys()])) {
     const before = source.entries.get(path);
     const after = head.entries.get(path);
-    if (path === ".release-log") {
+    if (
+      path === ".release-log" ||
+      (owned.has(".github/workflows/rolling-release-caller.yml") &&
+        [".github", ".github/workflows"].includes(path))
+    ) {
       if (
         !after ||
         after.type !== "tree" ||

@@ -35,7 +35,7 @@ Use a GitHub App installed only on participating repositories. Mint short-lived 
 
 Identify a generated release PR by the configured bot, same repository and reserved head/base branches, and reconstructed generated proposal—not a title, label, bot author alone, or a broad version-file path filter. A release merge enters only the tag path; ordinary merges enter only the proposal path. Serialize both paths by repository/release branch. Recheck state so delayed jobs cannot overwrite a newer proposal or tag a later main commit.
 
-The bot does not approve or merge its own release PR. Human review/manual merge uses the platform's normal PR process. Proposal generation does not depend on successful application CI, and generated release-only PRs do not need application build/test runs. Testing `release-log` itself remains necessary. This decision does not change existing CI triggers or branch-protection settings; any required-check/trigger adjustment must be reviewed separately rather than silently bypassed.
+The bot does not approve or merge its own release PR. Human review/manual merge uses the platform's normal PR process. Ordinary consumer proposal generation does not depend on successful application CI, and generated release-only PRs do not need application build/test runs. Testing `release-log` itself remains necessary. This decision does not change existing CI triggers or branch-protection settings; any required-check/trigger adjustment must be reviewed separately rather than silently bypassed.
 
 App-token tag writes can trigger downstream workflows; do not substitute the default `GITHUB_TOKEN` and assume its tag pushes start other workflows. Downstream jobs own their image/package/deployment permissions. No broad PAT, custom identity service, or artifact storage service is required for the release roll.
 
@@ -47,7 +47,7 @@ The release roll does not require custom approval capture, approval-policy check
 
 Git/PR capture, snapshots, version calculation, Node/Python manifest updates, changelog generation, the recurring proposal controller, tag-bound cycle selector, tag-only command, and integrated `roll` CLI are implemented. The standalone manual rehearsal remains read-only. The root npm package remains private at `0.2.1`. The GHCR `v0.2.1` image has verified anonymous version/digest pulls, CLI execution and a retained-digest publication retry. No npm package or GitHub Release assets are distributed. AI-written release notes are unimplemented; no provider/model is configured.
 
-`.github/workflows/rolling-release.yml` is reusable (`workflow_call`). This repository enables it through `.github/workflows/rolling-release-caller.yml` on merged PRs targeting `main`, with `write: true`. Both the reusable workflow and `tool-sha` pin `8828be515345d761a7375b5c00b1beff0cfabaeb`. That tool revision declares development version `0.0.0`; the runner builds that reviewed source rather than using the newer GHCR image. The runner tool version and the consumer version being released are independent. Review captured tool/configuration identities before deliberately upgrading the pin; do not repin automatically to current main.
+`.github/workflows/rolling-release.yml` is reusable (`workflow_call`). This repository enables it through `.github/workflows/rolling-release-caller.yml` on merged PRs targeting `main`, with `write: true`. Both the reusable workflow and `tool-sha` pin `8828be515345d761a7375b5c00b1beff0cfabaeb`. That tool revision declares development version `0.0.0`; the runner builds that reviewed source rather than using the newer GHCR image. The runner tool version and the consumer version being released are independent. Review captured tool/configuration identities before deliberately upgrading the pin; the optional self-upgrade controller below remains inactive under this old pin.
 
 ## Reusable workflow and callers
 
@@ -61,7 +61,7 @@ Consumer history is checked out separately at the current configured release bra
 
 After queueing and installation, pinned `actions/create-github-app-token` mints a short-lived token for the current repository (owner/repositories omitted intentionally, using the action's current-repository default), requesting contents/PR writes. It revokes the token at job completion. Only the routing step receives it through `RELEASE_LOG_APP_TOKEN`; no fallback to the default Actions token is allowed. The App key is passed only to the token action. The CLI cannot infer token provenance from an opaque token, so callers of the standalone command must supply an installation token explicitly.
 
-GitHub documents [reusable input/secret forwarding](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows) and [App-token event propagation](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow). Source/fixture checks alone cannot prove installation permissions, private consumer access, event delivery or downstream tag workflow behavior. The live evidence below establishes the exercised App-backed proposal/tag paths; the separate GHCR workflow has its own [publication/access/retry evidence](container-release.md#live-v0-2-1-publication), while broader consumer access still needs validation. No application CI or custom approval record gates the roll, and existing CI triggers, hooks and protections are unchanged.
+GitHub documents [reusable input/secret forwarding](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows) and [App-token event propagation](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow). Source/fixture checks alone cannot prove installation permissions, private consumer access, event delivery or downstream tag workflow behavior. The live evidence below establishes the exercised App-backed proposal/tag paths; the separate GHCR workflow has its own [publication/access/retry evidence](container-release.md#live-v0-2-1-publication), while broader consumer access still needs validation. No application CI or custom approval record gates ordinary consumer rolling, and existing CI triggers, hooks and protections are unchanged.
 
 Recovery remains explicit: `release-tag-pending` identifies the merged PR and exact landing. Rerun that tag event or use `tag-release` with the same trusted config/bot and App token; never tag current HEAD, move a conflicting tag or advance the bootstrap boundary. A canceled/stale ordinary event can be rerun to collect current source. Partial branch/PR writes require inspecting state before retrying, as described in the proposal guide.
 
@@ -78,6 +78,68 @@ Recovery remains explicit: `release-tag-pending` identifies the merged PR and ex
 Retain the run URL/attempt, triggering PR, captured source and baseline, proposal/landing identities and any generated evidence before retrying. Never insert credentials or raw private PR descriptions into public troubleshooting records.
 
 For an approved tool upgrade, review the new immutable source, dependency lock and workflow together, then update the caller's workflow reference and `tool-sha` to the same full SHA in one reviewed PR. Check supported configuration fields and replay compatibility first: a changed tool version/normalizer can reject old captures. An active proposal or merged predecessor must remain verifiable; do not rewrite its snapshot IDs to force compatibility. Keep bootstrap/onboarding identities fixed. A rollback is another reviewed caller-pin change after checking compatibility with current proposal/tag state; it never rolls back release tags, images or generated history.
+
+## Self-upgrades and GitHub Releases
+
+The newer controller supports two explicit trusted configuration fields:
+
+| Field                 | Behavior                                                                                                                                                       |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `selfUpgrade: true`   | Only for this release-log repository and its numeric ID: include the two caller pins in the generated release PR and propose the captured reviewed source SHA. |
+| `githubRelease: true` | After exact-landing tagging, publish the verified version's changelog section as a stable GitHub Release and request latest.                                   |
+
+Omit a field to retain the previous behavior. Generic consumers can enable GitHub Releases; they cannot use their own source SHA as a release-log tool pin. Neither field changes version classification, release membership or AI requirements. Runner and consumer versions remain independent.
+
+The captured caller must still pin the executing producer, so stale queued runs cannot skip its retention. Self-upgrade candidates must contain the active producer, be the current main tip and a human-merged PR landing, and pass the latest main-push `.github/workflows/quality.yml` run for that SHA. Pending/missing/failed Quality evidence stops before proposal writes. Rerun the original merge workflow after Quality succeeds. The managed workflow edit changes only the two matching full SHA scalars in `jobs.release`; it preserves all other caller bytes and participates in generated identity, tree/diff, approval and exclusion verification. Edited outputs and concurrent changes stop reconciliation.
+
+### Reviewed bootstrap
+
+The active `8828be515345d761a7375b5c00b1beff0cfabaeb` caller cannot enable these fields itself. Keep it unchanged while reviewing this implementation. After the implementation is merged and passes CI:
+
+1. Choose its reviewed immutable implementation revision. In a separate reviewed caller-pin PR, set both existing pins to that same full SHA.
+2. Add `"selfUpgrade":true` and, to publish GitHub Releases, `"githubRelease":true` to the trusted configuration JSON. Retain the current repository ID and bootstrap/onboarding SHAs.
+3. Supply this trusted workflow input for the unrecorded legacy producer:
+
+   ```yaml
+   verification-runtimes: >-
+     [{"sha":"8828be515345d761a7375b5c00b1beff0cfabaeb","legacy":true}]
+   ```
+
+4. Approve Actions read and Workflows write on the repository's App installation. The new workflow requests these only for self-upgrades, along with its existing Contents/PR write permissions. Keep the installation repository-limited.
+5. Review a dry-run reconstruction of the existing proposal/history before live refresh. Once the bootstrap landing passes Quality, its merge event can refresh the same open release PR; rerun that event if it initially waited on unfinished CI. Review its new version, enriched capture, changelog, producer identity and both pins before normal human merge.
+
+This implementation leaves the active caller pins and configuration unchanged. It creates no historical releases. The owner reported manually publishing `v0.2.1` as latest; an existing stable release is preserved by the new handler.
+
+### Producer reconstruction
+
+`verification-runtimes` contains only trusted full SHA/legacy pairs. The workflow fetches these exact release-log revisions, installs each frozen lock without lifecycle scripts, and builds before App token minting. In self-use it also retains predecessor runtimes from the caller pins embedded in reviewed tool checkouts. Explicit legacy pins terminate that bounded ancestry walk. Consumer checkouts and captured runtime strings never choose executable code. Retain these authorities across caller upgrades; an unknown producer or more than twenty retained producers stops for review.
+
+For an explicitly trusted local installation, add `--producer-runtimes FILE` to proposal/tag/cycle/approval commands. The registry is executable configuration supplied independently from snapshots:
+
+```json
+{
+  "activeSha": "REVIEWED_ACTIVE_FULL_SHA",
+  "producers": [
+    {
+      "sha": "8828be515345d761a7375b5c00b1beff0cfabaeb",
+      "directory": "/absolute/trusted/built/producer",
+      "legacy": true
+    }
+  ]
+}
+```
+
+The directory must contain the reviewed producer's `dist/src` modules, its own manifest/lock assets and its installed dependencies. The workflow installer anchors these directories to exact checkouts; local administrators must establish the same provenance before supplying a registry. Programmatic callers can use `loadProducerRuntimes` and `withProducerRuntimes` from `release-log/runtimes`. Ordinary offline snapshot replay remains strict; this mechanism reconstructs prior proposals without changing their snapshots, IDs, tool versions or normalized content.
+
+An offline rehearsal on 2026-11-16 used the actual open PR #83 at `2e4513606c3eadc1f2f8514f6423732d28e4627e` and built its exact `8828be…` producer. Current replay rejected its `0.0.0` schema-3 runtime. Explicit producer reconstruction reproduced its original snapshot ID `2512665575106f1ab52e61d8ab21f7105ae746183b0c4256e443c4193e8fbd9d`, generated tree, commit ancestry/identity, full PR body and proposed `0.3.0` version without edits. This was read-only with synthetic HTTP over local Git objects; it did not refresh the live PR.
+
+### Release publication and recovery
+
+With `githubRelease: true`, the tag handler creates a published, non-prerelease GitHub Release after verifying the exact tag target. Notes come only from that tagged proposal's verified generated changelog section. The [GitHub API's `make_latest` field](https://docs.github.com/en/rest/releases/releases#create-a-release) selects latest; a delayed older release requests `false` when a newer stable release is already latest. Existing published stable releases are reused without changing human notes, titles, assets or latest selection. Drafts, prereleases and mismatched identities stop for review.
+
+A release API failure leaves the correct version tag intact. Rerun the original merge event, or an authorized `tag-release --write` for the exact PR/landing, to create only the missing release. An uncertain successful POST is reconciled by reading the existing release on retry; it is never blindly repeated in the same execution. `github-release-pending` prevents an ordinary merge from starting a new cycle while that release is missing. Dry-runs report the pending release and make no writes.
+
+GitHub Releases and self-upgrades have fixture coverage, including merge/squash landings, retries, older-event latest protection, conflicts, failures, producer transitions and approval/exclusion accounting. Live activation, automatic release publication, added App permissions and external latest-writer races have not been exercised. The [architecture decision](adr/0003-release-pr-self-upgrades.md) records the trust and recovery boundaries.
 
 ## Live evidence and remaining validation
 

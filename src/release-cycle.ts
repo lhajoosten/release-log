@@ -14,6 +14,7 @@ import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
 import type { ReleaseVersionConfiguration } from "./release-plan.ts";
 
 export type ReleaseCycleErrorCode =
+  | "github-release-pending"
   | "ambiguous-open-proposals"
   | "ambiguous-release-history"
   | "baseline-unavailable"
@@ -340,6 +341,11 @@ export async function selectReleaseCycle(
       landingSha,
       pullNumber: latest.number,
     };
+  if (tagResult.release?.outcome === "would-create")
+    return cycleError(
+      "github-release-pending",
+      `The verified tag has no GitHub Release; rerun tag-release for PR #${latest.number} at ${landingSha} before the next cycle.`,
+    );
   if (tagResult.outcome !== "unchanged")
     return cycleError(
       "tag-changed",
@@ -363,6 +369,11 @@ export async function selectReleaseCycle(
     },
     transport,
   );
+  if (rechecked.release?.outcome === "would-create")
+    return cycleError(
+      "github-release-pending",
+      "The GitHub Release disappeared during cycle selection; rerun tag-release before continuing.",
+    );
   const objectShaAfter = await api.ref("tags", tagResult.tag);
   if (
     rechecked.outcome !== "unchanged" ||

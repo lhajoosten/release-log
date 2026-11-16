@@ -6,7 +6,7 @@
 
 1. **Merge an ordinary PR.** When the batch warrants a release, the GitHub App creates or refreshes one release PR containing the next version, changelog and captured release inputs.
 2. **Review the release PR.** Each refresh includes the complete range since the previous version tag. Supported root Node/Python manifests are updated together, and released changelog sections are preserved.
-3. **Merge the release PR.** The workflow creates `vMAJOR.MINOR.PATCH` at that exact merge landing. It does not create another proposal for the release itself.
+3. **Merge the release PR.** The workflow creates `vMAJOR.MINOR.PATCH` at that exact merge landing. With `githubRelease: true`, it also publishes that version’s verified changelog as a GitHub Release and requests latest. It does not create another proposal for the release itself.
 4. **Use the tag downstream.** Your repository can trigger image publication, packaging or deployment from that version tag.
 
 Release membership comes from Git reachability, not merge dates. Conventional PR titles classify changes; structured PR context explains their impact and any required action. Captured inputs support deterministic offline replay without fetching mutable PR descriptions again. Invalid metadata and missing associations are surfaced explicitly.
@@ -57,6 +57,8 @@ The npm package remains private at `0.2.1`. The Linux/amd64 image `ghcr.io/lhajo
 ## Set up release automation
 
 Start with the [consumer workflow template](examples/rolling-release.yml) and [setup contract](docs/release-workflow.md#reusable-workflow-and-callers). New consumers need their own repository identity, reviewed bootstrap/onboarding boundaries, trusted configuration and GitHub App installation. Pin both workflow and tool to the same reviewed full commit SHA; the example keeps writes disabled until setup is approved.
+
+The newer controller also supports opt-in [release PR self-upgrades and GitHub Releases](docs/release-workflow.md#self-upgrades-and-github-releases). This repository’s current caller remains pinned to the older tool; a reviewed bootstrap must activate these capabilities while retaining its legacy verification runtime.
 
 PRs use conventional titles and the [version 1 release-context block](docs/release-context.md). Context is required by default; consumers can explicitly select the [optional policy](docs/release-context.md#consumer-context-policy). This repository keeps it required.
 

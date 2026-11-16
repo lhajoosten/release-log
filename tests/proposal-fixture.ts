@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TestContext } from "node:test";
@@ -31,6 +31,8 @@ export async function fixture(
   mode: "node" | "python" | "both" = "node",
   title = "feat(api): export rows",
   setup: {
+    selfUse?: boolean;
+    caller?: string;
     bootstrap?: boolean;
     adoption?: boolean;
     bootstrapCommit?: boolean;
@@ -38,6 +40,8 @@ export async function fixture(
     changelogVerbosity?: ChangelogVerbosity;
   } = {},
 ) {
+  const repository = setup.selfUse ? "lhajoosten/release-log" : "example/project";
+  const repositoryId = setup.selfUse ? 1449550207 : 17;
   const directory = await mkdtemp(join(tmpdir(), "release-proposal-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
   const environment = { ...process.env };
@@ -80,6 +84,10 @@ export async function fixture(
       join(directory, "pyproject.toml"),
       `# preserve\n[project]\nversion = "${manifestVersion}" # preserve\n`,
     );
+  if (setup.caller !== undefined) {
+    await mkdir(join(directory, ".github/workflows"), { recursive: true });
+    await writeFile(join(directory, ".github/workflows/rolling-release-caller.yml"), setup.caller);
+  }
   await writeFile(join(directory, "unrelated.txt"), "keep me\n");
   git(["add", "."]);
   git(["commit", "-m", "chore: initialize fixture"]);
@@ -119,11 +127,12 @@ export async function fixture(
         bootstrap: { baselineSha: baseline, onboardingSha: git(["rev-parse", "HEAD"]).trim() },
       }
     : fixtureConfiguration;
+  const repositoryConfiguration = { ...baseConfiguration, repository, repositoryId };
   const configuration =
     setup.changelogVerbosity === undefined
-      ? baseConfiguration
+      ? repositoryConfiguration
       : {
-          ...baseConfiguration,
+          ...repositoryConfiguration,
           changelog: { verbosity: setup.changelogVerbosity },
         };
 
@@ -155,10 +164,10 @@ export async function fixture(
             headSha: change.sha,
             headRef: "feature",
             headRepositoryId: 23,
-            baseRepositoryId: 17,
+            baseRepositoryId: repositoryId,
             authorId: 7,
             authorType: "User",
-            url: `https://github.com/example/project/pull/${index + 1}`,
+            url: `https://github.com/${repository}/pull/${index + 1}`,
             landingKind: "linear" as const,
             originalCommits: [commit],
             landedCommits: [commit],
@@ -168,7 +177,7 @@ export async function fixture(
     return serializeReleaseSnapshot(
       await captureReleaseSnapshot(
         {
-          repository: "example/project",
+          repository,
           releaseBranch: "main",
           range,
           pullRequests: pulls,
@@ -207,14 +216,14 @@ export async function fixture(
   const transport: GitHubRead = async (url, options) => {
     const target = new URL(url);
     assert.equal(target.origin, "https://api.github.com");
-    const path = decodeURIComponent(target.pathname.slice("/repos/example/project".length));
+    const path = decodeURIComponent(target.pathname.slice(`/repos/${repository}`.length));
     const method = options.method ?? "GET";
     const parsed: unknown = typeof options.body === "string" ? JSON.parse(options.body) : null;
     const body = parsed === null ? null : object(parsed);
     calls.push({ method, path, body });
     const replaced = await intercept?.(method, path);
     if (replaced) return replaced;
-    if (method === "GET" && !path) return json({ id: 17, full_name: "example/project" });
+    if (method === "GET" && !path) return json({ id: repositoryId, full_name: repository });
     if (method === "GET" && path.startsWith("/git/ref/")) {
       const name = path.slice("/git/ref/".length);
       const sha = ref(name);
@@ -321,8 +330,12 @@ export async function fixture(
         state: "open",
         merged_at: null,
         user: { id: botId, type: "Bot" },
-        head: { ref: "release-log/main", sha: ref("heads/release-log/main"), repo: { id: 17 } },
-        base: { ref: "main", sha: ref("heads/main"), repo: { id: 17 } },
+        head: {
+          ref: "release-log/main",
+          sha: ref("heads/release-log/main"),
+          repo: { id: repositoryId },
+        },
+        base: { ref: "main", sha: ref("heads/main"), repo: { id: repositoryId } },
       };
       pulls.push(pull);
       return json(pull, 201);

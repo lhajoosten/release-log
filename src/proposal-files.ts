@@ -1,3 +1,5 @@
+import { updateToolPins } from "./tool-upgrade.ts";
+import { workflowPath } from "./proposal-paths.ts";
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -19,6 +21,7 @@ export const proposalPaths = [
   "pyproject.toml",
   "CHANGELOG.md",
   ".release-log/inputs.json",
+  workflowPath,
 ] as const;
 export type ProposalPath = (typeof proposalPaths)[number];
 
@@ -35,7 +38,8 @@ const allowed: ReadonlySet<string> = new Set(proposalPaths);
 const unsupportedLocks = ["package-lock.json", "npm-shrinkwrap.json", "uv.lock"] as const;
 export const releaseInputPaths = [...proposalPaths, ...unsupportedLocks] as const;
 export type ReleaseFileContents = Readonly<
-  Record<(typeof releaseInputPaths)[number], string | null>
+  Record<Exclude<(typeof releaseInputPaths)[number], typeof workflowPath>, string | null> &
+    Partial<Record<typeof workflowPath, string | null>>
 >;
 const readable: ReadonlySet<string> = new Set(releaseInputPaths);
 
@@ -89,6 +93,7 @@ export async function prepareReleaseFiles(
 ): Promise<PreparedRelease> {
   const root = await rootPath(repository);
   return prepareReleaseFileContents(snapshotJSON, expected, version, {
+    [workflowPath]: expected.selfUpgrade ? await currentFile(root, workflowPath) : null,
     "package.json": await currentFile(root, "package.json"),
     "pyproject.toml": await currentFile(root, "pyproject.toml"),
     "CHANGELOG.md": await currentFile(root, "CHANGELOG.md"),
@@ -106,7 +111,7 @@ export async function prepareReleaseFileContents(
   contents: ReleaseFileContents,
 ): Promise<PreparedRelease> {
   for (const path of releaseInputPaths) {
-    const value = contents[path];
+    const value = contents[path] ?? null;
     if (
       value !== null &&
       (typeof value !== "string" || Buffer.byteLength(value, "utf8") > 16 * 1024 * 1024)
@@ -153,6 +158,15 @@ export async function prepareReleaseFileContents(
     plan,
     files: [
       ...manifests,
+      ...(expected.selfUpgrade === true
+        ? [
+            {
+              path: workflowPath,
+              before: contents[workflowPath] ?? null,
+              after: updateToolPins(contents[workflowPath] ?? null, plan.sourceCommitSha),
+            },
+          ]
+        : []),
       { path: "CHANGELOG.md", before: changelog, after: updatedChangelog },
       {
         path: ".release-log/inputs.json",

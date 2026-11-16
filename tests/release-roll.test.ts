@@ -354,9 +354,20 @@ void test("reusable workflow mints scoped App tokens after queueing and runs onl
   assert.deepEqual(mint.with, {
     "app-id": "${{ inputs.app-id }}",
     "private-key": "${{ secrets.app-private-key }}",
+    "permission-actions":
+      "${{ steps.configuration.outputs.self-upgrade == 'true' && 'read' || '' }}",
+    "permission-workflows":
+      "${{ steps.configuration.outputs.self-upgrade == 'true' && 'write' || '' }}",
     "permission-contents": "write",
     "permission-pull-requests": "write",
   });
+  const install = steps.find(
+    (step) => step.name === "Install explicitly trusted producer runtimes before credentials",
+  );
+  assert.ok(install);
+  assert.ok(steps.indexOf(install) < steps.indexOf(mint));
+  assert.equal(object(install.env).VERIFICATION_RUNTIMES, "${{ inputs.verification-runtimes }}");
+  assert.ok(!JSON.stringify(install).includes("steps.app.outputs.token"));
   const route = steps.at(-1);
   assert.ok(route);
   assert.equal(object(route.env).RELEASE_LOG_APP_TOKEN, "${{ steps.app.outputs.token }}");

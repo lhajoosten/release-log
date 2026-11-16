@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { activeProducerSha } from "./producer-runtime.ts";
+import { readToolPin, verifyToolUpgradeCandidate, workflowPath } from "./tool-upgrade.ts";
 import { isDeepStrictEqual } from "node:util";
 import { describe, verifyGeneratedTree } from "./proposal-identity.ts";
 import {
@@ -173,11 +176,20 @@ export async function reconcileReleaseProposal(
     snapshotJSON = await serializeReleaseSnapshot(snapshot);
   }
   const source = await api.tree(sourceSha);
+  const sourceContents = await api.contents(source);
+  if (config.selfUpgrade && !activeProducerSha())
+    throw new ProposalConflictError(
+      "Self-upgrades require an explicitly pinned active producer runtime.",
+    );
+  if (config.selfUpgrade && readToolPin(sourceContents[workflowPath] ?? "") !== activeProducerSha())
+    throw new ProposalConflictError(
+      "The captured caller no longer pins the active producer; rerun using the reviewed current caller.",
+    );
   const prepared = await prepareReleaseFileContents(
     snapshotJSON,
     config,
     selectedVersion,
-    await api.contents(source),
+    sourceContents,
   );
   const result = (
     outcome: ReleaseProposalResult["outcome"],
@@ -201,12 +213,29 @@ export async function reconcileReleaseProposal(
       );
     return result("no-release", null);
   }
+  if (config.selfUpgrade) {
+    await api.requireDescendant(activeProducerSha() ?? "", sourceSha);
+    await verifyToolUpgradeCandidate(api, sourceSha);
+  }
   if (
     prior?.identity.snapshotId === snapshot.snapshotId &&
-    JSON.stringify(prior.identity.version) === JSON.stringify(prepared.plan.version)
+    JSON.stringify(prior.identity.version) === JSON.stringify(prepared.plan.version) &&
+    isDeepStrictEqual(
+      prior.identity.files,
+      prepared.files.map((file) => ({
+        path: file.path,
+        sha256: createHash("sha256").update(file.after).digest("hex"),
+      })),
+    )
   )
     return result("unchanged", prior.id);
-  const description = describe(snapshot, prepared, automation.botUserId, historyHead);
+  const description = describe(
+    snapshot,
+    prepared,
+    automation.botUserId,
+    historyHead,
+    activeProducerSha(),
+  );
   const readiness = await validatePullRequestMetadata(description.title, description.body, [
     { sha: sourceSha, message: description.message, parentCount: 1 },
   ]);
@@ -217,6 +246,7 @@ export async function reconcileReleaseProposal(
   if (!write) return result(previous ? "would-refresh" : "would-create", description.id);
   const unchanged = async () => {
     await requireFresh();
+    if (config.selfUpgrade) await verifyToolUpgradeCandidate(api, sourceSha);
     if ((await api.ref("heads", api.headRef, true)) !== initialHead)
       throw new ProposalConflictError(
         "The proposal head changed during reconciliation; retry from freshly verified state.",
