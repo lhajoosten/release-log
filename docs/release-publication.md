@@ -1,6 +1,6 @@
 # Publication reconciliation and GitHub execution
 
-`inspectReleasePublication()` (`release-log/publication`) and `inspect-publication` compare an approved release with existing GitHub/GHCR state. They return the missing publication actions without executing them. No workflow enables publication, and no tag, Release, asset or image is created by this command.
+`inspectReleasePublication()` (`release-log/publication`) and `inspect-publication` compare an approved release with existing GitHub/GHCR state. They return the missing publication actions without executing them. No workflow invokes this inspector or the `publish-github` executor. This inspector creates no tag, Release, asset or image. The active [GHCR workflow](container-release.md) is separate: it publishes from stable Git tags without these approval/build-receipt APIs.
 
 The separate `publishGitHubRelease()` / `publish-github` executor can perform the GitHub steps only with explicit `--write`. It defaults to dry-run, never pushes images, and has no enabled workflow. Both components are part of [publication/retry work](https://github.com/lhajoosten/release-log/issues/23), not a completed-cycle authorization mechanism or evidence of a live release.
 
@@ -63,7 +63,7 @@ The inspector freshly verifies approval before reading publication state, derive
 - **Assets:** every existing asset must be expected, uploaded and uniquely identified, with the exact receipt size and GitHub-reported `sha256:` digest. The inspector constructs bounded asset-list requests locally rather than following response-supplied URLs. Missing assets produce actions; unexpected, unfinished or conflicting assets fail. Asset bytes are not downloaded or independently rehashed.
 - **Images:** GET the version tag's root manifest/index, validate supported OCI/Docker schema-2 structure and bounded SHA-256 descriptors, hash the raw UTF-8 bytes and compare with the receipt and any `Docker-Content-Digest` header. Only HTTP 200 is accepted as present; HTTP 404 means missing. Authentication, rate-limit, redirect, partial-response and other HTTP failures do not mean success or absence.
 
-Registry inspection checks **root manifest bytes**, not child manifests, blob pullability, image labels, signatures, provenance, vulnerability findings or private-access rollout. See the separate [container/security boundaries](container.md). HTTP fixtures test this contract; live GHCR bearer compatibility and publication have not been demonstrated.
+Registry inspection checks **root manifest bytes**, not child manifests, blob pullability, image labels, signatures, provenance, vulnerability findings or private-access rollout. See the separate [container/security boundaries](container.md). HTTP fixtures test this contract; live bearer compatibility for this inspector has not been demonstrated. The separate stable-tag publisher has verified GHCR publication and anonymous pulls; those results do not validate this inspector's credential path.
 
 ## Actions, recovery and completion
 
@@ -75,7 +75,7 @@ The schema-1 result identifies its repository, exact landing/version/tag, approv
 4. `publish-image` for each missing expected image tag/digest.
 5. `publish-release` if the Release is absent or still draft.
 
-A matching tag alone is not completion. A published Release missing artifacts still returns missing-artifact actions and `complete: false`. A fully matching published Release, tag, assets and image roots returns no actions and `complete: true`. Repeated unchanged observations produce identical output; changes between the two observations fail rather than returning a mixed-state plan.
+For this receipt-based inspector, a matching tag alone is not completion; the [rolling-release boundary](release-workflow.md#lifecycle) is separately established by its verified version tag. A published Release missing artifacts still returns missing-artifact actions and `complete: false`. A fully matching published Release, tag, assets and image roots returns no actions and `complete: true`. Repeated unchanged observations produce identical output; changes between the two observations fail rather than returning a mixed-state plan.
 
 After interruption or an uncertain network outcome, inspect remote state again. Reuse matching outputs; investigate conflicts and permission failures without deleting assets, moving tags or overwriting images. This command never retries writes because it performs none.
 
@@ -130,4 +130,4 @@ This is not an atomic transaction or a lock. GitHub does not provide a combined 
 
 Fresh checks detect the tested state changes and prevent subsequent writes after a failed check. They cannot prevent a human/other writer editing a Release after the last read but before `draft: false`; a post-write failure may therefore detect an already published inconsistent Release. Stop, inspect and recover with the owner; do not describe post-write detection as prevention or blindly advance baseline.
 
-Tests exercise real temporary Git and mocked GitHub/GHCR boundaries, including unknown write outcomes followed by fresh retries. Live GitHub upload/Release behavior, App permissions/event propagation, GHCR bearer compatibility, private pulls and a sandbox publication/retry rehearsal remain unverified. Implementing the executor is not permission to run it, publication readiness or completion of #23.
+Tests exercise real temporary Git and mocked GitHub/GHCR boundaries, including unknown write outcomes followed by fresh retries. Live GitHub upload/Release behavior, App permissions/event propagation for this executor, its GHCR bearer compatibility, private pulls and its sandbox publication/retry rehearsal remain unverified. The [stable-tag GHCR publisher](container-release.md#live-v0-2-1-publication) has separate live publication and retained-digest retry evidence. Implementing the executor is not permission to run it, publication readiness or completion of #23.

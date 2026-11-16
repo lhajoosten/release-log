@@ -1,6 +1,12 @@
 # Container vulnerability review
 
-## APK refresh — 2026-11-14
+## Published v0.2.1 — 2026-11-16
+
+[Publication attempt 1](https://github.com/lhajoosten/release-log/actions/runs/43929562742/attempts/1) and the authorized [retained-image retry](https://github.com/lhajoosten/release-log/actions/runs/43929562742/attempts/2) both passed the existing High/Critical/Unknown gate. They inventoried 122 packages and recorded five Medium matches using Syft 1.57.0, Grype 0.121.2 and database v6.1.10 built 2026-11-16 06:30:54 UTC. The retained scan names the original registry manifest and config digests. See the [complete publication/scan evidence](container-release.md#live-v0-2-1-publication) for exact identities, artifacts, timestamps and anonymous pull/retry results.
+
+A passing dated scan is not a permanent vulnerability verdict or proof of exploitability. Review the full findings and upstream fixes before each release; scheduled current-source scans do not replace rescanning the actual published digest. Historical local runs below retain their original versions and dispositions; they are not current registry results.
+
+## Historical APK refresh — 2026-11-14
 
 Alpine retired the locked Git 2.54.0 archives, causing the container build to fail with HTTP 404. A fresh `apk fetch --recursive git ca-certificates zlib` against Alpine 3.24/main/x86_64 signed indexes in the reviewed pinned base resolved 21 archives. All 21 passed `apk verify` with the base's trusted keys; only Git and `git-init-template` changed, to **2.54.1-r0**. SHA-256 values were calculated from the downloaded archives and recorded in `container/apk-lock.json`. The lock SHA-256 is `274ef1ee94db6c2e1b8a3cca44e16534db4576d6ca307cec0094853ad06b4e9d`. The Node base digest, offline installation, signature/checksum verification, disabled Docker RUN networking, and scan thresholds remain unchanged.
 
@@ -103,4 +109,4 @@ All High/Critical matches below are in `debian:distro:debian:12`; the database l
 
 Critical IDs: `libcurl3-gnutls` — CVE-2026-19931, CVE-2026-11856, CVE-2026-92388, CVE-2026-86414, CVE-2026-8924, CVE-2026-10536, CVE-2026-18924, CVE-2026-8927; both glibc packages — CVE-2026-5450. Raw reports retain full identifiers, package locations, matching evidence and advisory links for every severity.
 
-These historical findings motivated the tested Alpine/musl migration above rather than a global ignore rule or removal of required libraries. Offline smoke tests do not prove online collection or registry authorization. Private-registry authentication and approved publication remain separately pending; no image was pushed and no credentials/visibility/settings changed.
+These historical findings motivated the tested Alpine/musl migration above rather than a global ignore rule or removal of required libraries. Offline smoke tests do not prove online collection or registry authorization. Those historical runs pushed no image and changed no credentials, visibility or settings. The later stable-tag publication and anonymous pulls are recorded above; private-registry authentication remains unverified.

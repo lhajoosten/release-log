@@ -41,7 +41,7 @@ Refs moving after capture do not change the walk: tag peeling uses the captured 
 - Pending inspection adds `invalid-baseline`, `invalid-commit-sha`, `commit-not-found`, `object-not-commit`, and `baseline-not-ancestor` codes. Incomplete commit walks fail rather than return partial success; missing-parent diagnostics from ancestry checks are not misreported as ordinary divergence.
 - Git replacement refs are disabled, and lazy fetching is disabled. No fetch operation is performed.
 - Each Git command has a ten-second timeout and a 16 MiB output limit; oversized histories fail rather than truncate successfully.
-- Git must be installed. Local verification used Git 2.43.0. This is a local component, not a packaged CLI.
+- Git must be installed. Local verification used Git 2.43.0. This local library component is used by the [packaged CLI](cli.md); Git inspection itself performs no packaging or publication.
 
 ## Commit-object evidence
 

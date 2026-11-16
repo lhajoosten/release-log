@@ -81,6 +81,6 @@ The digest is SHA-256 of the exact rendered content, including its final newline
 
 With no block, insert before the first top-level H2 (normally the first released version), preserving the preamble and all existing content. With no H2, append after the existing preamble. An empty file receives `# Changelog` and the pending block. Outside the block, existing bytes and line endings are retained; inserted boundaries and owned content use LF. Repeated updates are byte-identical.
 
-A no-release update leaves a file with no pending block unchanged. If a pending block already exists, no-release is a conflict for explicit review, not permission to delete a proposal silently. This module does not finalize released sections after publication; that lifecycle belongs to the controller/publication contract.
+A no-release update leaves a file with no pending block unchanged. If a pending block already exists, no-release is a conflict for explicit review, not permission to delete a proposal silently. This module does not finalize released sections; the [proposal controller](release-proposal.md) prepares the release content and [exact-landing tagging](release-workflow.md#lifecycle) establishes its boundary independently of downstream publication.
 
 Existing text, rendered sections, and final files are bounded to 16 MiB UTF-8. APIs only transform strings: filesystem path validation, symlinks, atomic writes, version-file adapters, and remote concurrency are caller responsibilities. No AI, GitHub calls, or publication is performed.

@@ -2,7 +2,7 @@
 
 The manual **Read-only release rehearsal** workflow in `.github/workflows/release-rehearsal.yml` exercises the packaged CLI against this repository's captured main revision. It is an early planning rehearsal, not the complete publication lifecycle in [#25](https://github.com/lhajoosten/release-log/issues/25) or a general consumer CI integration completing [#24](https://github.com/lhajoosten/release-log/issues/24).
 
-## Before the first live run
+## Prerequisites and historical bootstrap runs
 
 The workflow must be merged into main before it can be dispatched there. Review its source and prerequisites first:
 
@@ -45,4 +45,4 @@ If collection fails, review the explicit boundary, historical metadata/associati
 
 The earlier live runs above reached collection and failed before planning. They predate the general initial-adoption mode. Local tests use captured synthetic inputs and real offline CLI subprocesses (only collection replaced), verify no repository writes/temporary input retention, propagate failures and replay differences, verify safe diagnostics without leaking tokens/raw subprocess output, and inspect manual events, read permissions, trusted immutable checkout, and Action pins. Existing artifact smoke tests exercise the packed production installation. These checks are not a live GitHub API or full lifecycle proof.
 
-Full #25 acceptance still needs rolling proposals (#20), identity/freshness and race checks (#22), approved publication/recovery (#23), and controlled scenarios including two ordinary merges, stale/tampered rejection, approved exact-commit artifacts, partial failure/retry, and the next release cycle. Those mutations require separate execution approval; merging this rehearsal does not close those gates.
+The active [rolling workflow](release-workflow.md#live-evidence-and-remaining-validation) now has proposal/refresh, exact-tag and subsequent-cycle self-use evidence. The separate [GHCR publisher](container-release.md#live-v0-2-1-publication) has first publication, anonymous pull/run and matching-digest retry evidence. Those results do not turn this manual rehearsal into a release controller or prove intentional stale/tamper, uncertain-write, conflict or race recovery. Those controlled exercises remain separately authorized work; #25 and downstream #23 remain open.

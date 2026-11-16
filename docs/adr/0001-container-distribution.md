@@ -14,7 +14,7 @@ The intended visibility is public with anonymous pulls, selected by the user. GH
 
 Use the repository's `GITHUB_TOKEN` with `packages: write` only in the publication step. Build, smoke-test and scan the candidate before pushing. On retry, retain an existing image only when platform, version, source URL and revision match; smoke-test and rescan that retained image. Reject conflicts and ambiguous registry failures. Never overwrite a known version publication.
 
-Serialize writes for each version and designate this workflow as the sole release-tag writer. GHCR tag updates have no create-only compare-and-swap guarantee; arbitrary concurrent external writers are outside this contract. Restrict package write access accordingly. Digest references preserve consumer identity even if an external writer violates the contract.
+Serialize writes for each version and designate this workflow as the sole writer of registry release-version tags. GHCR tag updates have no create-only compare-and-swap guarantee; arbitrary concurrent external writers are outside this contract. Restrict package write access accordingly. Digest references preserve consumer identity even if an external writer violates the contract.
 
 ## Alternatives and consequences
 
@@ -23,3 +23,7 @@ GHCR reuses repository-scoped Actions authentication and source association. Doc
 Build input pins do not guarantee byte-identical rebuilds. Retry identity therefore uses the published source/platform/version metadata, retains the existing digest and reruns its gates instead of replacing it with a new build. These labels are consistency evidence under the sole-writer policy, not signed provenance. A matching image with new blocking vulnerabilities fails recovery without changing the registry.
 
 See [publication operations](../container-release.md) and the [container runtime guide](../container.md).
+
+## Implementation evidence — 2026-11-16
+
+The decision remains unchanged. `v0.2.1` was published from its exact release landing; anonymous Linux/amd64 version/digest pulls and CLI execution passed. One authorized same-event retry retained the original digest with `reused: true`. [Operations evidence](../container-release.md#live-v0-2-1-publication) records scan identities, artifacts and limits. No package visibility/access settings were changed during verification; those settings were not independently audited because the available API credential lacks `read:packages`.

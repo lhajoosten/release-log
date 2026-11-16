@@ -10,7 +10,8 @@ export default {
   themeConfig: {
     nav: [
       { text: "Overview", link: "/" },
-      { text: "PR release context", link: "/release-context" },
+      { text: "Use the CLI", link: "/cli" },
+      { text: "Automate releases", link: "/release-workflow" },
       {
         text: "Contributing",
         link: "https://github.com/lhajoosten/release-log/blob/main/CONTRIBUTING.md",
@@ -22,11 +23,23 @@ export default {
         items: [
           { text: "Overview", link: "/" },
           { text: "Release policy", link: "/release-policy" },
+          { text: "Container distribution decision", link: "/adr/0001-container-distribution" },
           { text: "Documentation site", link: "/github-pages" },
         ],
       },
       {
-        text: "Components",
+        text: "Installation and operations",
+        items: [
+          { text: "Pull and run from GHCR", link: "/container-release#pull-and-run" },
+          { text: "Container runtime and local builds", link: "/container" },
+          { text: "Container publication and recovery", link: "/container-release" },
+          { text: "Container vulnerability review", link: "/container-security" },
+          { text: "Rolling workflow and recovery", link: "/release-workflow" },
+          { text: "Deterministic CLI", link: "/cli" },
+        ],
+      },
+      {
+        text: "Deterministic components",
         items: [
           { text: "Initial adoption", link: "/initial-adoption" },
           { text: "PR metadata readiness", link: "/pr-readiness" },
@@ -37,14 +50,16 @@ export default {
           { text: "Release input snapshots", link: "/release-snapshot" },
           { text: "Release version planning", link: "/release-plan" },
           { text: "Deterministic changelog", link: "/changelog" },
-          { text: "Deterministic CLI", link: "/cli" },
           { text: "Read-only release rehearsal", link: "/release-rehearsal" },
           { text: "Release proposal controller", link: "/release-proposal" },
+        ],
+      },
+      {
+        text: "Separate integration APIs",
+        items: [
           { text: "Release approval verification", link: "/release-approval" },
           { text: "Verified automation exclusions", link: "/automation-exclusions" },
           { text: "Publication reconciliation/execution", link: "/release-publication" },
-          { text: "Container runtime", link: "/container" },
-          { text: "Stable-tag container publication", link: "/container-release" },
         ],
       },
     ],

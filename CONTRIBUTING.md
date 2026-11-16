@@ -39,7 +39,7 @@ CI uses `--ignore-scripts` because it runs checks directly and does not need loc
 | `pnpm check:commit-range --from <base-sha> --to <head-sha>` | Validate non-merge commits in a Git range with Commitlint.              |
 | `pnpm check:pr-title`                                       | Validate a scoped PR title from stdin.                                  |
 
-`pnpm container:build --tag release-log-local:development` builds a local Linux/amd64 image from the packaged CLI. `pnpm check:container` runs real Docker smoke tests separately from `pnpm verify`; the Quality workflow also runs this integration gate. These commands need Docker and initial public base/snapshot downloads, not publishing credentials. See the [container guide](docs/container.md) for supported mounts/UIDs, cache requirements and remaining security/private-registry gates.
+`pnpm container:build --tag release-log-local:development` builds a local Linux/amd64 image from the packaged CLI. `pnpm check:container` runs real Docker smoke tests separately from `pnpm verify`; the Quality workflow also runs this integration gate. These commands need Docker and initial public base/snapshot downloads, not publishing credentials. See the [container guide](docs/container.md) for supported mounts/UIDs, cache requirements and dated scan limits. The separate [stable-tag publisher](docs/container-release.md) has verified GHCR publication, anonymous access and matching-digest retry; private-registry access remains unverified.
 
 `pnpm check:pr-metadata` validates current PR title/context and commit evidence through read-only API calls in the trusted metadata workflow; it requires the GitHub event environment described in [PR metadata readiness](docs/pr-readiness.md).
 
@@ -49,7 +49,7 @@ Type checks cover tooling configuration and maintained TypeScript source and tes
 
 Run `pnpm test` for the behavioral suite or `pnpm verify` for all checks, including the production documentation build. Coverage is reported; no completeness claim or coverage threshold is implied.
 
-The [documentation site guide](docs/github-pages.md) explains local previewing, adding pages, and the manual GitHub Pages settings and visibility review required before deployment.
+The public [documentation site](https://lhajoosten.github.io/release-log/) deploys from main through the Documentation workflow. The [site guide](docs/github-pages.md) explains local previewing, navigation, observed deployment and settings required when adopting this setup. Review documentation for public access before merging; a source repository's permissions do not establish site visibility.
 
 ## Hooks and conventional messages
 
@@ -95,7 +95,7 @@ The `verify` job runs on PRs, pushes to `main`, and manual dispatch. PR title ed
 
 CI installs frozen dependencies, runs the same `pnpm verify` command as local development, and validates non-merge commits in the applicable range and the PR title. GitHub event text is passed through environment variables, not interpolated into shell source. Actions are pinned to immutable SHAs and the workflow has read-only repository permissions.
 
-The separate `PR metadata` workflow runs trusted base-SHA validator code under a metadata-only, explicitly read-only `pull_request_target` event. It never executes PR source; keep source testing in the unprivileged Quality workflow. Its rollout and controlled-run limitations are documented in [PR metadata readiness](docs/pr-readiness.md).
+The separate `PR metadata` workflow runs trusted base-SHA validator code under a metadata-only, explicitly read-only `pull_request_target` event. It never executes PR source; keep source testing in the unprivileged Quality workflow. Its observed ordinary/generated-PR checks and remaining controlled-run limitations are documented in [PR metadata readiness](docs/pr-readiness.md).
 
 Requiring `verify` or `metadata` through branch protection and selecting allowed merge methods are separate repository-settings operations. The Quality workflow does not configure either setting or publish a package. A separate Documentation workflow builds and deploys the static site from `main` after Pages is configured; it does not deploy PRs. See the [documentation site guide](docs/github-pages.md) for permissions, environment protection, and visibility prerequisites.
 
