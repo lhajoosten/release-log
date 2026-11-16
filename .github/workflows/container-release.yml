@@ -39,14 +39,15 @@ jobs:
         with:
           cache: true
 
+      # pnpm can install implicitly before running a script. Bootstrap with scripts disabled first.
+      - name: Install locked dependencies without lifecycle scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
       - name: Validate exact stable tag and package version
         env:
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_SHA: ${{ github.sha }}
         run: pnpm container:release validate
-
-      - name: Install locked dependencies without lifecycle scripts
-        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build candidate from tagged source
         run: pnpm container:build --tag release-log-candidate:release
