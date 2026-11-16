@@ -132,33 +132,40 @@ export async function backfillChangelog(
     const range = await inspectTagRange(repository, previous?.tag ?? release.tag, release.tag);
     if (!range.fromIsAncestor)
       throw new ChangelogError("Changelog release tags are not in ancestry order.");
+    const captured = tree.children.find(
+      (node) =>
+        node.type === "paragraph" &&
+        (node.position?.start.offset ?? -1) > release.start &&
+        (node.position?.start.offset ?? release.end) < release.end &&
+        /^Inputs captured at: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z \(UTC; not a release date\)\.$/u.test(
+          existing.slice(node.position?.start.offset, node.position?.end.offset),
+        ),
+    );
+    const recorded =
+      captured &&
+      /^Inputs captured at: (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)/u.exec(
+        existing.slice(captured.position?.start.offset, captured.position?.end.offset),
+      )?.[1];
+    if (
+      recorded &&
+      (!Number.isFinite(Date.parse(recorded)) || new Date(recorded).toISOString() !== recorded)
+    )
+      throw new ChangelogError("The recorded snapshot capture timestamp is invalid.");
+    if (captured?.position) {
+      const start = captured.position.start.offset;
+      const end = captured.position.end.offset;
+      if (start === undefined || end === undefined)
+        throw new ChangelogError("Missing capture paragraph position.");
+      edits.push({ start, end: existing.startsWith("\n\n", end) ? end + 2 : end, text: "" });
+    }
     if (!release.dated) {
-      const captured = tree.children.find(
-        (node) =>
-          node.type === "paragraph" &&
-          (node.position?.start.offset ?? -1) > release.start &&
-          (node.position?.start.offset ?? release.end) < release.end &&
-          /^Inputs captured at: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z \(UTC; not a release date\)\.$/u.test(
-            existing.slice(node.position?.start.offset, node.position?.end.offset),
-          ),
-      );
-      const recorded =
-        captured &&
-        /^Inputs captured at: (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)/u.exec(
-          existing.slice(captured.position?.start.offset, captured.position?.end.offset),
-        )?.[1];
-      if (
-        recorded &&
-        (!Number.isFinite(Date.parse(recorded)) || new Date(recorded).toISOString() !== recorded)
-      )
-        throw new ChangelogError("The recorded snapshot capture timestamp is invalid.");
       const fallback = recorded ? null : await inspectTagDate(repository, range.to);
       const date = recorded ? recorded.slice(0, 10) : fallback?.date;
       if (!date) throw new ChangelogError("No recorded date is available for this release.");
       edits.push({
         start: release.headingEnd,
         end: release.headingEnd,
-        text: ` (${date})${fallback ? `\n\nDate source: ${fallback.source} (UTC); snapshot capture time unavailable.` : ""}`,
+        text: ` (${date})`,
       });
     }
     if (previous) {
@@ -184,6 +191,13 @@ export async function backfillChangelog(
         inPending(start)
       )
         continue;
+      if (
+        node.type === "paragraph" &&
+        /^Date source: (?:annotated tag|tagged commit committer) \(UTC\); snapshot capture time unavailable\.$/u.test(
+          existing.slice(start, end),
+        )
+      )
+        edits.push({ start, end: existing.startsWith("\n\n", end) ? end + 2 : end, text: "" });
       if (
         node.type === "paragraph" &&
         existing.slice(start, end).startsWith("Full changelog:") &&

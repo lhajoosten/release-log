@@ -14,7 +14,7 @@ Context, title fallback and scope are plain text, not trusted Markdown: whitespa
 
 ## Captured release context
 
-For schema-5 inputs, both formats show the recorded UTC capture date beside the version and display `Inputs captured at: YYYY-MM-DDTHH:mm:ss.sssZ (UTC; not a release date).` immediately below the version. The timestamp comes only from captured evidence; rendering and offline replay never read the current clock. Schemas 3 and 4 retain their original output without invented dates or contributors.
+For schema-5 inputs, both formats show the recorded UTC capture date beside the version without adding a capture-time paragraph to the Markdown. The full timestamp remains in the snapshot. The timestamp comes only from captured evidence; rendering and offline replay never read the current clock. Schemas 3 and 4 retain their original output without invented dates or contributors.
 
 Each primary PR entry credits its captured PR author with a GitHub profile link. Bots are included as their captured accounts; unavailable/deleted authors have no attribution. Historical PR entries use the same policy. Commit-only entries do not invent an author; commit authors and co-authors are outside this policy. Labels are escaped as plain text and profile paths are URL-encoded.
 
@@ -39,7 +39,7 @@ Section icons are fixed defaults for schema 5, alongside readable labels. There 
 
 For subsequent releases, `Full changelog` compares the actual captured baseline tag against the full captured source SHA, with each ref encoded as a URL path segment. The link is explicitly labelled **captured source**; a pending version tag is never presented as already available. This link stays pinned to captured inputs when the proposal becomes released, rather than silently changing history to a tag comparison. First-release/bootstrap output omits the comparison because it has no prior release tag. Membership and version decisions are unchanged.
 
-Normal refresh still replaces only pending content. To enrich existing released sections deliberately, use the optional [backfill command](cli.md#backfill-existing-releases). It is separate from normal rendering and uses present-day author evidence rather than reconstructing past captures. Missing historical dates fall back deterministically to the annotated tag’s date or the tagged commit’s committer date for lightweight tags, with an explicit source label; this does not invent a historical capture time.
+Normal refresh still replaces only pending content. To enrich existing released sections deliberately, use the optional [backfill command](cli.md#backfill-existing-releases). It is separate from normal rendering and uses present-day author evidence rather than reconstructing past captures. Missing historical dates fall back deterministically to the annotated tag’s date or the tagged commit’s committer date for lightweight tags, using UTC dates in the version headings; this does not invent a historical capture time. Backfill removes the old generated capture-time and date-source paragraphs while preserving their recorded date evidence.
 
 ## Format
 

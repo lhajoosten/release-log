@@ -31,8 +31,6 @@ void test("schema-5 classic output matches a fixed golden and retains legacy dec
   const expected = [
     "## v1.2.4 (2026-11-16)",
     "",
-    `Inputs captured at: ${capturedAt} (UTC; not a release date).`,
-    "",
     "### 🐛 Fixes",
     "",
     "- **api**: Preserve selected rows&#46; ([#1](https://github.com/example/project/pull/1)) by [&#64;octocat](https://github.com/octocat)",
@@ -54,10 +52,7 @@ void test("schema-5 classic output matches a fixed golden and retains legacy dec
   );
   const released = "## v1.2.3\r\n\r\nOriginal prose.  \r\n";
   const pending = updateChangelog(`# Changelog\n\n${released}`, expected);
-  const refreshed = updateChangelog(
-    pending,
-    expected.replace(capturedAt, "2026-11-17T20:34:56.789Z"),
-  );
+  const refreshed = updateChangelog(pending, expected.replace("(2026-11-16)", "(2026-11-17)"));
   assert.ok(refreshed.endsWith(released));
   const nextCycle = updateChangelog(pending, expected.replace("## v1.2.4", "## v1.2.5"), "1.2.4");
   assert.ok(nextCycle.includes(expected));
@@ -134,7 +129,12 @@ void test("bootstrap, deleted authors and invalid or altered capture timestamps 
     initialVersion: "0.1.0",
   });
   assert.ok(text);
-  assert.ok(text.includes(capturedAt));
+  assert.ok(text.includes("(2026-11-16)"));
+  assert.ok(!text.includes("Inputs captured at:"));
+  assert.equal(
+    (await replayReleaseSnapshot(serialized, fixtureConfiguration)).capturedAt,
+    capturedAt,
+  );
   assert.ok(!text.includes("Full changelog:"));
   assert.ok(!text.includes(" by "));
   for (const timestamp of [

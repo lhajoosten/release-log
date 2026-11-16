@@ -7,9 +7,9 @@ on:
 permissions:
   contents: read
 
-# Every authorized version writer must use this group. Never cancel a partial push.
+# Serialize every version and latest writer. Never cancel a partial push.
 concurrency:
-  group: container-release-${{ github.ref }}
+  group: container-release
   cancel-in-progress: false
 
 jobs:

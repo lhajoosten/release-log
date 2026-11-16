@@ -1,5 +1,9 @@
 # INACTIVE TEMPLATE: review, replace placeholders, and authorize App setup/live
 # writes separately before copying to .github/workflows/ in a consumer.
+# Replace repository identity and onboarding SHAs with your own reviewed values.
+# githubRelease publishes the tagged changelog as a stable GitHub Release/latest.
+# selfUpgrade is reserved for release-log's own caller; do not enable for consumers.
+# Self-use additionally requires App Actions read and Workflows write.
 name: Rolling release caller
 on:
   pull_request_target:
@@ -17,8 +21,11 @@ jobs:
       release-branch: main
       app-id: ${{ vars.RELEASE_APP_ID }}
       bot-user-id: ${{ vars.RELEASE_BOT_USER_ID }}
+      # Contents/PR write on the App; keep its installation repository-limited.
+      # For upgrades, explicitly retain reviewed producers of existing proposals:
+      # verification-runtimes: '[{"sha":"REVIEWED_PREDECESSOR_FULL_SHA","legacy":true}]'
       write: false
       configuration: >-
-        {"schemaVersion":2,"repository":"lhajoosten/release-log","repositoryId":1449550207,"releaseBranch":"main","releasePolicy":"release-policy-v1","changelog":{"verbosity":"concise"},"bootstrap":{"baselineSha":"bb0033fb274e69a8aabad6a17d71f18ec9292f60","onboardingSha":"c28fe6faa4d516847fbc725e9186cc80ac8873af"}}
+        {"schemaVersion":2,"repository":"OWNER/REPOSITORY","repositoryId":123456789,"releaseBranch":"main","releasePolicy":"release-policy-v1","contextPolicy":"required","githubRelease":true,"changelog":{"verbosity":"concise","format":"compact"},"bootstrap":{"baselineSha":"BASELINE_FULL_COMMIT_SHA","onboardingSha":"ONBOARDING_FULL_COMMIT_SHA"}}
     secrets:
       app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
