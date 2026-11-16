@@ -1,10 +1,10 @@
-# Release input snapshots — versions 3 and 4
+# Release input snapshots — versions 3, 4 and 5
 
 `src/release-snapshot.ts` captures the validated inputs for deterministic release planning and replays them offline. The [PR association](github-association.md) component supplies its complete Git/PR evidence; the [CLI](cli.md) exposes collection and offline planning/rendering. It is not version calculation, changelog rendering, release authorization, or publication.
 
 ## Library boundary
 
-- `captureReleaseSnapshot(association, configuration)` validates the collected association evidence and conventional/context policy before returning a usable `ReleaseSnapshot`.
+- `captureReleaseSnapshot(association, configuration, capturedAt?)` validates the collected association evidence and conventional/context policy before returning a usable `ReleaseSnapshot`.
 - `serializeReleaseSnapshot(snapshot)` revalidates the snapshot and returns canonical JSON plus one final newline. It does not write a file.
 - `replayReleaseSnapshot(serialized, expectedConfiguration)` reads only captured data and trusted tool runtime assets. It returns the validated snapshot with the same normalized inputs and identity, without GitHub, Git, credentials, or a local inspected repository.
 
@@ -28,7 +28,7 @@ Both configuration versions accept optional `contextPolicy` with exactly `requir
 
 Both configuration versions additionally accept an optional `changelog` object requiring `verbosity` and optionally accepting `format` (`classic` or `compact`). The format is captured in configuration/snapshot/proposal identity; omission retains classic rendering. The `verbosity` value must be `detailed`, `concise` or `one-liner`. Omission retains the existing detailed rendering without inserting a new default field into captured configuration. The [verbosity contract](changelog.md#verbosity) affects presentation only, but is bound into configuration/snapshot/proposal identity. Unknown fields and malformed options still fail. Input schema versions remain unchanged; opting in requires a compatible pinned tool and fresh capture/review.
 
-Optional `automationExclusions` pins enable [verified automation capture](automation-exclusions.md). These configurations produce schema-4 snapshots/plans with raw `verifiedAutomation` evidence and normalized `excludedPullRequests`. Records must match the independently trusted pins, raw PR identity/metadata and complete footprint. The complete original graph remains captured. Configurations without pins retain the existing schema-3 format and normalizer; no automatic migration is performed.
+Optional `automationExclusions` pins enable [verified automation capture](automation-exclusions.md). Legacy captures use schema-4 snapshots/plans; new online captures use schema 5 with the same raw `verifiedAutomation` evidence and normalized `excludedPullRequests`. Records must match the independently trusted pins, raw PR identity/metadata and complete footprint. The complete original graph remains captured. Configurations without pins retain the existing schema-3 format and normalizer; no automatic migration is performed.
 
 ## Snapshot envelope and identities
 
@@ -48,6 +48,16 @@ Schema 4 uses the same envelope fields, sets `schemaVersion: 4`, and binds a sep
 The runtime package needs its trusted `package.json`, dependency lock bytes, and existing Commitlint configuration/dependencies. The [CLI build](cli.md) preserves the lock bytes as `dist/dependency-lock.txt` because package managers omit lockfile-named files, retaining the same digest as the source checkout's `pnpm-lock.yaml`. Inspected consumer repository configuration is never loaded as validator code.
 
 Checksums detect inconsistent/accidentally edited data. They are **not signatures or proof of approval**: someone who rewrites all inputs can recompute them. Snapshot/diff authenticity and freshness still need the trusted orchestration checks in #20/#22. A valid snapshot does not authenticate a bot or authorize a release.
+
+## Capture metadata (schema 5)
+
+New `collect` and `roll` captures use schema 5. It adds the required envelope field `capturedAt`, an exact UTC ISO timestamp with milliseconds (`2026-11-16T20:34:56.789Z`), recorded after collection. This means **inputs captured at**, not release, merge or publication time. Replay and rendering validate and reuse that value without consulting the current clock. It participates in `snapshotId`, so separately captured inputs have distinct identities when capture time changes. Proposal reconciliation retains the first capture when an otherwise byte-equivalent schema-5 collection is retried, preserving no-write retries. A change to evidence or configuration uses the newly captured time.
+
+PR evidence may additionally include `authorLogin` (bounded to 256 UTF-8 bytes), sourced from GitHub's PR `user.login`; null or absence means unavailable. A deleted/unavailable user retains null `authorId`, `authorLogin` and an `Unavailable` type. Available users retain their existing numeric ID and type; bots remain ordinary captured contributors unless independently excluded by existing automation authority. No commit-author, co-author or display-name inference is performed. Classification and normalized contributions are unchanged.
+
+Schema 5 composes with existing exclusion pins: `verifiedAutomation` and `excludedPullRequests` remain required exactly when configured. Plans expose schema 5 and retain exclusions in the same way as schema 4. Configuration schemas and normalizer identities remain unchanged; the envelope version identifies the capture-metadata extension.
+
+Schemas 3 and 4 remain supported with their exact legacy shape, identities and rendered bytes under their matching runtime/configuration. Missing capture time or authors are never synthesized on replay. The lower-level library keeps its two-argument legacy capture contract; pass an explicit canonical timestamp as the third argument for new enriched captures. This keeps the capture/normalization library deterministic: only the online caller reads the clock. Older tools reject schema 5; use a compatible pinned tool or the original tool for its original snapshots. No relabeling or automatic migration is performed.
 
 ## Validation before capture and replay
 

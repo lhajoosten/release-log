@@ -19,7 +19,7 @@ export type ReleaseVersionConfiguration =
 export type ReleaseBump = "none" | "patch" | "minor" | "major";
 
 export interface ReleasePlan {
-  readonly schemaVersion: 3 | 4;
+  readonly schemaVersion: 3 | 4 | 5;
   readonly excludedContributions?: ReleaseSnapshot["normalized"]["excludedPullRequests"];
   readonly policy: "release-policy-v1";
   readonly snapshotId: string;
@@ -205,7 +205,7 @@ export async function createReleasePlan(
         ? snapshot.configuration.bootstrap.onboardingSha
         : null,
     historicalContributions,
-    ...(snapshot.schemaVersion === 4
+    ...(snapshot.configuration.automationExclusions !== undefined
       ? { excludedContributions: snapshot.normalized.excludedPullRequests }
       : {}),
   };

@@ -300,6 +300,45 @@ export async function inspectTagRange(
   return { from, to, fromIsAncestor, commitShas };
 }
 
+export async function inspectTagDate(
+  repository: string,
+  tag: ResolvedTag,
+): Promise<{
+  readonly date: string;
+  readonly source: "annotated tag" | "tagged commit committer";
+}> {
+  const annotated = tag.objectSha !== tag.commitSha;
+  const raw = requireSuccess(
+    await runGit(repository, [
+      "cat-file",
+      annotated ? "tag" : "commit",
+      requireObjectSha(tag.objectSha),
+    ]),
+    "Could not read the captured release tag date.",
+  );
+  const header = raw.split("\n\n", 1)[0] ?? "";
+  const record = header
+    .split("\n")
+    .find((line) => line.startsWith(annotated ? "tagger " : "committer "));
+  const seconds = record && / ([+-]?\d+) [+-]\d{4}$/u.exec(record)?.[1];
+  const milliseconds = seconds ? Number(seconds) * 1000 : NaN;
+  if (!Number.isSafeInteger(milliseconds) || Math.abs(milliseconds) > 8_640_000_000_000_000)
+    throw new GitInspectionError(
+      "git-command-failed",
+      "The release tag has no supported recorded date.",
+    );
+  const timestamp = new Date(milliseconds).toISOString();
+  if (!/^\d{4}-/u.test(timestamp))
+    throw new GitInspectionError(
+      "git-command-failed",
+      "The release tag date must have a four-digit year.",
+    );
+  return {
+    date: timestamp.slice(0, 10),
+    source: annotated ? "annotated tag" : "tagged commit committer",
+  };
+}
+
 export async function inspectCommit(
   repository: string,
   commitSha: string,
