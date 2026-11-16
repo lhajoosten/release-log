@@ -1,6 +1,14 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:870fde16a458c0bc22a4667e8b2b9463136deb564af8854724db92a83ad2bd1d -->
+<!-- release-log:pending:v1 sha256:9a27ba550c713a5dc6b38bb937435804330e1d929d52cef6540187a0e75acead -->
+
+## v0.2.1
+
+### Fixes
+
+- Fix dependency installation for tagged container releases&#46; ([#72](https://github.com/lhajoosten/release-log/pull/72))
+
+<!-- release-log:pending:end -->
 
 ## v0.2.0
 
@@ -18,7 +26,6 @@
 
 </details>
 
-<!-- release-log:pending:end -->
 
 ## v0.1.0
 
