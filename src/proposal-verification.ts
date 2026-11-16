@@ -9,12 +9,13 @@ import type {
 } from "./github-proposals.ts";
 import { prepareReleaseFileContents } from "./proposal-files.ts";
 import { parseReleaseInputConfiguration, replayReleaseSnapshot } from "./release-snapshot.ts";
-import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
+import type { ReleaseInputConfiguration, ReleaseSnapshot } from "./release-snapshot.ts";
 
 export interface VerifiedProposal extends Description {
   readonly source: ProposalTree;
   readonly head: ProposalTree;
   readonly nextVersion: string;
+  readonly snapshot: ReleaseSnapshot;
 }
 
 function withoutChangelogFormat(config: ReleaseInputConfiguration) {
@@ -89,5 +90,5 @@ export async function verifyPrevious(
   const nextVersion = prepared.plan.nextVersion;
   if (nextVersion === null)
     throw new ProposalConflictError("The verified proposal no longer has a release version.");
-  return { ...description, source, head, nextVersion };
+  return { ...description, source, head, nextVersion, snapshot };
 }

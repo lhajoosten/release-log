@@ -240,7 +240,7 @@ for (const kind of ["merge", "squash"] as const) {
     assert.equal(next.result.pullNumber, 2);
     assert.ok(next.result.headSha);
     const changelog = s.f.git(["show", `${next.result.headSha}:CHANGELOG.md`]);
-    assert.equal(changelog.split("## v0.1.0\n").length, 2);
+    assert.equal((changelog.match(/^## v0\.1\.0 \(\d{4}-\d{2}-\d{2}\)$/gmu) ?? []).length, 1);
     assert.match(changelog, /## v0\.2\.0/u);
     for (let i = 1; i <= 4; i++) assert.match(changelog, new RegExp(`Change ${i}`, "u"));
   });

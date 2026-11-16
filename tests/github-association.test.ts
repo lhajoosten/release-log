@@ -1079,3 +1079,30 @@ void test("identical captured input and remote fixtures yield stable ordering an
   const second = await collectMergedPullRequests(fixture.request, fixture.api.read);
   assert.equal(JSON.stringify(first), JSON.stringify(second));
 });
+
+for (const user of [
+  { id: 11, type: "User", login: "octocat" },
+  { id: 11, type: "Bot", login: "dependabot[bot]" },
+  null,
+]) {
+  void test(`captures GitHub author evidence for ${user?.login ?? "deleted author"}`, async (context) => {
+    const fixture = await linear(context);
+    fixture.metadata.user = user;
+    const result = await collectMergedPullRequests(fixture.request, fixture.api.read);
+    assert.equal(result.pullRequests[0]?.authorLogin, user?.login ?? null);
+    assert.equal(result.pullRequests[0]?.authorId, user?.id ?? null);
+    const config = {
+      schemaVersion: 1 as const,
+      repository: "example/project",
+      repositoryId: 1,
+      releaseBranch: "main",
+      releasePolicy: "release-policy-v1" as const,
+      contextPolicy: "optional" as const,
+    };
+    const snapshot = await captureReleaseSnapshot(result, config, "2026-11-16T20:34:56.789Z");
+    const serialized = await serializeReleaseSnapshot(snapshot);
+    const calls = fixture.api.calls.length;
+    assert.deepEqual(await replayReleaseSnapshot(serialized, config), snapshot);
+    assert.equal(fixture.api.calls.length, calls);
+  });
+}
