@@ -51,6 +51,8 @@ Because the validator is loaded from the base SHA, a PR introducing this workflo
 - Bot/release-looking identity cannot bypass the ordinary checks; App-created check triggering is exercised only after an App is separately provisioned.
 - The intended check appears and behaves correctly before separately authorizing it as required.
 
+On 2026-11-16, read-only inspection of this repository's `main` branch protection found `verify` as the sole required status check; `metadata` was not required. Strict status checks and administrator enforcement were enabled, and the branch rules endpoint returned no additional rules. This observation does not establish behavior for every event or future settings changes.
+
 No App setup, repository protection changes, remote PR mutations, or live publication are performed by the local implementation or its unit tests.
 
 ## Verification
