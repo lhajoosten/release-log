@@ -264,6 +264,20 @@ for (const mergeKind of ["merge", "squash"] as const)
         currentVersion: "1.2.3",
       });
 
+      const enriched = await captureReleaseSnapshot(
+        associated,
+        state.config,
+        "2026-11-16T20:34:56.789Z",
+      );
+      const enrichedJSON = await serializeReleaseSnapshot(enriched);
+      const enrichedPlan = await createReleasePlan(enrichedJSON, state.config, {
+        kind: "released",
+        currentVersion: "1.2.3",
+      });
+      assert.equal(enriched.schemaVersion, 5);
+      assert.deepEqual(enriched.normalized, snapshot.normalized);
+      assert.deepEqual(enrichedPlan.excludedContributions, plan.excludedContributions);
+      assert.deepEqual(await replayReleaseSnapshot(enrichedJSON, state.config), enriched);
       assert.equal(snapshot.schemaVersion, 4);
       assert.equal(plan.schemaVersion, 4);
       assert.equal(plan.nextVersion, "1.3.0");

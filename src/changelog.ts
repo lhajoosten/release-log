@@ -32,6 +32,70 @@ const groups = [
   ["chore", "Maintenance"],
 ] as const;
 
+export const sectionEmojis: Readonly<Record<string, string>> = {
+  Features: "✨",
+  Fixes: "🐛",
+  Performance: "⚡",
+  Reverts: "⏪",
+  Refactoring: "♻️",
+  Documentation: "📚",
+  Build: "📦",
+  "Continuous integration": "👷",
+  Tests: "🧪",
+  Style: "🎨",
+  Maintenance: "🔧",
+  "Historical changes": "📜",
+  "Breaking changes": "💥",
+  "Required actions": "🛠️",
+  "Internal maintenance": "🔧",
+};
+
+export function encodeComparisonRef(value: string): string {
+  return encodeURIComponent(value).replace(
+    /[!'()*]/gu,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+export function contributorAttribution(login: string | null | undefined): string {
+  return login
+    ? ` by [${escapeText(`@${login}`)}](https://github.com/${encodeComparisonRef(login)})`
+    : "";
+}
+
+function attribution(snapshot: ReleaseSnapshot, number: number): string {
+  return snapshot.capturedAt === undefined
+    ? ""
+    : contributorAttribution(
+        snapshot.input.pullRequests.find((pull) => pull.number === number)?.authorLogin,
+      );
+}
+
+function presentation(snapshot: ReleaseSnapshot, content: string): string {
+  if (snapshot.capturedAt === undefined) return content;
+  let result = content
+    .replace(/^(## v\d+\.\d+\.\d+)\n/u, `$1 (${snapshot.capturedAt.slice(0, 10)})\n`)
+    .replace(/^(### )(.+)$/gmu, (line: string, prefix: string, name: string) =>
+      Object.hasOwn(sectionEmojis, name) ? `${prefix}${sectionEmojis[name]} ${name}` : line,
+    )
+    .replace(
+      "<summary>Internal maintenance</summary>",
+      "<summary>🔧 Internal maintenance</summary>",
+    );
+  const headingEnd = result.indexOf("\n\n") + 2;
+  result =
+    result.slice(0, headingEnd) +
+    `Inputs captured at: ${snapshot.capturedAt} (UTC; not a release date).\n\n` +
+    result.slice(headingEnd);
+  const baseline = snapshot.input.range.baseline;
+  if (baseline.kind === "tag") {
+    const source = snapshot.input.range.sourceCommitSha;
+    const label = `${baseline.name}…${source}`;
+    result += `${result.trimEnd().endsWith("</details>") ? "\n<br>\n\n" : "\n"}Full changelog: [${escapeText(label)}](https://github.com/${snapshot.configuration.repository}/compare/${encodeComparisonRef(baseline.name)}...${encodeComparisonRef(source)}) (captured source).\n`;
+  }
+  return result;
+}
+
 function bounded(value: string): void {
   if (Buffer.byteLength(value, "utf8") > maximumBytes)
     throw new ChangelogError("Changelog exceeds 16 MiB in UTF-8.");
@@ -150,7 +214,12 @@ function renderCompactChangelog(
       details.push(`Impact: ${escapeText(entry.context.impact)}`);
     if (verbosity === "detailed" && entry.warnings.length)
       details.push(`Metadata review: ${entry.warnings.map(escapeText).join(", ")}`);
-    appendEntry(lines, `- ${escapeText(entry.summary)} ${reference(entry)}`, details, verbosity);
+    appendEntry(
+      lines,
+      `- ${escapeText(entry.summary)} ${reference(entry)}${entry.reference.startsWith("#") ? attribution(snapshot, Number(entry.reference.slice(1))) : ""}`,
+      details,
+      verbosity,
+    );
   };
 
   for (const [type, heading] of [...groups, [null, "Historical changes"]] as const) {
@@ -192,7 +261,7 @@ function renderCompactChangelog(
     lines.push("", "</details>", "");
   }
 
-  const rendered = lines.join("\n");
+  const rendered = presentation(snapshot, lines.join("\n"));
   bounded(rendered);
   return rendered;
 }
@@ -272,7 +341,7 @@ export async function renderChangelog(
 
       appendEntry(
         lines,
-        `- **${escapeText(pull.title.scope ?? "")}**${label}: ${escapeText(pull.context?.summary ?? pull.title.description)} ([#${pull.number}](${pull.url}))`,
+        `- **${escapeText(pull.title.scope ?? "")}**${label}: ${escapeText(pull.context?.summary ?? pull.title.description)} ([#${pull.number}](${pull.url}))${attribution(snapshot, pull.number)}`,
         details,
         verbosity,
       );
@@ -331,7 +400,7 @@ export async function renderChangelog(
 
       appendEntry(
         lines,
-        `- [${kind}]${audience}: ${escapeText(entry.title)} ([${reference}](${entry.source.url}))`,
+        `- [${kind}]${audience}: ${escapeText(entry.title)} ([${reference}](${entry.source.url}))${entry.source.kind === "pull-request" ? attribution(snapshot, entry.source.number) : ""}`,
         details,
         verbosity,
       );
@@ -340,14 +409,16 @@ export async function renderChangelog(
     lines.push("");
   }
 
-  const rendered = lines.join("\n");
+  const rendered = presentation(snapshot, lines.join("\n"));
   bounded(rendered);
   return rendered;
 }
 
 function generatedSection(content: string): string {
   if (
-    !/^## v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\n/u.test(content) ||
+    !/^## v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?: \(\d{4}-\d{2}-\d{2}\))?\n/u.test(
+      content,
+    ) ||
     content.includes("<!-- release-log:") ||
     !content.endsWith("\n")
   )
@@ -418,7 +489,9 @@ export function updateChangelog(
     throw new ChangelogError(
       "Pending generated content was edited; review and recover explicitly rather than overwriting it.",
     );
-  const released = releasedVersion !== undefined && content.startsWith(`## v${releasedVersion}\n`);
+  const released =
+    releasedVersion !== undefined &&
+    /^## v([^\s]+)(?: \(\d{4}-\d{2}-\d{2}\))?\n/u.exec(content)?.[1] === releasedVersion;
   if (released && rendered === null) return existing;
   if (rendered === null)
     throw new ChangelogError(

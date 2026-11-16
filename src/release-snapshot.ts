@@ -119,7 +119,8 @@ export interface NormalizedReleaseInputs {
 }
 
 export interface ReleaseSnapshot {
-  readonly schemaVersion: 3 | 4;
+  readonly schemaVersion: 3 | 4 | 5;
+  readonly capturedAt?: string;
   readonly tool: { readonly version: string; readonly normalizerId: string };
   readonly configuration: ReleaseInputConfiguration;
   readonly configurationId: string;
@@ -472,7 +473,7 @@ function rangeEvidence(value: unknown): PendingReleaseInspection {
   return { baseline, sourceCommitSha, baselineIsAncestor: true, commitShas };
 }
 
-function pullEvidence(value: unknown): AssociatedPullRequest {
+function pullEvidence(value: unknown, presentation: boolean): AssociatedPullRequest {
   const item = object(
     value,
     [
@@ -490,6 +491,9 @@ function pullEvidence(value: unknown): AssociatedPullRequest {
       "baseRepositoryId",
       "authorId",
       "authorType",
+      ...(presentation && isObject(value) && Object.hasOwn(value, "authorLogin")
+        ? ["authorLogin"]
+        : []),
       "url",
       "landingKind",
       "originalCommits",
@@ -535,7 +539,13 @@ function pullEvidence(value: unknown): AssociatedPullRequest {
     headRepositoryId:
       item.headRepositoryId === null ? null : positive(item.headRepositoryId, "head repository ID"),
     baseRepositoryId: positive(item.baseRepositoryId, "base repository ID"),
-    authorId: positive(item.authorId, "author ID"),
+    authorId: presentation && item.authorId === null ? null : positive(item.authorId, "author ID"),
+    ...(Object.hasOwn(item, "authorLogin")
+      ? {
+          authorLogin:
+            item.authorLogin === null ? null : text(item.authorLogin, "author login", 256),
+        }
+      : {}),
     authorType: text(item.authorType, "author type", 64),
     url: text(item.url, "PR URL", 1024),
     landingKind: item.landingKind,
@@ -544,7 +554,11 @@ function pullEvidence(value: unknown): AssociatedPullRequest {
   };
 }
 
-function association(value: unknown, config: ReleaseInputConfiguration): ReleaseSnapshot["input"] {
+function association(
+  value: unknown,
+  config: ReleaseInputConfiguration,
+  presentation = false,
+): ReleaseSnapshot["input"] {
   const item = object(
     value,
     [
@@ -566,7 +580,7 @@ function association(value: unknown, config: ReleaseInputConfiguration): Release
 
   const range = rangeEvidence(item.range);
   const pullRequests = array(item.pullRequests, 1000, "associated PRs")
-    .map(pullEvidence)
+    .map((pull) => pullEvidence(pull, presentation))
     .toSorted((left, right) => left.number - right.number);
 
   const bootstrapCommits = array(
@@ -838,10 +852,19 @@ function onboardingCommits(
 export async function captureReleaseSnapshot(
   input: PullRequestAssociation,
   config: ReleaseInputConfiguration,
+  capturedAt?: string,
 ): Promise<ReleaseSnapshot> {
+  if (
+    capturedAt !== undefined &&
+    (typeof capturedAt !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(capturedAt) ||
+      !Number.isFinite(Date.parse(capturedAt)) ||
+      new Date(capturedAt).toISOString() !== capturedAt)
+  )
+    return invalid("Capture time must be a canonical UTC ISO timestamp with milliseconds.");
   canonical(input);
   const selected = parseReleaseInputConfiguration(config);
-  const captured = association(input, selected);
+  const captured = association(input, selected, capturedAt !== undefined);
   const pullRequests: NormalizedReleaseInputs["pullRequests"][number][] = [];
   const historicalEntries: HistoricalReleaseEntry[] = [];
   const excludedPullRequests: NonNullable<
@@ -982,7 +1005,13 @@ export async function captureReleaseSnapshot(
   }
 
   const payload = {
-    schemaVersion: selected.automationExclusions ? (4 as const) : (3 as const),
+    schemaVersion:
+      capturedAt !== undefined
+        ? (5 as const)
+        : selected.automationExclusions
+          ? (4 as const)
+          : (3 as const),
+    ...(capturedAt !== undefined ? { capturedAt } : {}),
     tool: snapshotTool(selected),
     configuration: selected,
     configurationId: digest(selected),
@@ -1018,10 +1047,11 @@ async function validateSnapshot(
       "input",
       "normalized",
       "snapshotId",
+      ...(isObject(value) && value.schemaVersion === 5 ? ["capturedAt"] : []),
     ],
     "snapshot envelope",
   );
-  if (item.schemaVersion !== 3 && item.schemaVersion !== 4)
+  if (item.schemaVersion !== 3 && item.schemaVersion !== 4 && item.schemaVersion !== 5)
     return invalid(
       "Unsupported release snapshot schema version; no automatic migration is performed.",
     );
@@ -1045,7 +1075,7 @@ async function validateSnapshot(
       "configuration-mismatch",
       "Replay configuration differs from the captured configuration identity.",
     );
-  if (item.schemaVersion !== (config.automationExclusions ? 4 : 3))
+  if (item.schemaVersion !== 5 && item.schemaVersion !== (config.automationExclusions ? 4 : 3))
     return invalid("Snapshot schema does not match its pinned exclusion policy.");
 
   object(
@@ -1061,8 +1091,12 @@ async function validateSnapshot(
     "versioned association evidence",
   );
 
-  const captured = association(item.input, config);
-  const recomputed = await captureReleaseSnapshot(captured, config);
+  const captured = association(item.input, config, item.schemaVersion === 5);
+  const recomputed = await captureReleaseSnapshot(
+    captured,
+    config,
+    item.schemaVersion === 5 ? text(item.capturedAt, "capture time", 24) : undefined,
+  );
   if (
     canonical(item.normalized) !== canonical(recomputed.normalized) ||
     item.snapshotId !== recomputed.snapshotId

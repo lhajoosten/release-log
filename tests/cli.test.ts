@@ -145,7 +145,17 @@ void test(
     assert.match((await run(["render", ...args])).stdout, /^## v1\.2\.4/u);
     for (const verbosity of ["detailed", "concise", "one-liner"] as const) {
       const configuration = { ...fixtureConfiguration, changelog: { verbosity } };
-      const capture = await captureReleaseSnapshot(snapshot.snapshot.input, configuration);
+      const capture = await captureReleaseSnapshot(
+        {
+          ...snapshot.snapshot.input,
+          pullRequests: snapshot.snapshot.input.pullRequests.map((pull) => ({
+            ...pull,
+            authorLogin: "cli-author",
+          })),
+        },
+        configuration,
+        "2026-11-16T20:34:56.789Z",
+      );
       const configurationPath = join(path, `config-${verbosity}.json`);
       const capturePath = join(path, `snapshot-${verbosity}.json`);
 
@@ -165,6 +175,11 @@ void test(
 
       assert.equal(rendered.includes("  - Impact:"), verbosity === "detailed");
       assert.match(rendered, /^## v1\.2\.4/u);
+      assert.ok(rendered.includes("Inputs captured at: 2026-11-16T20:34:56.789Z"));
+      assert.ok(rendered.includes("### 🐛 Fixes"));
+      assert.ok(rendered.includes("https://github.com/cli-author"));
+      assert.ok(rendered.includes("/compare/v1.2.3..."));
+      assert.equal((await run(["render", ...selectedArgs])).stdout, rendered);
 
       await mkdir(repository);
       await writeFile(join(repository, "package.json"), '{"version":"1.2.3"}\n');
@@ -210,6 +225,70 @@ void test(
           '[project]\nversion="1.2.4" # keep\n',
         );
     }
+
+    const backfillRepository = join(path, "backfill");
+    await mkdir(backfillRepository);
+    for (const gitArgs of [
+      ["init", "--initial-branch=main"],
+      ["commit", "--allow-empty", "-m", "chore: initial state"],
+      ["tag", "v1.2.3"],
+      ["commit", "--allow-empty", "-m", "fix: retain keys"],
+      ["tag", "v1.2.4"],
+    ]) {
+      await execute(
+        "git",
+        [
+          "-c",
+          "core.hooksPath=/dev/null",
+          "-c",
+          "commit.gpgSign=false",
+          "-c",
+          "tag.gpgSign=false",
+          "-c",
+          "user.name=Fixture",
+          "-c",
+          "user.email=fixture@example.invalid",
+          ...gitArgs,
+        ],
+        { cwd: backfillRepository, timeout: 10_000 },
+      );
+    }
+    const oldChangelog =
+      "# Changelog\n\n## v1.2.4\n\n### Fixes\n\n- Keep keys. ([#1](https://github.com/example/project/pull/1))\n\n## v1.2.3\n\nInitial release.\n";
+    await writeFile(join(backfillRepository, "CHANGELOG.md"), oldChangelog);
+    const backfillPrelude = join(path, "backfill.mjs");
+    await writeFile(
+      backfillPrelude,
+      'globalThis.fetch = async (url) => { if (url !== "https://api.github.com/repos/example/project/pulls/1") throw new Error("Unexpected URL"); return Response.json({number: 1, user: {login: "cli-author"}}); };',
+    );
+    const backfill = (write = false) =>
+      execute(
+        process.execPath,
+        [
+          "--import",
+          backfillPrelude,
+          cli,
+          "backfill",
+          "--config",
+          configPath,
+          "--repository",
+          backfillRepository,
+          write ? "--write" : "--dry-run",
+        ],
+        {
+          cwd: consumer,
+          timeout: 10_000,
+          env: { ...process.env, GITHUB_TOKEN: "synthetic-token" },
+        },
+      );
+    const preview = (await backfill()).stdout;
+    assert.ok(preview.includes("### 🐛 Fixes"));
+    assert.ok(preview.includes("https://github.com/cli-author"));
+    assert.ok(preview.includes("/compare/v1.2.3...v1.2.4"));
+    assert.equal(await readFile(join(backfillRepository, "CHANGELOG.md"), "utf8"), oldChangelog);
+    assert.equal((await backfill(true)).stdout, preview);
+    assert.equal(await readFile(join(backfillRepository, "CHANGELOG.md"), "utf8"), preview);
+    assert.equal((await backfill()).stdout, preview);
 
     const bootstrap = await releaseFixture([], null, [
       "chore: add the license",

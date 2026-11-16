@@ -45,8 +45,9 @@ interface CapturedPullRequest {
   readonly headRef: string;
   readonly headRepositoryId: number | null;
   readonly baseRepositoryId: number;
-  readonly authorId: number;
+  readonly authorId: number | null;
   readonly authorType: string;
+  readonly authorLogin?: string | null;
 }
 
 export interface AssociatedPullRequest extends CapturedPullRequest {
@@ -142,9 +143,10 @@ function capturePull(
     !record(value.base) ||
     !record(value.base.repo) ||
     !integer(value.base.repo.id) ||
-    !record(value.user) ||
-    !integer(value.user.id) ||
-    typeof value.user.type !== "string"
+    !(
+      value.user === null ||
+      (record(value.user) && integer(value.user.id) && typeof value.user.type === "string")
+    )
   ) {
     return invalid(
       "GitHub did not return consistent merged-PR identity, metadata, or landing evidence.",
@@ -175,8 +177,15 @@ function capturePull(
     headRef: value.head.ref,
     headRepositoryId,
     baseRepositoryId: value.base.repo.id,
-    authorId: value.user.id,
-    authorType: value.user.type,
+    authorId: record(value.user) && integer(value.user.id) ? value.user.id : null,
+    authorType:
+      record(value.user) && typeof value.user.type === "string" ? value.user.type : "Unavailable",
+    ...(value.user === null || typeof value.user.login === "string"
+      ? {
+          authorLogin:
+            record(value.user) && typeof value.user.login === "string" ? value.user.login : null,
+        }
+      : {}),
   };
 }
 
