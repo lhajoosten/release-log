@@ -4,13 +4,14 @@ import type { PendingReleaseInspection, ResolvedReleaseBaseline } from "./git.ts
 import { GitHubProposalRepository } from "./github-proposals.ts";
 import type { ProposalTree } from "./github-proposals.ts";
 import type { GitHubRead } from "./github.ts";
-import { prepareReleaseFileContents } from "./proposal-files.ts";
+import { reconstructProposal } from "./producer-runtime.ts";
+import { capturedVerificationConfiguration, verifyPrevious } from "./proposal-verification.ts";
 import type { ReleaseFileContents } from "./proposal-files.ts";
-import { capturedIdentity, describe, verifyGeneratedTree } from "./proposal-identity.ts";
+import { capturedIdentity, verifyGeneratedTree } from "./proposal-identity.ts";
 import { validateConventionalMessage } from "./conventional.ts";
-import { reconcileReleaseProposal } from "./release-proposal.ts";
+import { selectReleaseCycle } from "./release-cycle.ts";
 import { requireSameReadiness, verifyReleaseReadiness } from "./release-readiness.ts";
-import { parseReleaseInputConfiguration, replayReleaseSnapshot } from "./release-snapshot.ts";
+import { parseReleaseInputConfiguration } from "./release-snapshot.ts";
 import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
 
 import {
@@ -91,8 +92,21 @@ async function localTree(repository: string, commitSha: string): Promise<Proposa
   const commit = await inspectCommit(repository, commitSha);
   return { ...tree, message: commit.message, parents: commit.parentShas };
 }
-async function contents(repository: string, tree: ProposalTree): Promise<ReleaseFileContents> {
+async function contents(
+  repository: string,
+  tree: ProposalTree,
+  includeWorkflow = false,
+): Promise<ReleaseFileContents> {
   const get = async (path: string): Promise<string | null> => {
+    if (path.startsWith(".github/"))
+      for (const name of [".github", ".github/workflows"]) {
+        const entry = tree.entries.get(name);
+        if (entry && (entry.type !== "tree" || entry.mode !== "040000"))
+          throw new ReleaseApprovalError(
+            "content-mismatch",
+            "Workflow directories must be ordinary Git trees.",
+          );
+      }
     const directory = tree.entries.get(".release-log");
     if (
       path.startsWith(".release-log/") &&
@@ -113,6 +127,9 @@ async function contents(repository: string, tree: ProposalTree): Promise<Release
     return readGitBlob(repository, entry.sha);
   };
   return {
+    ".github/workflows/rolling-release-caller.yml": includeWorkflow
+      ? await get(".github/workflows/rolling-release-caller.yml")
+      : null,
     "package.json": await get("package.json"),
     "pyproject.toml": await get("pyproject.toml"),
     "CHANGELOG.md": await get("CHANGELOG.md"),
@@ -190,7 +207,7 @@ async function verifyProposalHistory(
 
     const head = await localTree(repository, commitSha);
     const marker = capturedIdentity(head.message);
-    const files = await contents(repository, head);
+    const files = await contents(repository, head, config.selfUpgrade === true);
     const snapshotJSON = files[".release-log/inputs.json"];
 
     if (snapshotJSON === null)
@@ -207,7 +224,16 @@ async function verifyProposalHistory(
         "Prior proposal snapshots exceed the 16 MiB audit budget.",
       );
 
-    const snapshot = await replayReleaseSnapshot(snapshotJSON, config);
+    const source = await localTree(repository, marker.sourceSha);
+    const { snapshot, prepared, description } = await reconstructProposal(
+      snapshotJSON,
+      capturedVerificationConfiguration(snapshotJSON, config),
+      marker.version,
+      await contents(repository, source, config.selfUpgrade === true),
+      botUserId,
+      marker.previousHeadSha,
+      marker.producerSha,
+    );
     const capturedBaseline = snapshot.input.range.baseline;
     const range = await inspectPendingRelease(
       repository,
@@ -244,13 +270,6 @@ async function verifyProposalHistory(
       sourceSha,
     );
 
-    const source = await localTree(repository, marker.sourceSha);
-    const prepared = await prepareReleaseFileContents(
-      snapshotJSON,
-      config,
-      marker.version,
-      await contents(repository, source),
-    );
     if (
       commitSha === completedHead &&
       `v${prepared.plan.nextVersion}` !==
@@ -260,7 +279,6 @@ async function verifyProposalHistory(
         "identity-mismatch",
         "The completed proposal version does not match its tagged landing.",
       );
-    const description = describe(snapshot, prepared, botUserId, marker.previousHeadSha);
     const parents =
       marker.previousHeadSha && marker.previousHeadSha !== marker.sourceSha
         ? [marker.sourceSha, marker.previousHeadSha]
@@ -334,7 +352,7 @@ export async function captureReleaseReview(
 
   const readiness = await verifyReleaseReadiness(api, config, policy, target);
   const head = await localTree(repository, target.headSha);
-  const files = await contents(repository, head);
+  const files = await contents(repository, head, config.selfUpgrade === true);
   const snapshotJSON = files[".release-log/inputs.json"];
 
   if (snapshotJSON === null)
@@ -343,8 +361,59 @@ export async function captureReleaseReview(
       "The reviewed head does not contain its captured inputs.",
     );
 
-  const snapshot = await replayReleaseSnapshot(snapshotJSON, config);
+  const verified = await verifyPrevious(api, pull, config, policy.botUserId);
+  const snapshot = verified.snapshot;
   const capturedBaseline = snapshot.input.range.baseline;
+  if ((await api.ref("heads", config.releaseBranch)) !== snapshot.normalized.sourceCommitSha)
+    throw new ReleaseApprovalError(
+      "stale-source",
+      "Main changed after capture; refresh and review again.",
+    );
+  if ((await api.ref("heads", api.headRef)) !== target.headSha)
+    throw new ReleaseApprovalError(
+      "stale-source",
+      "The proposal head changed during review capture.",
+    );
+  if (
+    capturedBaseline.kind === "tag" &&
+    (await api.ref("tags", capturedBaseline.name)) !== capturedBaseline.objectSha
+  )
+    throw new ReleaseApprovalError(
+      "baseline-mismatch",
+      "The baseline changed during review capture.",
+    );
+  const history = await api.pulls();
+  if (
+    history.filter((p) => p.state === "open").length !== 1 ||
+    history.some((p) => p.state === "closed" && !p.merged)
+  )
+    throw new ReleaseApprovalError(
+      "identity-mismatch",
+      "Competing or closed unmerged release proposals require recovery before review.",
+    );
+  if (history.some((p) => p.merged)) {
+    const cycle = await selectReleaseCycle(
+      {
+        configuration: config,
+        automation: { schemaVersion: 1, botUserId: policy.botUserId },
+        token,
+        sourceSha: snapshot.normalized.sourceCommitSha,
+      },
+      transport,
+    );
+    if (
+      cycle.outcome !== "selected" ||
+      cycle.baseline.kind !== "tag" ||
+      capturedBaseline.kind !== "tag" ||
+      cycle.baseline.name !== capturedBaseline.name ||
+      cycle.baseline.objectSha !== capturedBaseline.objectSha ||
+      cycle.baseline.commitSha !== capturedBaseline.commitSha
+    )
+      throw new ReleaseApprovalError(
+        "baseline-mismatch",
+        "The reviewed proposal is not based on the latest verified release.",
+      );
+  }
   const range = await inspectPendingRelease(
     repository,
     capturedBaseline.kind === "tag"
@@ -361,30 +430,6 @@ export async function captureReleaseReview(
     throw new ReleaseApprovalError(
       "identity-mismatch",
       "The reviewed snapshot does not match the actual Git baseline and membership.",
-    );
-
-  // Reuse the controller's exact generated-tree/metadata checks without enabling writes.
-  const result = await reconcileReleaseProposal(
-    {
-      snapshot: snapshotJSON,
-      configuration: config,
-      version: capturedIdentity(head.message).version,
-      automation: { schemaVersion: 1, botUserId: policy.botUserId },
-      token,
-      write: false,
-    },
-    transport,
-  );
-
-  if (
-    result.outcome !== "unchanged" ||
-    result.headSha !== target.headSha ||
-    result.pullNumber !== target.pullNumber ||
-    result.proposalId === null
-  )
-    throw new ReleaseApprovalError(
-      "identity-mismatch",
-      "The intended reviewed head is not the complete current generated proposal.",
     );
 
   await verifyProposalHistory(
@@ -428,7 +473,7 @@ export async function captureReleaseReview(
     sourceSha: snapshot.normalized.sourceCommitSha,
     baseline: capturedBaseline,
     snapshotId: snapshot.snapshotId,
-    proposalId: result.proposalId,
+    proposalId: verified.id,
     configurationId: snapshot.configurationId,
     policyId: createHash("sha256").update(JSON.stringify(policy)).digest("hex"),
   };
@@ -566,15 +611,23 @@ export async function verifyReleaseApproval(
       "content-mismatch",
       "The actual landing tree differs from the reviewed proposal tree.",
     );
-  const files = await contents(repository, head);
+  const files = await contents(repository, head, config.selfUpgrade === true);
   const snapshotJSON = files[".release-log/inputs.json"];
   if (snapshotJSON === null)
     throw new ReleaseApprovalError(
       "content-mismatch",
       "The reviewed head does not contain its captured inputs.",
     );
-  const snapshot = await replayReleaseSnapshot(snapshotJSON, config);
   const marker = capturedIdentity(head.message);
+  const { snapshot, prepared, description } = await reconstructProposal(
+    snapshotJSON,
+    capturedVerificationConfiguration(snapshotJSON, config),
+    marker.version,
+    await contents(repository, source, config.selfUpgrade === true),
+    policy.botUserId,
+    marker.previousHeadSha,
+    marker.producerSha,
+  );
   if (
     snapshot.snapshotId !== approval.snapshotId ||
     snapshot.normalized.sourceCommitSha !== approval.sourceSha ||
@@ -587,13 +640,6 @@ export async function verifyReleaseApproval(
       "identity-mismatch",
       "The reviewed snapshot/source/baseline or actual Git membership does not match the independent approval record.",
     );
-  const prepared = await prepareReleaseFileContents(
-    snapshotJSON,
-    config,
-    marker.version,
-    await contents(repository, source),
-  );
-  const description = describe(snapshot, prepared, policy.botUserId, marker.previousHeadSha);
   const expectedHeadParents =
     marker.previousHeadSha && marker.previousHeadSha !== approval.sourceSha
       ? [approval.sourceSha, marker.previousHeadSha]

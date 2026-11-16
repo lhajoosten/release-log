@@ -51,6 +51,8 @@ interface ReleaseRepositoryConfiguration {
   readonly releaseBranch: string;
   readonly releasePolicy: "release-policy-v1";
   readonly contextPolicy?: ReleaseContextPolicy;
+  readonly selfUpgrade?: true;
+  readonly githubRelease?: true;
   readonly changelog?: {
     readonly verbosity: ChangelogVerbosity;
     readonly format?: "classic" | "compact";
@@ -315,6 +317,8 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
       "releasePolicy",
       ...(isObject(value) && value.schemaVersion === 2 ? ["bootstrap"] : []),
       ...(isObject(value) && Object.hasOwn(value, "contextPolicy") ? ["contextPolicy"] : []),
+      ...(isObject(value) && Object.hasOwn(value, "selfUpgrade") ? ["selfUpgrade"] : []),
+      ...(isObject(value) && Object.hasOwn(value, "githubRelease") ? ["githubRelease"] : []),
       ...(isObject(value) && Object.hasOwn(value, "changelog") ? ["changelog"] : []),
       ...(isObject(value) && Object.hasOwn(value, "automationExclusions")
         ? ["automationExclusions"]
@@ -340,6 +344,17 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
     return invalid("Invalid repository identity or release branch in configuration.");
   if (Object.hasOwn(item, "contextPolicy") && !isReleaseContextPolicy(item.contextPolicy))
     return invalid("Context policy must be required or optional.");
+
+  if (
+    Object.hasOwn(item, "selfUpgrade") &&
+    (item.selfUpgrade !== true ||
+      repository !== "lhajoosten/release-log" ||
+      item.repositoryId !== 1449550207)
+  )
+    return invalid("Self-upgrades require explicit trusted release-log repository identity.");
+
+  if (Object.hasOwn(item, "githubRelease") && item.githubRelease !== true)
+    return invalid("Omit githubRelease or explicitly enable it with true.");
 
   const contextPolicy = isReleaseContextPolicy(item.contextPolicy) ? item.contextPolicy : undefined;
   let changelog: ReleaseRepositoryConfiguration["changelog"];
@@ -403,6 +418,8 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
     releaseBranch,
     releasePolicy: "release-policy-v1",
     ...(contextPolicy === undefined ? {} : { contextPolicy }),
+    ...(item.selfUpgrade === true ? { selfUpgrade: true } : {}),
+    ...(item.githubRelease === true ? { githubRelease: true } : {}),
     ...(changelog === undefined ? {} : { changelog }),
     ...(automationExclusions === undefined ? {} : { automationExclusions }),
   };

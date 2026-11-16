@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { loadProducerRuntimes, withProducerRuntimes } from "./producer-runtime.ts";
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -118,6 +119,9 @@ trusted host inputs and exact local asset bytes. It never pushes images; configu
 image roots must already match. No workflow enables it automatically.
 No command merges or runs consumer build scripts.
 Exit codes: 0 success (including no release), 1 operation failure, 2 usage error.
+
+Trusted producer reconstruction: add --producer-runtimes FILE to verification commands.
+The registry contains executable authority; supply it separately from captured release data.
 `;
 
 async function readText(path: string, maximum = 16 * 1024 * 1024): Promise<string> {
@@ -522,7 +526,18 @@ async function runCLI(args: readonly string[]): Promise<string> {
 
 {
   try {
-    process.stdout.write(await runCLI(process.argv.slice(2)));
+    const args = process.argv.slice(2);
+    const index = args.indexOf("--producer-runtimes");
+    if (index !== -1) {
+      const path = args[index + 1];
+      if (!path || path.startsWith("--") || args.lastIndexOf("--producer-runtimes") !== index)
+        throw new UsageError("Supply exactly one trusted --producer-runtimes FILE.");
+      const registry = await loadProducerRuntimes(
+        JSON.parse(await readText(path, 1024 * 1024)) as unknown,
+      );
+      args.splice(index, 2);
+      process.stdout.write(await withProducerRuntimes(registry, () => runCLI(args)));
+    } else process.stdout.write(await runCLI(args));
   } catch (error) {
     const supported =
       error instanceof GitHubReadError ||

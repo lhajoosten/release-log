@@ -406,7 +406,7 @@ export function parseVerifiedReleaseApproval(value: unknown): VerifiedReleaseApp
     !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(item.version) ||
     !Array.isArray(item.files) ||
     item.files.length < 2 ||
-    item.files.length > 4 ||
+    item.files.length > 5 ||
     !Array.isArray(item.automationCommitShas) ||
     item.automationCommitShas.length < 1 ||
     item.automationCommitShas.length > 101
@@ -420,9 +420,13 @@ export function parseVerifiedReleaseApproval(value: unknown): VerifiedReleaseApp
 
     if (
       typeof file.path !== "string" ||
-      !["package.json", "pyproject.toml", "CHANGELOG.md", ".release-log/inputs.json"].includes(
-        file.path,
-      )
+      ![
+        "package.json",
+        "pyproject.toml",
+        "CHANGELOG.md",
+        ".release-log/inputs.json",
+        ".github/workflows/rolling-release-caller.yml",
+      ].includes(file.path)
     )
       return invalid("Verification evidence contains an unsupported output path.");
 
