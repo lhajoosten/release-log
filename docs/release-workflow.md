@@ -47,7 +47,7 @@ The release roll does not require custom approval capture, approval-policy check
 
 Git/PR capture, snapshots, version calculation, Node/Python manifest updates, changelog generation, the recurring proposal controller, tag-bound cycle selector, tag-only command, and integrated `roll` CLI are implemented. The standalone manual rehearsal remains read-only. The root npm package remains private at `0.2.1`. The GHCR `v0.2.1` image has verified anonymous version/digest pulls, CLI execution and a retained-digest publication retry. No npm package or GitHub Release assets are distributed. AI-written release notes are unimplemented; no provider/model is configured.
 
-`.github/workflows/rolling-release.yml` is reusable (`workflow_call`). This repository enables it through `.github/workflows/rolling-release-caller.yml` on merged PRs targeting `main`, with `write: true`. Both the reusable workflow and `tool-sha` pin `8828be515345d761a7375b5c00b1beff0cfabaeb`. That tool revision declares development version `0.0.0`; the runner builds that reviewed source rather than using the newer GHCR image. The runner tool version and the consumer version being released are independent. Review captured tool/configuration identities before deliberately upgrading the pin; the optional self-upgrade controller below remains inactive under this old pin.
+`.github/workflows/rolling-release.yml` is reusable (`workflow_call`). This repository enables it through `.github/workflows/rolling-release-caller.yml` on merged PRs targeting `main`, with `write: true`. Both the reusable workflow and `tool-sha` pin `e3f2d317370447f6608be17941ade53b099d8fd2`, the merged implementation and fixture-fix revision. Its [main-push Quality run](https://github.com/lhajoosten/release-log/actions/runs/43965439163), container-security run and documentation run passed before selection. The caller enables `selfUpgrade` and `githubRelease` and explicitly retains `8828be515345d761a7375b5c00b1beff0cfabaeb` for unrecorded legacy snapshots. The selected runner declares `0.2.1`; its version is independent of the consumer release version. Review the configuration, added App permissions and first bootstrap run as described below.
 
 ## Reusable workflow and callers
 
@@ -94,7 +94,7 @@ The captured caller must still pin the executing producer, so stale queued runs 
 
 ### Reviewed bootstrap
 
-The active `8828be515345d761a7375b5c00b1beff0cfabaeb` caller cannot enable these fields itself. Keep it unchanged while reviewing this implementation. After the implementation is merged and passes CI:
+The original `8828be515345d761a7375b5c00b1beff0cfabaeb` runtime cannot enable these fields itself. This repository bootstraps to the reviewed `e3f2d317370447f6608be17941ade53b099d8fd2` implementation with the explicit legacy verifier below. For an equivalent activation:
 
 1. Choose its reviewed immutable implementation revision. In a separate reviewed caller-pin PR, set both existing pins to that same full SHA.
 2. Add `"selfUpgrade":true` and, to publish GitHub Releases, `"githubRelease":true` to the trusted configuration JSON. Retain the current repository ID and bootstrap/onboarding SHAs.
@@ -106,9 +106,9 @@ The active `8828be515345d761a7375b5c00b1beff0cfabaeb` caller cannot enable these
    ```
 
 4. Approve Actions read and Workflows write on the repository's App installation. The new workflow requests these only for self-upgrades, along with its existing Contents/PR write permissions. Keep the installation repository-limited.
-5. Review a dry-run reconstruction of the existing proposal/history before live refresh. Once the bootstrap landing passes Quality, its merge event can refresh the same open release PR; rerun that event if it initially waited on unfinished CI. Review its new version, enriched capture, changelog, producer identity and both pins before normal human merge.
+5. Review a dry-run reconstruction of the existing proposal/history before live refresh. Once the bootstrap landing passes Quality, its merge event can refresh the same open release PR; rerun that event if it initially stopped on unfinished CI. Review its new version, enriched capture, changelog, producer identity and both pins before normal human merge.
 
-This implementation leaves the active caller pins and configuration unchanged. It creates no historical releases. The owner reported manually publishing `v0.2.1` as latest; an existing stable release is preserved by the new handler.
+The bootstrap updates only caller configuration and operations guidance. The controller refreshes the generated release PR after the bootstrap lands and passes Quality; preparation of this change does not edit the live proposal, create a tag or publish a release. The owner’s manually published `v0.2.1` is reused without editing its notes or latest selection. The App installation’s Actions-read and Workflows-write grants must be confirmed before the first activation run; its public metadata endpoint returned 404, so those grants were not independently audited.
 
 ### Producer reconstruction
 
@@ -132,6 +132,8 @@ For an explicitly trusted local installation, add `--producer-runtimes FILE` to 
 The directory must contain the reviewed producer's `dist/src` modules, its own manifest/lock assets and its installed dependencies. The workflow installer anchors these directories to exact checkouts; local administrators must establish the same provenance before supplying a registry. Programmatic callers can use `loadProducerRuntimes` and `withProducerRuntimes` from `release-log/runtimes`. Ordinary offline snapshot replay remains strict; this mechanism reconstructs prior proposals without changing their snapshots, IDs, tool versions or normalized content.
 
 An offline rehearsal on 2026-11-16 used the actual open PR #83 at `2e4513606c3eadc1f2f8514f6423732d28e4627e` and built its exact `8828be…` producer. Current replay rejected its `0.0.0` schema-3 runtime. Explicit producer reconstruction reproduced its original snapshot ID `2512665575106f1ab52e61d8ab21f7105ae746183b0c4256e443c4193e8fbd9d`, generated tree, commit ancestry/identity, full PR body and proposed `0.3.0` version without edits. This was read-only with synthetic HTTP over local Git objects; it did not refresh the live PR.
+
+The bootstrap rehearsal on 2026-11-16 repeated verification against the refreshed PR #83 at `11634a34b4327207fcfa5a7cb4160885d17c6c9e`, preserving its schema-3 `0.0.0` snapshot ID `d8aa470c0ff882e0774615ebafe2c0fa1aebfe529882bb675fe9e116eb6453b3`. The actual producer installer fetched and built the pinned legacy revision with frozen dependencies. GET-only GitHub access reconstructed the open proposal and all three completed release proposals (#62 / `v0.1.0`, #69 / `v0.2.0` and #73 / `v0.2.1`), verified the current `v0.2.1` cycle and existing GitHub Release, and admitted the chosen candidate’s human merge and successful main-push Quality evidence. Fresh collection of the six current ordinary PRs produced a local schema-5 preview with capture time, six contributor credits, section emojis and the comparison link. The rehearsal made 96 API reads and zero API writes; the eventual bootstrap PR itself is not part of that preview’s source range. Live activation and new release publication remain unexercised.
 
 ### Release publication and recovery
 

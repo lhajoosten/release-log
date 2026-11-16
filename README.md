@@ -58,7 +58,7 @@ The npm package remains private at `0.2.1`. The Linux/amd64 image `ghcr.io/lhajo
 
 Start with the [consumer workflow template](examples/rolling-release.yml) and [setup contract](docs/release-workflow.md#reusable-workflow-and-callers). New consumers need their own repository identity, reviewed bootstrap/onboarding boundaries, trusted configuration and GitHub App installation. Pin both workflow and tool to the same reviewed full commit SHA; the example keeps writes disabled until setup is approved.
 
-The newer controller also supports opt-in [release PR self-upgrades and GitHub Releases](docs/release-workflow.md#self-upgrades-and-github-releases). This repository’s current caller remains pinned to the older tool; a reviewed bootstrap must activate these capabilities while retaining its legacy verification runtime.
+The newer controller also supports opt-in [release PR self-upgrades and GitHub Releases](docs/release-workflow.md#self-upgrades-and-github-releases). This repository’s caller selects the reviewed implementation revision and retains its legacy verification runtime; the operations guide records the bootstrap’s required App permissions and read-only verification evidence.
 
 PRs use conventional titles and the [version 1 release-context block](docs/release-context.md). Context is required by default; consumers can explicitly select the [optional policy](docs/release-context.md#consumer-context-policy). This repository keeps it required.
 
