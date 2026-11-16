@@ -462,8 +462,8 @@ void test("release workflow gates the event SHA image before step-local publicat
     }
   }
   assert.deepEqual(commands.slice(0, 4), [
-    "pnpm container:release validate",
     "pnpm install --frozen-lockfile --ignore-scripts",
+    "pnpm container:release validate",
     "pnpm container:build --tag release-log-candidate:release",
     "pnpm check:container --image release-log-candidate:release",
   ]);

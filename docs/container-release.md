@@ -8,9 +8,11 @@ The [accepted distribution contract](adr/0001-container-distribution.md) selects
 
 The workflow must exist in the tagged source. It does not backfill historical tags lacking the workflow. Rerun the original tag event for recovery; there is deliberately no manual dispatch accepting a branch or arbitrary source. Retagging, tag deletion and force pushing are not recovery mechanisms.
 
-The live rolling caller pins `.github/workflows/rolling-release.yml` and the CLI to `8828be515345d761a7375b5c00b1beff0cfabaeb`. That workflow mints a repository-scoped App installation token, passes it as `RELEASE_LOG_APP_TOKEN`, and the `roll` command uses that token for the `POST /git/refs` tag creation. There is no `GITHUB_TOKEN` fallback. GitHub documents that [App installation-token events can trigger workflows](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow), unlike ordinary `GITHUB_TOKEN` pushes. This establishes the intended event path from inspected code and documentation; observing the downstream run from a new App-created tag remains a live gate.
+The live rolling caller pins `.github/workflows/rolling-release.yml` and the CLI to `8828be515345d761a7375b5c00b1beff0cfabaeb`. That workflow mints a repository-scoped App installation token, passes it as `RELEASE_LOG_APP_TOKEN`, and the `roll` command uses that token for the `POST /git/refs` tag creation. There is no `GITHUB_TOKEN` fallback. GitHub documents that [App installation-token events can trigger workflows](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow), unlike ordinary `GITHUB_TOKEN` pushes. The App-created `v0.2.0` tag has now triggered the downstream workflow; see the bootstrap result below. Successful image publication and public pull access remain live gates.
 
 ## Gates, credentials and evidence
+
+The workflow installs locked dependencies with `pnpm install --frozen-lockfile --ignore-scripts` before running any pnpm script, including tag validation. pnpm 12 can implicitly install dependencies before a script, so validating first could attempt dependency lifecycle builds and leave an ignored-build failure for the subsequent explicit install. Keep the explicit scripts-disabled install first; no dependency build approvals or relaxed build policy are needed.
 
 Root commands are the shared interface:
 
@@ -52,7 +54,7 @@ Workflow concurrency serializes each version and does not cancel an in-progress 
 
 ## Approved live verification procedure
 
-This procedure is prepared, not executed. Obtain authorization for commits/push/PR and the first publication before making this workflow reachable by a new stable tag. Package visibility/access changes require explicit authorization too.
+The complete publication/pull/retry procedure remains unverified; the bootstrap result below records the partial live run. Obtain authorization for commits/push/PR and the first publication before making this workflow reachable by a new stable tag. Package visibility/access changes require explicit authorization too.
 
 1. Review and land the implementation through the normal PR process, then let the human-merged rolling release create the next stable tag containing it. Do not recreate historical tags. Capture the App-created tag ref, exact commit, rolling run and independent Container release run URLs. Confirm that no moving aliases or GitHub Release assets are created.
 2. Inspect the release run's exact checkout/package checks, smoke output, vulnerability evidence and push result. Download `publication.json` and confirm tag, commit, platform and digest. Verify the package is linked to this repository and that the workflow has package access; a preexisting package may require a separately approved Actions access setting.
@@ -61,3 +63,11 @@ This procedure is prepared, not executed. Obtain authorization for commits/push/
 5. If a run fails before push, resolve infrastructure/access issues and rerun the original job. If push status is uncertain, preserve logs and let reconciliation discover the registry state. If source/metadata conflicts or vulnerability gates fail, stop for review. Do not move tags, change visibility/access, delete versions or broaden credentials as an automatic retry.
 
 Record actual run URLs, digest/config ID, tag/commit, scan policy/database identity, clean-client pull result, visibility and approved retry outcome. Local builds and unit fixtures establish none of those live registry/access results.
+
+## Live bootstrap result
+
+On 2026-11-15, the [successful rolling run](https://github.com/lhajoosten/release-log/actions/runs/43761533860) created `v0.2.0` at `f4738a3634edf97e2f5992f1091bb3a6a69e45f0`. The independent [Container release run](https://github.com/lhajoosten/release-log/actions/runs/43761586854) started from that source and passed the exact-tag/package checks. This confirms downstream delivery from the App-created tag.
+
+That run then failed installation with `ERR_PNPM_IGNORED_BUILDS` for esbuild. Its earlier `pnpm container:release validate` invocation had implicitly installed dependencies before the explicit scripts-disabled install. Build, smoke, scan and publication steps were skipped; this run published no image. The corrected order installs explicitly first and is covered by an offline cold-store regression using the workflow's actual command sequence.
+
+Rerunning the original `v0.2.0` event still uses its tagged workflow, so a fix merged to main does not change that run. Use a reviewed subsequent patch release containing the corrected workflow for publication. Do not move or recreate `v0.2.0`, approve dependency scripts, or weaken build checks to recover this ordering defect. Registry visibility, clean-client pulls and retained-digest retry verification remain unverified.
