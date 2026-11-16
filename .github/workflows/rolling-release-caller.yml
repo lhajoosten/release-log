@@ -13,9 +13,9 @@ permissions:
 jobs:
   release:
     if: github.event.pull_request.merged == true
-    uses: lhajoosten/release-log/.github/workflows/rolling-release.yml@e3f2d317370447f6608be17941ade53b099d8fd2
+    uses: lhajoosten/release-log/.github/workflows/rolling-release.yml@6a2c21b329c5ced82fb8c06b0c03a5f905563f53
     with:
-      tool-sha: e3f2d317370447f6608be17941ade53b099d8fd2
+      tool-sha: 6a2c21b329c5ced82fb8c06b0c03a5f905563f53
       verification-runtimes: >-
         [{"sha":"8828be515345d761a7375b5c00b1beff0cfabaeb","legacy":true}]
       release-branch: main
