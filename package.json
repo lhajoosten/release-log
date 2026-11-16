@@ -29,6 +29,7 @@
   },
   "scripts": {
     "build": "node scripts/build.ts",
+    "notes:preview": "node --env-file-if-exists=.env scripts/preview-release-notes.ts",
     "prepack": "pnpm build",
     "container:build": "node scripts/build-container.ts",
     "check:container": "node scripts/check-container.ts",
