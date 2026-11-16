@@ -63,6 +63,11 @@ These components remain available for explicitly designed integrations. They are
 - [Verified automation exclusions](automation-exclusions.md): retain complete captured graphs with independently pinned approval-backed exclusions.
 - [Publication reconciliation and GitHub execution](release-publication.md): inspect receipt-bound outputs or explicitly execute GitHub tag/Release/asset steps.
 
+## Optional AI integration
+
+- [Text generation](text-generation.md): explicit provider/model and local environment configuration, bounded generation and safe errors, independent of deterministic release commands. Release-notes generation itself remains separate work.
+- [AI SDK integration decision](adr/0002-ai-sdk-provider-integration.md): direct provider packages, deferred gateway/subscription execution, and strict TypeScript compatibility.
+
 ## Maintaining these docs
 
 The site renders the Markdown files in `docs/` with VitePress. See [Documentation site](github-pages.md) for preview commands, deployment setup, and publication limitations.

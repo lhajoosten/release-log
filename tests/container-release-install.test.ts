@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
+import { parseDocument } from "yaml";
 
 const execute = promisify(execFile);
 
@@ -59,10 +60,14 @@ void test("container release bootstraps a cold CI install without executing depe
       join(directory, "validate.cjs"),
       "require('node:assert/strict').ok(require('node:fs').existsSync('node_modules/esbuild/package.json')); console.log('validated');\n",
     );
-    const policy = await readFile(new URL("../pnpm-workspace.yaml", import.meta.url), "utf8");
+    const policy = parseDocument(
+      await readFile(new URL("../pnpm-workspace.yaml", import.meta.url), "utf8"),
+    );
+    // This fixture installs only synthetic esbuild, so the SDK declaration patch is unrelated.
+    policy.delete("patchedDependencies");
     await writeFile(
       join(directory, "pnpm-workspace.yaml"),
-      `${policy}\nstoreDir: ${JSON.stringify(join(directory, "store"))}\n`,
+      `${policy.toString()}\nstoreDir: ${JSON.stringify(join(directory, "store"))}\n`,
     );
     await run(["install", "--lockfile-only", "--offline", "--ignore-scripts"], false);
     // Execute the workflow's actual first two pnpm commands, retaining pnpm's automatic

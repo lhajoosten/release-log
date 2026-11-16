@@ -66,6 +66,27 @@ void test(
         code: "ENOENT",
       });
     const cli = join(installed, "dist", "src", "cli.js");
+    await execute(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `
+        import { createTextGeneratorFromEnvironment } from 'release-log/ai';
+        const generate = createTextGeneratorFromEnvironment({
+          RELEASE_LOG_AI_PROVIDER: 'openai-compatible',
+          RELEASE_LOG_AI_MODEL: 'fixture-model',
+          RELEASE_LOG_AI_BASE_URL: 'http://localhost:11434/v1',
+        }, async () => Response.json({
+          choices: [{ message: { content: 'Packaged generation.' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 2 },
+        }));
+        const result = await generate({ instructions: 'Explain.', input: 'Synthetic input.' });
+        if (result.text !== 'Packaged generation.') throw new Error('Invalid packaged AI output');
+      `,
+      ],
+      { cwd: consumer, timeout: 10_000 },
+    );
     assert.ok(!(await readFile(cli, "utf8")).includes("./release-plan.ts"));
     assert.equal(
       await readFile(join(installed, "dist", "dependency-lock.txt"), "utf8"),

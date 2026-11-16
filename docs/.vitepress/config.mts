@@ -24,6 +24,7 @@ export default {
           { text: "Overview", link: "/" },
           { text: "Release policy", link: "/release-policy" },
           { text: "Container distribution decision", link: "/adr/0001-container-distribution" },
+          { text: "AI SDK integration decision", link: "/adr/0002-ai-sdk-provider-integration" },
           { text: "Documentation site", link: "/github-pages" },
         ],
       },
@@ -57,6 +58,7 @@ export default {
       {
         text: "Separate integration APIs",
         items: [
+          { text: "Optional text generation", link: "/text-generation" },
           { text: "Release approval verification", link: "/release-approval" },
           { text: "Verified automation exclusions", link: "/automation-exclusions" },
           { text: "Publication reconciliation/execution", link: "/release-publication" },
