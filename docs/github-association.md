@@ -4,7 +4,7 @@
 
 ## Inputs and network boundary
 
-Supply the GitHub `repository` (`owner/repo`), `releaseBranch`, `localRepository` directory, the `range` returned by [pending-release inspection](git-tag-range.md), and a runtime read-only `token`. Initial adoption also supplies the `onboardingSha` pinned in trusted version 2 configuration; collection verifies baseline-to-onboarding-to-source ancestry before reads. Calling this collection function explicitly enables GitHub.com API reads; offline replay belongs to #16. The optional `GitHubRead` callback replaces only HTTP for fixture tests.
+Supply the GitHub `repository` (`owner/repo`), `releaseBranch`, `localRepository` directory, the `range` returned by [pending-release inspection](git-tag-range.md), and a runtime read-only `token`. Initial adoption also supplies the `onboardingSha` pinned in trusted version 2 configuration; collection verifies baseline-to-onboarding-to-source ancestry before reads. Calling this collection function explicitly enables GitHub.com API reads; offline replay uses the [captured snapshot](release-snapshot.md). The optional `GitHubRead` callback replaces only HTTP for fixture tests.
 
 Before sending credentials, collection re-inspects the immutable baseline/source IDs locally and requires the supplied commit set to match exactly. This does not re-resolve a tag or refresh a source ref. A bootstrap projection verifies graph membership without reinterpreting the captured tag evidence. The original range remains in the result.
 
@@ -36,7 +36,7 @@ Starting at the reported landing ID, walk backward through actual single-parent 
 - A longer mapped sequence must account for the complete original PR commit count. Keep the rewritten landed IDs separately from original IDs; never pretend pre-rebase IDs are the landed commits.
 - Incomplete known footprints/counts, non-linear structures, ambiguity, or a footprint crossing the baseline fail. Missing in-range mapping fails in tagged cycles; the explicit bootstrap exception below can retain an otherwise unowned single-parent commit without claiming PR ownership. There is no merge-date, commit-subject, or patch-text matching fallback.
 
-These guarantees depend on complete, consistent GitHub association evidence. They do not independently reconstruct GitHub's historical rebase operation from patches. A live API pilot remains separately approved work; the implemented histories are verified with synthetic local graphs and mocked HTTP.
+These guarantees depend on complete, consistent GitHub association evidence. They do not independently reconstruct GitHub's historical rebase operation from patches. The [live rolling cycles](release-workflow.md#live-evidence-and-remaining-validation) exercised collection on this repository and a private synthetic sandbox. Broader rebase/fork/API behavior remains bounded by the fixture coverage; those runs do not prove every GitHub history shape.
 
 ## Explicit bootstrap commit evidence
 
@@ -54,7 +54,7 @@ Tagged cycles remain PR-only. The exception does not absorb malformed/ambiguous 
 
 The result also has a `bootstrapCommits` array (empty outside bootstrap); library-supplied associations may omit it to mean empty, but serialized version 3 snapshots require it explicitly. Its entries have only SHA, parents and message—not PR/context fields.
 
-The result is raw association evidence, not a schema-versioned release plan or a factual validation of PR prose. #16 must validate required conventional/context data before producing a usable snapshot. Repeated captured inputs and remote responses produce stable output; live PR metadata remains mutable until captured.
+The result is raw association evidence, not a schema-versioned release plan or a factual validation of PR prose. The [snapshot capture layer](release-snapshot.md) validates required conventional/context data before producing a usable snapshot. Repeated captured inputs and remote responses produce stable output; live PR metadata remains mutable until captured.
 
 Failures throw `PullRequestAssociationError` with an actionable message and code:
 
@@ -82,7 +82,7 @@ Human release-looking PRs are ordinary changes; titles, labels, body text, and b
 
 The read-only [exclusion audit](release-approval.md#audit-an-automation-only-exclusion-footprint) verifies approved landing/generated-head footprints. [Exclusion-enabled collection](automation-exclusions.md) now accepts independently trusted original approval/configuration/policy records and freshly verifies them before and after association reads. The current configuration must pin the resulting exact verification IDs before a snapshot can exclude those PRs from product entries.
 
-All raw graph/PR evidence is retained; schema-4 capture/replay matches proof digests, identity, metadata and complete footprints to the trusted pins. There is no unchecked commit allowlist or blanket bot exemption. Without authority records, reserved automation still fails closed. A verified exclusion is not proof of completed publication or permission to activate a live controller.
+All raw graph/PR evidence is retained; schema-4 capture/replay matches proof digests, identity, metadata and complete footprints to the trusted pins. There is no unchecked commit allowlist or blanket bot exemption. Without authority records, reserved automation still fails closed. A verified exclusion is not publication evidence. The [rolling controller](release-workflow.md) selects verified Git-tag boundaries independently of downstream publication.
 
 ## Verification
 

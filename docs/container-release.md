@@ -1,6 +1,6 @@
 # Stable-tag container publication
 
-The [accepted distribution contract](adr/0001-container-distribution.md) selects GHCR at `ghcr.io/lhajoosten/release-log`, public anonymous pulls, Linux/amd64, canonical `vMAJOR.MINOR.PATCH` image tags and digest references. There are no moving aliases. This implementation has not established a published image or public access. npm publication and the package manifest's `private` flag are independent of GHCR visibility.
+The [accepted distribution contract](adr/0001-container-distribution.md) selects GHCR at `ghcr.io/lhajoosten/release-log`, public anonymous pulls, Linux/amd64, canonical `vMAJOR.MINOR.PATCH` image tags and digest references. There are no moving aliases. The first successful publication is `v0.2.1`; anonymous version/digest pulls and CLI execution were verified on 2026-11-16. See the [live publication evidence](#live-v0-2-1-publication). npm publication and the package manifest's `private` flag are independent of GHCR visibility.
 
 ## Trigger and source
 
@@ -8,7 +8,7 @@ The [accepted distribution contract](adr/0001-container-distribution.md) selects
 
 The workflow must exist in the tagged source. It does not backfill historical tags lacking the workflow. Rerun the original tag event for recovery; there is deliberately no manual dispatch accepting a branch or arbitrary source. Retagging, tag deletion and force pushing are not recovery mechanisms.
 
-The live rolling caller pins `.github/workflows/rolling-release.yml` and the CLI to `8828be515345d761a7375b5c00b1beff0cfabaeb`. That workflow mints a repository-scoped App installation token, passes it as `RELEASE_LOG_APP_TOKEN`, and the `roll` command uses that token for the `POST /git/refs` tag creation. There is no `GITHUB_TOKEN` fallback. GitHub documents that [App installation-token events can trigger workflows](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow), unlike ordinary `GITHUB_TOKEN` pushes. The App-created `v0.2.0` tag has now triggered the downstream workflow; see the bootstrap result below. Successful image publication and public pull access remain live gates.
+The live rolling caller pins `.github/workflows/rolling-release.yml` and the CLI to `8828be515345d761a7375b5c00b1beff0cfabaeb`. That workflow mints a repository-scoped App installation token, passes it as `RELEASE_LOG_APP_TOKEN`, and the `roll` command uses that token for the `POST /git/refs` tag creation. There is no `GITHUB_TOKEN` fallback. GitHub documents that [App installation-token events can trigger workflows](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow), unlike ordinary `GITHUB_TOKEN` pushes. The App-created `v0.2.0` tag has now triggered the downstream workflow; see the bootstrap result below. The subsequent `v0.2.1` publication and anonymous pulls succeeded; see the live evidence below.
 
 ## Gates, credentials and evidence
 
@@ -33,13 +33,19 @@ The workflow uploads `reports/container-release/` for 90 days even on failure. I
 
 After an authorized first push, GHCR initially defaults the package to private. Public visibility must be selected separately in package settings, with approval. Public container packages [allow anonymous access](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry). For a private package, operators need a classic PAT with `read:packages` and package access, or an Actions `GITHUB_TOKEN` for a repository granted package access. Supply tokens through standard input to `docker login`, using a temporary Docker config; never put them in image build arguments.
 
-Once publication and visibility are verified, substitute a published version and its recorded digest:
+The verified `v0.2.1` release can be pulled without logging in. To reproduce with empty Docker authentication:
 
 ```sh
-docker pull --platform linux/amd64 ghcr.io/lhajoosten/release-log:vX.Y.Z
-docker pull --platform linux/amd64 ghcr.io/lhajoosten/release-log@sha256:RECORDED_DIGEST
+docker_config=$(mktemp -d)
+trap 'rm -rf "$docker_config"' EXIT
+export DOCKER_CONFIG="$docker_config"
+
+docker pull --platform linux/amd64 ghcr.io/lhajoosten/release-log:v0.2.1
+docker pull --platform linux/amd64 ghcr.io/lhajoosten/release-log@sha256:1f0ba94d9a78c183942460179721c565f2698cc8523a5f9e868330578ff47c7f
 docker run --rm --network none --read-only --cap-drop ALL \
-  ghcr.io/lhajoosten/release-log@sha256:RECORDED_DIGEST --version
+  ghcr.io/lhajoosten/release-log@sha256:1f0ba94d9a78c183942460179721c565f2698cc8523a5f9e868330578ff47c7f --version
+docker run --rm --network none --read-only --cap-drop ALL \
+  ghcr.io/lhajoosten/release-log@sha256:1f0ba94d9a78c183942460179721c565f2698cc8523a5f9e868330578ff47c7f --help
 ```
 
 Use the digest form in automation. The [runtime guide](container.md#run-with-mounted-inputs) explains read-only input mounts, host UID/GID and explicit writes; replace its local image reference with the published digest. No arm64 support or emulation validation is claimed.
@@ -54,11 +60,11 @@ Workflow concurrency serializes each version and does not cancel an in-progress 
 
 ## Approved live verification procedure
 
-The complete publication/pull/retry procedure remains unverified; the bootstrap result below records the partial live run. Obtain authorization for commits/push/PR and the first publication before making this workflow reachable by a new stable tag. Package visibility/access changes require explicit authorization too.
+Publication and anonymous pull/run checks have passed for `v0.2.1`; the authorized same-event retry also retained the digest with `reused: true` and no push. The live evidence below records the exact scope. Obtain authorization for commits/push/PR and the first publication before making this workflow reachable by a new stable tag. Package visibility/access changes require explicit authorization too.
 
 1. Review and land the implementation through the normal PR process, then let the human-merged rolling release create the next stable tag containing it. Do not recreate historical tags. Capture the App-created tag ref, exact commit, rolling run and independent Container release run URLs. Confirm that no moving aliases or GitHub Release assets are created.
 2. Inspect the release run's exact checkout/package checks, smoke output, vulnerability evidence and push result. Download `publication.json` and confirm tag, commit, platform and digest. Verify the package is linked to this repository and that the workflow has package access; a preexisting package may require a separately approved Actions access setting.
-3. With approval, change the package visibility to public in GHCR settings. On a clean Linux/amd64 client, use a new empty `DOCKER_CONFIG` directory and no login. Pull both version and recorded digest, inspect `RepoDigests` and OCI labels, then run `--version` and `--help`. Confirm the version tag resolves to the recorded digest and the expected source revision. Remove the temporary Docker config afterwards. A previously cached image or authenticated client alone does not prove anonymous pull access.
+3. Check anonymous access first. If the package is private, obtain approval before changing its visibility to public in GHCR settings. On a clean Linux/amd64 client, use a new empty `DOCKER_CONFIG` directory and no login. Pull both version and recorded digest, inspect `RepoDigests` and OCI labels, then run `--version` and `--help`. Confirm the version tag resolves to the recorded digest and the expected source revision. Remove the temporary Docker config afterwards. A previously cached image or authenticated client alone does not prove anonymous pull access.
 4. Obtain approval for a controlled rerun of that same event. Save the original digest. Rerun the completed job using GitHub Actions **Re-run jobs**. Confirm it reports `reused: true`, tests/scans the pulled existing digest, performs no push and preserves the exact digest. Do not manufacture a production conflict. Credential-free tests cover conflicting publication and registry failures.
 5. If a run fails before push, resolve infrastructure/access issues and rerun the original job. If push status is uncertain, preserve logs and let reconciliation discover the registry state. If source/metadata conflicts or vulnerability gates fail, stop for review. Do not move tags, change visibility/access, delete versions or broaden credentials as an automatic retry.
 
@@ -70,4 +76,32 @@ On 2026-11-15, the [successful rolling run](https://github.com/lhajoosten/releas
 
 That run then failed installation with `ERR_PNPM_IGNORED_BUILDS` for esbuild. Its earlier `pnpm container:release validate` invocation had implicitly installed dependencies before the explicit scripts-disabled install. Build, smoke, scan and publication steps were skipped; this run published no image. The corrected order installs explicitly first and is covered by an offline cold-store regression using the workflow's actual command sequence.
 
-Rerunning the original `v0.2.0` event still uses its tagged workflow, so a fix merged to main does not change that run. Use a reviewed subsequent patch release containing the corrected workflow for publication. Do not move or recreate `v0.2.0`, approve dependency scripts, or weaken build checks to recover this ordering defect. Registry visibility, clean-client pulls and retained-digest retry verification remain unverified.
+Rerunning the original `v0.2.0` event still uses its tagged workflow, so a fix merged to main does not change that run. Use a reviewed subsequent patch release containing the corrected workflow for publication. Do not move or recreate `v0.2.0`, approve dependency scripts, or weaken build checks to recover this ordering defect. The subsequent `v0.2.1` evidence below establishes publication and anonymous access. The subsequent controlled retry also passed.
+
+## Live v0.2.1 publication
+
+On 2026-11-16, [release PR #73](https://github.com/lhajoosten/release-log/pull/73) landed at `3c6a50e5192cf9fe110c9bcd2ffe2ed5854cf0be`, the exact `v0.2.1` target. [Container release run 43929562742, attempt 1](https://github.com/lhajoosten/release-log/actions/runs/43929562742/attempts/1) completed successfully after the installation-order fix in [PR #72](https://github.com/lhajoosten/release-log/pull/72). Explicit scripts-disabled installation, exact-source/version validation, build, smoke tests, scan and publication all passed.
+
+| Publication evidence                   | Recorded value                                                                           |
+| -------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Version reference                      | `ghcr.io/lhajoosten/release-log:v0.2.1`                                                  |
+| Manifest digest                        | `sha256:1f0ba94d9a78c183942460179721c565f2698cc8523a5f9e868330578ff47c7f`                |
+| Config digest                          | `sha256:d05bd0fb5b3546e13661586ae4cbf68aaf8de16c6ef02b5a157233c809cf6a21`                |
+| Source/revision                        | `https://github.com/lhajoosten/release-log` / `3c6a50e5192cf9fe110c9bcd2ffe2ed5854cf0be` |
+| Platform / version / reused            | `linux/amd64` / `0.2.1` / `false`                                                        |
+| Artifact                               | `container-release-43929562742-1`, ID `14256319680`                                      |
+| Artifact ZIP SHA-256 (GitHub metadata) | `69f4a8c7245a0880c612263a91d3e63a59431063824fdd2d1d587f7dc1a233f9`                       |
+
+The artifact contains `publication.json` and the full `candidate-scan/` inventory, findings, scanner/database identities and logs. It was downloaded for preservation; GitHub retention expires on 2027-02-14. Preserve a durable copy before expiry. The scan at `2026-11-16T18:32:17.925Z` used Syft `1.57.0`, Grype `0.121.2` and database schema `v6.1.10`, built `2026-11-16T06:30:54Z`. It inventoried 122 packages and recorded five Medium findings, with no High, Critical or Unknown findings; `blocked` was `false`. This is a dated policy result, not a permanent vulnerability verdict.
+
+Anonymous verification used Docker Engine `29.9.1` on Linux/amd64 with a newly created empty Docker config and no login. The release image was absent before the version pull; that pull downloaded the image and returned the recorded manifest digest. The subsequent digest pull also succeeded. Some layers were already cached on the host; this was not an empty Docker daemon. Inspection confirmed Linux/amd64 and the expected OCI source, revision and version labels. Digest-pinned runs with `--network none --read-only --cap-drop ALL` returned `0.2.1` for `--version` and CLI usage for `--help`, both with exit code 0.
+
+These pulls establish anonymous read access at verification time. The available GitHub API credential returned HTTP 403 for package metadata because it lacks `read:packages`; package settings, repository linkage and writer access were not independently audited. No visibility or access settings were changed. Keep the workflow as the sole release-version writer. The authorized controlled rerun below passed; no production conflict was created.
+
+### Controlled same-event retry
+
+With explicit authorization, [attempt 2 of the same event](https://github.com/lhajoosten/release-log/actions/runs/43929562742/attempts/2) completed successfully on 2026-11-16. Its `publication.json` reports `reused: true`; image reference, manifest digest, config digest, source, revision, version and platform exactly match attempt 1. The existing-image branch in the tagged `scripts/container-release.ts` pulls the retained digest, reruns smoke tests and scans it, and contains no `docker push` call. Authenticated Docker output is intentionally suppressed, so the no-push conclusion comes from the observed reuse branch and the reviewed code, rather than a separate registry write audit.
+
+The `reused-scan/evidence.json` scan at `2026-11-16T18:39:53.568Z` names the original config digest and registry digest. It passed with the same scanner versions/database identity, 122 packages and five Medium findings, with `blocked: false`. The saved SBOM and vulnerability report bytes match their recorded SHA-256 hashes. Retry evidence is in artifact `container-release-43929562742-2`, ID `14259730036`, ZIP SHA-256 `297698c8f215ddd1bda3ba1dce074bf7969d35b998935d1bb22046642521bb26` (GitHub metadata), expiring 2027-02-14. Both attempts' full artifacts and logs were downloaded for preservation.
+
+The live matching-publication retry is verified. Conflicts remain covered by credential-free tests; no conflicting production publication or settings change was attempted. GHCR still has no atomic create-only tag write, so retaining the workflow as the sole release-version writer remains a required operating condition.

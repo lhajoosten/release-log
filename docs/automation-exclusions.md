@@ -1,6 +1,6 @@
 # Verified automation in captured release inputs
 
-Collection can retain a verified release PR's complete raw graph while excluding its generated changes from product release entries. This connects the [approval/exclusion audit](release-approval.md) to collection, offline replay, planning and rendering. It does not mark a release published, advance a completed baseline or enable controller writes.
+Collection can retain a verified release PR's complete raw graph while excluding its generated changes from product release entries. This connects the [approval/exclusion audit](release-approval.md) to collection, offline replay, planning and rendering. It does not mark a release published, select a new baseline or enable controller writes. This separate approval-backed API is not required by the [rolling-release workflow](release-workflow.md), which starts each subsequent range at a verified release tag.
 
 ## Trust boundary
 
@@ -59,6 +59,6 @@ Configurations without exclusion pins continue producing/replaying schema-3 snap
 
 ## Completed cycles and remaining gates
 
-An approved release landing is not a completed release. Do not change the baseline to it until publication/reconciliation proves all configured outputs complete. With a real completed tag at the landing, later ranges naturally omit its entire ancestry; an empty next-cycle range remains no-release, and later ordinary changes remain eligible. Retained historical pins do not create product entries when the verified footprint is wholly outside the range.
+For the accepted rolling workflow, the exact version tag establishes the release boundary; downstream artifact publication is independent. These exclusion APIs do not choose or advance that boundary. Callers of the separate receipt-based publication API must interpret its `complete` result relative to their own explicitly configured outputs, rather than impose that completion model on the rolling workflow. With a real completed tag at the landing, later ranges naturally omit its entire ancestry; an empty next-cycle range remains no-release, and later ordinary changes remain eligible. Retained historical pins do not create product entries when the verified footprint is wholly outside the range.
 
-Completed-cycle controller reuse, authenticated host records/check enforcement, publisher/recovery orchestration and controlled live App/race/lifecycle evidence are separate gates. This feature does not create credentials, change settings, activate a workflow, merge release proposals, tag or publish a Release/image. Unit/integration tests use real temporary Git plus replaced HTTP; that is not a live publication proof.
+The rolling controller has [subsequent-cycle live evidence](release-workflow.md#live-evidence-and-remaining-validation). Authenticated host records/check enforcement and live race/publication exercises for this separate approval-backed path remain unverified. This feature does not create credentials, change settings, activate a workflow, merge release proposals, tag or publish a Release/image. Unit/integration tests use real temporary Git plus replaced HTTP; that is not a live publication proof.

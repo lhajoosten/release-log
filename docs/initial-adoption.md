@@ -31,7 +31,7 @@ The IDs above are illustrative; supply the real repository identity and full imm
 
 Do **not** replace `onboardingSha` with the latest main SHA on each refresh. Every later main commit remains after onboarding even while the first release PR is open. Classification uses Git reachability, not author/merge dates. The cutoff is bound into configuration/snapshot/proposal identities; changing it conflicts with existing captured evidence rather than silently refreshing its authority.
 
-For this repository, `release-log.config.json` records baseline `bb0033fb274e69a8aabad6a17d71f18ec9292f60` and onboarding `c28fe6faa4d516847fbc725e9186cc80ac8873af`, the source previously captured by the approved read-only rehearsal. This preserves the original first-commit base and all subsequent membership. It does not rewrite historical PRs. This repository additionally selects `changelog.verbosity: concise`; [verbosity](changelog.md#verbosity) is separate from the fixed history boundaries and never removes breaking warnings or available required actions. Changing that rendering setting requires fresh capture/review, not changing onboarding or replaying old captures against a different configuration.
+For this repository, `release-log.config.json` records baseline `bb0033fb274e69a8aabad6a17d71f18ec9292f60` and onboarding `c28fe6faa4d516847fbc725e9186cc80ac8873af`, the source previously captured by the approved read-only rehearsal. This preserves the original first-commit base and all subsequent membership. It does not rewrite historical PRs. This repository additionally selects `changelog.verbosity: concise` and `changelog.format: compact`; [verbosity](changelog.md#verbosity) is separate from the fixed history boundaries and never removes breaking warnings or available required actions. Changing that rendering setting requires fresh capture/review, not changing onboarding or replaying old captures against a different configuration.
 
 ## Legacy versus new changes
 
@@ -52,7 +52,7 @@ Legacy tolerance does not ignore failed API reads, malformed/ambiguous associati
 With a trusted record in `release-log.config.json`:
 
 ```sh
-release-log collect --config release-log.config.json --repository . --source FULL_SOURCE_SHA --bootstrap-sha FULL_BASELINE_SHA
+release-log collect --config release-log.config.json --repository . --source FULL_SOURCE_SHA --bootstrap-sha FULL_BASELINE_SHA > inputs.json
 release-log plan --config release-log.config.json --snapshot inputs.json --initial-version 0.1.0
 release-log render --config release-log.config.json --snapshot inputs.json --initial-version 0.1.0
 release-log prepare --config release-log.config.json --snapshot inputs.json --initial-version 0.1.0 --repository . --dry-run
@@ -64,7 +64,7 @@ The manual [self-rehearsal](release-rehearsal.md) reads the checked-in configura
 
 ## Compatibility and validation
 
-Snapshot/normalization and plan schemas are version **3**, adding typed historical entries, warning-bearing historical contributions and the pinned onboarding identity. Old captures need their original pinned tool or explicit recapture/review, never relabeling or automatic migration. Approval-record schema remains version 1; its configuration/snapshot/proposal digests bind the new policy as before.
+Default snapshot/normalization and plan schemas are version **3**, adding typed historical entries, warning-bearing historical contributions and the pinned onboarding identity. Optional [approval-backed automation exclusions](automation-exclusions.md) use schema **4**; they are not required for normal tag-bound rolling cycles. Old captures need their original pinned tool or explicit recapture/review, never relabeling or automatic migration. Approval-record schema remains version 1; its configuration/snapshot/proposal digests bind the new policy as before.
 
 Tests cover arbitrary/empty/maintenance history, first-commit-only applications, retained context/breaking explanations, real mixed old/new Git graphs, manual merges, strict new PRs/direct commits, moved/invalid cutoffs, tagged-release version preservation, Node/Python preparation, packed CLI execution and read-only rehearsal. Proposal refresh/merge/squash approval tests retain the same cutoff and reject a changed configuration. Fixtures replace external HTTP only where stated; a successful offline preview is not proof of a live publication.
 

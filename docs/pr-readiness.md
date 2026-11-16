@@ -1,6 +1,6 @@
 # PR metadata readiness
 
-The read-only `PR metadata` workflow implements the ordinary-PR gate from [#14](https://github.com/lhajoosten/release-log/issues/14), using the [accepted release policy](release-policy.md). It is separate from source-quality CI. The workflow and fixtures are implemented; actual event/check behavior still requires an explicitly approved controlled GitHub run after rollout. Required-check settings are not configured by source changes.
+The read-only `PR metadata` workflow implements the ordinary-PR gate from [#14](https://github.com/lhajoosten/release-log/issues/14), using the [accepted release policy](release-policy.md). It is separate from source-quality CI. The deployed workflow has successful ordinary-PR and generated-release-PR runs, as recorded below. Exhaustive edit/fork/failure-event and required-check exercises still need separately authorized controlled validation. Required-check settings are not configured by source changes.
 
 ## Rules
 
@@ -18,7 +18,7 @@ With `optional`, absent context becomes a warning and a null context result, inc
 
 Failures identify the title/context field or commit SHA and the relevant rule. Warning-level conventional rules stay warnings. Internal audience does not skip checks or suppress a version bump; this gate does not calculate versions.
 
-Release-looking titles, branch names, labels, bot authors, and body markers grant no exemption. Generated release PRs must supply the same valid title/context and unscoped commits. Passing metadata checks **does not authenticate a release proposal or authorize publication**. The controller/freshness work in #20/#22 must verify automation identity, snapshot, and generated diff before any automation exclusion or release authorization.
+Release-looking titles, branch names, labels, bot authors, and body markers grant no exemption. Generated release PRs must supply the same valid title/context and unscoped commits. Passing metadata checks **does not authenticate a release proposal or authorize publication**. The [controller/tag path](release-workflow.md) verifies automation identity, snapshot and generated diff independently; metadata readiness alone is never an automation exemption.
 
 ## Current data and bounded failures
 
@@ -35,7 +35,7 @@ Each request has a ten-second timeout, rejects redirects, and bounds decoded res
 
 Diagnostics are single-line JSON, not raw PR text or workflow commands. Tokens, response bodies, and arbitrary network exception messages are not logged. The check reads PR commit messages as data; it neither clones nor executes the fork's source, hooks, configuration, or scripts.
 
-A final read detects mutations during validation, not edits after it finishes. The workflow reruns on `opened`, `synchronize`, `reopened`, `edited`, and `ready_for_review`, cancelling older runs per PR. This is a readiness check, not an immutable metadata attestation: later planning captures/validates current inputs and publication must independently verify freshness. Live check association and edit-trigger behavior remain unverified until the controlled run.
+A final read detects mutations during validation, not edits after it finishes. The workflow reruns on `opened`, `synchronize`, `reopened`, `edited`, and `ready_for_review`, cancelling older runs per PR. This is a readiness check, not an immutable metadata attestation: later planning captures/validates current inputs and publication must independently verify freshness. Successful ordinary/generated-PR checks have been observed; comprehensive edit-trigger, stale-head and fork behavior remain controlled-run gaps.
 
 ## Trusted workflow boundary and rollout
 
@@ -43,7 +43,7 @@ A final read detects mutations during validation, not edits after it finishes. T
 
 Keep these restrictions when editing the workflow. The existing unprivileged `pull_request` Quality workflow continues testing source changes separately. Never move its PR-source execution into the target-context job.
 
-Because the validator is loaded from the base SHA, a PR introducing this workflow cannot prove its own target-context execution. Roll out the trusted implementation first, then use a separately approved sandbox PR to verify:
+Because the validator is loaded from the base SHA, a PR introducing this workflow cannot prove its own target-context execution. The implementation is deployed. Successful [ordinary PR #72 metadata](https://github.com/lhajoosten/release-log/actions/runs/43926736110) and [generated release PR #73 metadata](https://github.com/lhajoosten/release-log/actions/runs/43928611710) runs were observed on 2026-11-16. Those green runs do not establish all event/failure behavior or required-check settings. Use a separately approved sandbox PR to verify remaining scenarios:
 
 - A valid ordinary/fork PR passes and missing context fails with actionable output.
 - Title/body edits, pushes, reopening, and readiness transitions validate current metadata and invalidate failures appropriately.

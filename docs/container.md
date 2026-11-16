@@ -1,6 +1,6 @@
 # Container runtime and local builds
 
-The image wraps the actual [packaged CLI](cli.md), Node.js and Git. `container/Dockerfile`, `scripts/build-container.ts`, `scripts/check-container.ts` and `scripts/scan-container.ts` implement local builds, smoke tests and the vulnerability gate. The separate [stable-tag publication workflow](container-release.md) publishes to GHCR under the [accepted distribution contract](adr/0001-container-distribution.md). No registry publication or public pull access has yet been verified for that workflow. Historical version and scan results below describe those specific local runs, not the current release or a registry verdict.
+The image wraps the actual [packaged CLI](cli.md), Node.js and Git. `container/Dockerfile`, `scripts/build-container.ts`, `scripts/check-container.ts` and `scripts/scan-container.ts` implement local builds, smoke tests and the vulnerability gate. The separate [stable-tag publication workflow](container-release.md) publishes to GHCR under the [accepted distribution contract](adr/0001-container-distribution.md). The `v0.2.1` publication and anonymous pull/run checks passed; see the [recorded digest and installation commands](container-release.md#pull-and-run). Historical version and scan results below describe those specific local runs, not the current release or a registry verdict.
 
 ## Build from locked inputs
 
@@ -25,27 +25,27 @@ To update APK pins, resolve `apk fetch --recursive git ca-certificates zlib` aga
 
 The runtime removes the base image's unused npm/npx and Yarn installations. Installing dependencies happens before the image build; the CLI needs only Node and its already-installed production dependencies. Smoke tests enforce the package managers' absence. This is a runtime-filesystem reduction, not a claim that their bytes disappear from inherited base layers.
 
-These pins make the dependency selection repeatable; they do **not** promise byte-identical OCI digests. Local timestamps, builder versions, compression and provenance can change image bytes. Record the resulting digest when an image is eventually approved/published.
+These pins make the dependency selection repeatable; they do **not** promise byte-identical OCI digests. Local timestamps, builder versions, compression and provenance can change image bytes. Record each published digest; the [v0.2.1 evidence](container-release.md#live-v0-2-1-publication) identifies the first publication.
 
 ## Run with mounted inputs
 
-For offline commands, keep networking disabled and inputs read-only. Match the host UID/GID so Git ownership checks and any explicit output writes work without running the CLI as root:
+Use the published digest below, or substitute `release-log-local:development` after building locally. For offline commands, keep networking disabled and inputs read-only. Match the host UID/GID so Git ownership checks and any explicit output writes work without running the CLI as root:
 
 ```sh
 docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
   --user "$(id -u):$(id -g)" --tmpfs /tmp:rw,nosuid,nodev,noexec,size=32m \
   --mount "type=bind,src=$(pwd),dst=/workspace,readonly" \
-  release-log-local:development plan --config /workspace/release-config.json \
+  ghcr.io/lhajoosten/release-log@sha256:1f0ba94d9a78c183942460179721c565f2698cc8523a5f9e868330578ff47c7f plan --config /workspace/release-config.json \
   --snapshot /workspace/inputs.json --current-version 1.2.3
 ```
 
-The default image user is `1000:1000`, workdir `/workspace`, entrypoint `node /opt/release-log/dist/src/cli.js`. Default command is `--help`. Tool version and `org.opencontainers.image.version` both come from the packaged artifact. Other OCI labels identify title, source, description and MIT license; this local build is not signed release provenance.
+The default image user is `1000:1000`, workdir `/workspace`, entrypoint `node /opt/release-log/dist/src/cli.js`. Default command is `--help`. Tool version and `org.opencontainers.image.version` both come from the packaged artifact. Other OCI labels identify title, source, description and MIT license; the labels are consistency metadata, not signed release provenance.
 
 To use `prepare --write`, deliberately mount a trusted isolated workspace writable (omit `readonly` from that bind mount), still with the matching non-root UID/GID. The root filesystem can remain read-only; temporary proposal files are created beside their intended outputs. Use absolute container paths for configuration/snapshot/repository. Mounted symlinks, lockfile/version restrictions and partial-write recovery follow the existing [CLI contract](cli.md). Do not mount your home directory, credential stores or Docker socket into the tool container.
 
 Git's normal safe-directory ownership checks stay enabled: mismatched repository ownership fails, rather than adding `safe.directory=*`. The image ignores system/global Git configuration and uses an ephemeral `/tmp` home; it does not import host Git credentials or configuration. Prefer matching ownership. Any narrowly scoped exception needs explicit operator configuration, not a blanket image exemption. Complete local history and required objects/tags must already be available; inspection does not fetch them. Git reading never checks out the inspected repository or executes its hooks.
 
-Online `collect`, `propose` or `verify-approval` require separately approved execution, deliberate network access and a runtime-only repository-limited `GITHUB_TOKEN`. Pass it through the runtime environment, not build arguments, image layers, command-line token values, configuration or captured inputs. Credentials do not grant release authority; the proposal/approval trust contracts still apply. The image publication workflow supplies registry credentials only to its final publication step; runtime GitHub access is independent.
+Online `collect`, `propose`, `select-cycle`, `tag-release` or `verify-approval` require separately approved execution, deliberate network access and a runtime-only repository-limited `GITHUB_TOKEN`; `roll` instead requires `RELEASE_LOG_APP_TOKEN` with no fallback. Match token permissions to the command and dry-run/write mode described in the [workflow guide](release-workflow.md). Pass it through the runtime environment, not build arguments, image layers, command-line token values, configuration or captured inputs. Credentials do not grant release authority; the proposal/approval trust contracts still apply. The image publication workflow supplies registry credentials only to its final publication step; runtime GitHub access is independent.
 
 ## Tests and CI
 
@@ -62,7 +62,7 @@ The unprivileged Quality workflow adds a separate `container` job on PRs/main/ma
 
 The 2026-11-14 refreshed Alpine local smoke run measured **325,012,865 bytes uncompressed** (Docker image `Size`), with Node 26.13.0, Git 2.54.1 and packaged CLI 0.0.0. The earlier Alpine run measured 324,924,811 bytes with Git 2.54.0; the first Bookworm build measured 516,838,822 bytes. These are not registry transfer sizes or size limits. The base layers and copied APK archives remain in image history even after runtime removal; this is not a distroless image. No Python interpreter/build backend is needed for static `pyproject.toml` edits.
 
-The [container scan review](container-security.md) records the 2026-11-14 refreshed image and its findings alongside historical image identities, scanner/database identities, remediation, and rejected candidates. Dependency/base pinning is not a vulnerability verdict. Keep the Node tag/digest and APK closure pins explicit; review security updates before each release and promptly for relevant advisories, then rerun `pnpm verify`, `pnpm check:container` and the image scan below. Do not silently float the base or claim an old scan covers a new image.
+The [container scan review](container-security.md) links the published `v0.2.1` candidate and retained-image scans and records historical local image identities, scanner/database identities, remediation and rejected candidates. Dependency/base pinning is not a vulnerability verdict. Keep the Node tag/digest and APK closure pins explicit; review security updates before each release and promptly for relevant advisories, then rerun `pnpm verify`, `pnpm check:container` and the image scan below. Do not silently float the base or claim an old scan covers a new image.
 
 ### Vulnerability gate
 
@@ -87,4 +87,4 @@ The dedicated **Container security** workflow uses read-only repository permissi
 
 Update scanner version/checksum pairs together after reviewing upstream releases; verify the archive SHA-256 against the upstream release assets/checksum records, not a newly fetched binary alone. Database content intentionally stays current rather than permanently pinned; each report records its schema/build/source checksum so historical findings are attributable. Review scheduled failures, relevant advisories and pins before each release. Base/APK-lock or production-dependency changes need a fresh build, full checks, Docker smoke and scan. No expiry bypass or ignore list is accepted merely to make CI green.
 
-The [accepted GHCR contract and publication workflow](container-release.md) define version/digest references, intended public visibility, authentication and safe recovery. First publication, settings changes and public pull verification remain pending authorization and live execution. No package access policy or registry settings were changed. Historical local vulnerability results above apply only to their recorded image/database; passing build/smoke/scan checks does not establish registry publication or pull access.
+The [accepted GHCR contract and publication workflow](container-release.md) define version/digest references, intended public visibility, authentication and safe recovery. The first publication and anonymous version/digest pulls passed for `v0.2.1`; the authorized same-event retry retained the digest with `reused: true` and no push. No package access policy or registry settings were changed. Historical local vulnerability results above apply only to their recorded image/database; passing build/smoke/scan checks does not establish registry publication or pull access.

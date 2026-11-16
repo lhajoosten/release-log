@@ -1,6 +1,6 @@
 # Release input snapshots — versions 3 and 4
 
-`src/release-snapshot.ts` captures the validated inputs for deterministic release planning and replays them offline. This is the draft implementation for [#16](https://github.com/lhajoosten/release-log/issues/16), stacked on the [PR association](github-association.md) component. It is not version calculation, changelog rendering, release authorization, or publication.
+`src/release-snapshot.ts` captures the validated inputs for deterministic release planning and replays them offline. The [PR association](github-association.md) component supplies its complete Git/PR evidence; the [CLI](cli.md) exposes collection and offline planning/rendering. It is not version calculation, changelog rendering, release authorization, or publication.
 
 ## Library boundary
 
@@ -8,7 +8,7 @@
 - `serializeReleaseSnapshot(snapshot)` revalidates the snapshot and returns canonical JSON plus one final newline. It does not write a file.
 - `replayReleaseSnapshot(serialized, expectedConfiguration)` reads only captured data and trusted tool runtime assets. It returns the validated snapshot with the same normalized inputs and identity, without GitHub, Git, credentials, or a local inspected repository.
 
-These are library APIs, not currently available CLI flags. A refresh is a new explicit collection followed by capture. Replay never calls collection or fetches a mutable PR description.
+The CLI `collect` command performs collection and capture; `plan`, `render` and `prepare` replay captured inputs. The functions above are library APIs, not flag names. A refresh is a new explicit collection followed by capture. Replay never calls collection or fetches a mutable PR description.
 
 Configuration version 1 requires these fields:
 
@@ -41,7 +41,7 @@ The default schema-3 envelope permits exactly:
 - `normalized`: deterministic PR metadata/context, raw context blocks (both context and block are null only for an accepted missing block under optional policy), explicit breaking explanations, per-source conventional commit metadata, and recomputed validation results/warnings, with captured repository/range identity. Separate `bootstrapCommits` contain SHA, constructed commit URL and parsed conventional metadata only—never a fabricated PR number, audience or impact/action context. `historicalEntries` separately retain legacy PR/commit identity, original title/subject, nullable valid context, explicit breaking explanations and review issues—without a fabricated validation-success flag or conventional type.
 - `snapshotId`: SHA-256 of the canonical envelope payload excluding `snapshotId` itself.
 
-`normalizerId` binds normalization format revision 3, the resolved conventional rules/parser patterns loaded by the validator, declared runtime dependency versions, and the complete checked-in pnpm lockfile digest. The lockfile includes development tooling, so even a lockfile-only tooling update conservatively invalidates compatibility. The tool version must also match. The current `0.0.0` tool version is a development placeholder, not evidence of a published artifact.
+`normalizerId` binds normalization format revision 3, the resolved conventional rules/parser patterns loaded by the validator, declared runtime dependency versions, and the complete checked-in pnpm lockfile digest. The lockfile includes development tooling, so even a lockfile-only tooling update conservatively invalidates compatibility. The tool version must also match. The tool version comes from its trusted packaged manifest (`0.2.1` at the current release). Older pinned workflows can still run development version `0.0.0`; replay requires the captured runtime identity, not merely the latest CLI.
 
 Schema 4 uses the same envelope fields, sets `schemaVersion: 4`, and binds a separate exclusion-normalizer identity to the existing normalizer. Its input additionally requires `verifiedAutomation`, and normalization additionally requires `excludedPullRequests`. Their exact authority/graph/replay contract is documented in [automation exclusions](automation-exclusions.md); proof fields cannot be added to a schema-3 snapshot as an implicit exemption.
 
@@ -60,9 +60,9 @@ Capture revalidates required fields rather than accepting a stored `valid` flag:
 5. Keep structural merge messages as raw graph evidence, not conventional product entries. Validate original and landed authored messages separately; their raw representations can legitimately differ, for example through API newline representation or rebase. Retain each representation with its source identity.
 6. Recompute normalized values and warnings on replay, compare them and all identities with the stored envelope, and reject mismatches. The caller supplies the expected configuration, not just whatever configuration the snapshot claims.
 
-Graph checks make captured evidence internally consistent; offline replay does not independently prove GitHub association responses, re-read Git objects, verify file diffs, or establish that tags have not moved since collection. Those remain collection/freshness boundaries. PR prose may contain sensitive source information; preserve its raw audit context only in approved storage. Field allowlists prevent accidental API token fields from entering the format, not secrets already written into human-authored prose.
+Graph checks make captured evidence internally consistent; offline replay does not independently prove GitHub association responses, re-read Git objects, verify file diffs, or establish that tags have not moved since collection. Those remain [collection](github-association.md) and [proposal/tag freshness](release-workflow.md) boundaries. PR prose may contain sensitive source information; preserve its raw audit context only in approved storage. Field allowlists prevent accidental API token fields from entering the format, not secrets already written into human-authored prose.
 
-A reserved same-repository bot release branch remains unsupported without the later verified automation identity/diff integration. It cannot be smuggled into a usable snapshot by bypassing the collector. There is no unchecked exclusion list.
+A reserved same-repository bot release branch requires the [verified automation identity/diff integration](automation-exclusions.md) when its footprint is inside the collected range. Normal rolling cycles instead begin at the verified release tag, outside the prior release footprint. It cannot be smuggled into a usable snapshot by bypassing the collector. There is no unchecked exclusion list.
 
 ## Deterministic encoding and resource bounds
 

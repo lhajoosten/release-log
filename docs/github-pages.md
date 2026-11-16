@@ -21,15 +21,17 @@ The build writes static files to `docs/.vitepress/dist/` and fails on broken int
 
 ## GitHub Pages setup
 
-Adding this workflow does not enable Pages or change repository visibility. A repository administrator must complete these steps before deployment can succeed:
+This repository is public and its Pages API reports a public site at `https://lhajoosten.github.io/release-log/`, built through GitHub Actions. The [Documentation run for v0.2.1](https://github.com/lhajoosten/release-log/actions/runs/43929428955) succeeded on 2026-11-16, including build and deployment. No settings were changed during this documentation refresh.
 
-1. Confirm GitHub Pages is available for this private repository under the account's plan. Do not make the repository public just to enable it.
+For a new installation or a settings change, an administrator must review these prerequisites; adding workflow YAML alone does not configure Pages or visibility:
+
+1. Confirm GitHub Pages is available for the repository and account plan, including any private-source/access requirements. Do not make the repository public just to enable it.
 2. Review the documentation for publication and confirm the site's intended visibility. Pages sites can be public even when their source repository is private; do not assume source-repository permissions protect the published site. If private access is required, verify the account supports it and configure access before publishing.
 3. In **Settings → Pages → Build and deployment**, select **GitHub Actions** as the source.
 4. Review the `github-pages` environment's protection rules and restrict deployments to `main`. Require approval if publication needs an additional review step.
 5. After the workflow has merged, run **Documentation → Run workflow** against `main`, or push a documentation update to `main`.
 
-With the default project-site URL, the site is served at `https://lhajoosten.github.io/release-log/`. That address is the intended destination, not evidence that deployment has occurred. The workflow's deployment environment reports the actual URL after a successful run.
+With the default project-site URL, the site is served at `https://lhajoosten.github.io/release-log/`. The linked successful run and Pages API establish this repository's deployment; another consumer must verify its own deployment environment and actual URL.
 
 ## Build and deployment boundaries
 

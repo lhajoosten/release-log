@@ -11,7 +11,7 @@
 - Automatic non-conventional merge messages are not silently ignored by this metadata validator. CI commit-range checks separately exclude multi-parent commits using Git's `--no-merges` filter; that exception does not apply to individual messages or define release classification.
 - Repeated input under the same pinned policy produces the same structured result. Original text is preserved even when the parser normalizes line endings or spacing internally.
 
-The function does not contact GitHub, execute message content, select release members, group changelog entries, interpret PR release context, or call AI. A returned conventional type is not yet a version-bump or changelog-category policy.
+The function does not contact GitHub, execute message content, select release members, group changelog entries, interpret PR release context, or call AI. The [version planner](release-plan.md) and [changelog renderer](changelog.md) apply their separate policies to validated metadata.
 
 ## Verification
 

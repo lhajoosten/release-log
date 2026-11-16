@@ -15,7 +15,7 @@ The [rolling-release workflow guide](docs/release-workflow.md) covers setup, per
 
 ## Proven behavior
 
-This repository uses the source-pinned workflow with proposal/tag writes enabled. Its first release, [v0.1.0](https://github.com/lhajoosten/release-log/tree/v0.1.0), tags the exact landing of [release PR #62](https://github.com/lhajoosten/release-log/pull/62).
+This repository uses the source-pinned workflow with proposal/tag writes enabled. Its first release, [v0.1.0](https://github.com/lhajoosten/release-log/tree/v0.1.0), tags the exact landing of [release PR #62](https://github.com/lhajoosten/release-log/pull/62). Subsequent self-use releases `v0.2.0` and `v0.2.1` also tag their exact release-PR landings, with tag-bound membership and preserved prior changelog content.
 
 A private validation sandbox has also demonstrated:
 
@@ -24,9 +24,23 @@ A private validation sandbox has also demonstrated:
 - Tagging the exact human-merge landing, with no recursive proposal.
 - Repeating a successful tag run with an `unchanged` result and unchanged tags and generated files.
 
-The sandbox uses synthetic examples; it proves those lifecycle behaviors, not production adoption or every failure mode. Controlled stale/tamper, concurrency and missing/conflicting-tag exercises remain outstanding. See [run evidence and remaining validation](docs/release-workflow.md#live-evidence-and-remaining-validation).
+The sandbox uses synthetic examples; it proves those lifecycle behaviors, not independent consumer adoption or every failure mode. Controlled stale/tamper, concurrency and missing/conflicting-tag exercises remain outstanding. See [run evidence and remaining validation](docs/release-workflow.md#live-evidence-and-remaining-validation).
 
-## Try the CLI from source
+## Run the published CLI
+
+On Linux/amd64 with Docker, pull and run the verified `v0.2.1` image without logging in:
+
+```sh
+docker pull --platform linux/amd64 ghcr.io/lhajoosten/release-log:v0.2.1
+docker run --rm --network none --read-only --cap-drop ALL \
+  ghcr.io/lhajoosten/release-log@sha256:1f0ba94d9a78c183942460179721c565f2698cc8523a5f9e868330578ff47c7f --version
+docker run --rm --network none --read-only --cap-drop ALL \
+  ghcr.io/lhajoosten/release-log@sha256:1f0ba94d9a78c183942460179721c565f2698cc8523a5f9e868330578ff47c7f --help
+```
+
+Use the digest reference in automation. The [runtime guide](docs/container.md#run-with-mounted-inputs) shows configuration/snapshot mounts, host UID/GID and explicit writes. Stable version tags and digest references are available; there is no `latest` alias or arm64 image.
+
+## Build the CLI from source
 
 Use Node.js **26.13.0** and pnpm **12.14.0**:
 
@@ -38,7 +52,7 @@ node dist/src/cli.js --help
 
 The [CLI guide](docs/cli.md) covers online collection, offline planning/rendering, dry-run preparation, explicit proposal writes and exact-landing tagging. The [container guide](docs/container.md) covers the local Linux/amd64 image and its smoke/security checks.
 
-The package is private at `0.1.0`. Local/runner tarballs and CI container builds are available; no GitHub Release assets, npm package or published OCI image is established by this rollout. The [stable-tag container workflow](docs/container-release.md) targets GHCR with version tags and digest references; first publication and public pull access remain unverified.
+The npm package remains private at `0.2.1`. The Linux/amd64 image `ghcr.io/lhajoosten/release-log:v0.2.1` is published, and anonymous version/digest pulls plus `--version` and `--help` have passed. Use the [verified pull/run examples and digest](docs/container-release.md#pull-and-run) in automation. The authorized same-event retry retained the digest with `reused: true` and no push. No npm package or GitHub Release assets are distributed.
 
 ## Set up release automation
 
