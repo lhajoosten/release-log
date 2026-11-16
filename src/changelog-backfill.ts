@@ -9,7 +9,13 @@ import {
   sectionEmojis,
   updateChangelog,
 } from "./changelog.ts";
-import { GitInspectionError, inspectGitTree, inspectTagRange, readGitBlob } from "./git.ts";
+import {
+  GitInspectionError,
+  inspectGitTree,
+  inspectTagDate,
+  inspectTagRange,
+  readGitBlob,
+} from "./git.ts";
 import { readGitHubJson } from "./github.ts";
 import type { GitHubRead } from "./github.ts";
 import { parseReleaseInputConfiguration } from "./release-snapshot.ts";
@@ -104,7 +110,15 @@ export async function backfillChangelog(
     const end =
       headings.find((heading) => (heading.position?.start.offset ?? 0) > start)?.position?.start
         .offset ?? existing.length;
-    return [{ tag: match[1], start, end }];
+    return [
+      {
+        tag: match[1],
+        start,
+        end,
+        headingEnd: node.position?.end.offset ?? start,
+        dated: /\d{4}-\d{2}-\d{2}/u.test(match[0]),
+      },
+    ];
   });
   if (
     releases.length > 1000 ||
@@ -118,6 +132,35 @@ export async function backfillChangelog(
     const range = await inspectTagRange(repository, previous?.tag ?? release.tag, release.tag);
     if (!range.fromIsAncestor)
       throw new ChangelogError("Changelog release tags are not in ancestry order.");
+    if (!release.dated) {
+      const captured = tree.children.find(
+        (node) =>
+          node.type === "paragraph" &&
+          (node.position?.start.offset ?? -1) > release.start &&
+          (node.position?.start.offset ?? release.end) < release.end &&
+          /^Inputs captured at: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z \(UTC; not a release date\)\.$/u.test(
+            existing.slice(node.position?.start.offset, node.position?.end.offset),
+          ),
+      );
+      const recorded =
+        captured &&
+        /^Inputs captured at: (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)/u.exec(
+          existing.slice(captured.position?.start.offset, captured.position?.end.offset),
+        )?.[1];
+      if (
+        recorded &&
+        (!Number.isFinite(Date.parse(recorded)) || new Date(recorded).toISOString() !== recorded)
+      )
+        throw new ChangelogError("The recorded snapshot capture timestamp is invalid.");
+      const fallback = recorded ? null : await inspectTagDate(repository, range.to);
+      const date = recorded ? recorded.slice(0, 10) : fallback?.date;
+      if (!date) throw new ChangelogError("No recorded date is available for this release.");
+      edits.push({
+        start: release.headingEnd,
+        end: release.headingEnd,
+        text: ` (${date})${fallback ? `\n\nDate source: ${fallback.source} (UTC); snapshot capture time unavailable.` : ""}`,
+      });
+    }
     if (previous) {
       const url = `https://github.com/${config.repository}/compare/${encodeComparisonRef(previous.tag)}...${encodeComparisonRef(release.tag)}`;
       const section = existing.slice(release.start, release.end);

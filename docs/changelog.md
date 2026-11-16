@@ -39,7 +39,7 @@ Section icons are fixed defaults for schema 5, alongside readable labels. There 
 
 For subsequent releases, `Full changelog` compares the actual captured baseline tag against the full captured source SHA, with each ref encoded as a URL path segment. The link is explicitly labelled **captured source**; a pending version tag is never presented as already available. This link stays pinned to captured inputs when the proposal becomes released, rather than silently changing history to a tag comparison. First-release/bootstrap output omits the comparison because it has no prior release tag. Membership and version decisions are unchanged.
 
-Normal refresh still replaces only pending content. To enrich existing released sections deliberately, use the optional [backfill command](cli.md#backfill-existing-releases). It is separate from normal rendering and uses present-day author evidence rather than reconstructing past captures.
+Normal refresh still replaces only pending content. To enrich existing released sections deliberately, use the optional [backfill command](cli.md#backfill-existing-releases). It is separate from normal rendering and uses present-day author evidence rather than reconstructing past captures. Missing historical dates fall back deterministically to the annotated tag’s date or the tagged commit’s committer date for lightweight tags, with an explicit source label; this does not invent a historical capture time.
 
 ## Format
 
