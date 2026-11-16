@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { test } from "node:test";
 import type { TestContext } from "node:test";
 import { loadProducerRuntimes, withProducerRuntimes } from "../src/producer-runtime.ts";
@@ -257,10 +259,16 @@ void test("creation, retry, refresh, changed caller pin and merge routing preser
         /trusted verification runtime/u,
       );
     });
+    // Retain the runner identity from capture; the release PR may have bumped
+    // the checkout package version independently of the consumer fixture.
+    const producerVersion = (await replayReleaseSnapshot(request.snapshot, request.configuration))
+      .tool.version;
     // Next handler uses the newly proposed pin, retaining the prior producer.
     const next = await loadProducerRuntimes({
       activeSha: refreshed.sourceSha,
-      producers: [{ sha: activeSha, directory: await producer(context, "0.2.1"), legacy: false }],
+      producers: [
+        { sha: activeSha, directory: await producer(context, producerVersion), legacy: false },
+      ],
     });
     await withProducerRuntimes(next, async () => {
       const result = await rollRelease(
@@ -576,4 +584,37 @@ void test("legacy permission, dependency locks and runtime identities stay defau
     },
   ])
     await assert.rejects(loadProducerRuntimes(value));
+});
+
+void test("producer reconstruction follows the captured runner version after a package bump", async (context) => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const directory = await mkdtemp(join(tmpdir(), "release-tool-version-"));
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  for (const path of ["src", "tests"])
+    await cp(join(root, path), join(directory, path), { recursive: true });
+  for (const path of ["pnpm-lock.yaml", "commitlint.base.config.mjs"])
+    await cp(join(root, path), join(directory, path));
+  await symlink(join(root, "node_modules"), join(directory, "node_modules"), "dir");
+  const manifest = object(
+    JSON.parse(await readFile(join(root, "package.json"), "utf8")) as unknown,
+  );
+  await writeFile(
+    join(directory, "package.json"),
+    JSON.stringify({ ...manifest, version: "9.8.7" }),
+  );
+  // Run the full transition in another package, without changing the checkout or
+  // rewriting captured tool identities. The filter prevents recursive execution.
+  const environment = { ...process.env };
+  delete environment.NODE_TEST_CONTEXT;
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [
+      "--test",
+      "--test-reporter=tap",
+      "--test-name-pattern=^creation, retry, refresh, changed caller pin and merge routing preserve exact-landing tags$",
+      "tests/tool-upgrade.test.ts",
+    ],
+    { cwd: directory, env: environment, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 },
+  );
+  assert.match(stdout, /^# pass 1$/mu);
 });
