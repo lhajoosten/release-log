@@ -1,6 +1,31 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:9a27ba550c713a5dc6b38bb937435804330e1d929d52cef6540187a0e75acead -->
+<!-- release-log:pending:v1 sha256:842de98e8768d37116359d52537f40ab89310b8cb0300c237c11f1d1dd4bf763 -->
+
+## v0.3.0
+
+### Features
+
+- Add capture timestamps&#44; contributor credits&#44; section emojis and full comparison links to changelogs&#44; plus an optional command to enrich existing releases with recorded tag&#45;date fallbacks&#46; ([#81](https://github.com/lhajoosten/release-log/pull/81))
+- Add optional text generation through explicitly configured AI providers&#46; ([#82](https://github.com/lhajoosten/release-log/pull/82))
+- Support release PR tool upgrades and GitHub Release publication&#46; ([#84](https://github.com/lhajoosten/release-log/pull/84))
+
+### Documentation
+
+- Document the published CLI and current release operations&#46; ([#74](https://github.com/lhajoosten/release-log/pull/74))
+
+### Required actions
+
+- Enable the trusted configuration options through the documented reviewed bootstrap and retain the required producer runtimes and App permissions&#46; ([#84](https://github.com/lhajoosten/release-log/pull/84))
+
+<details>
+<summary>Internal maintenance</summary>
+
+- Record worker findings and owner&#45;requested issue closures&#46; ([#79](https://github.com/lhajoosten/release-log/pull/79))
+
+</details>
+
+<!-- release-log:pending:end -->
 
 ## v0.2.1
 
@@ -8,7 +33,6 @@
 
 - Fix dependency installation for tagged container releases&#46; ([#72](https://github.com/lhajoosten/release-log/pull/72))
 
-<!-- release-log:pending:end -->
 
 ## v0.2.0
 
