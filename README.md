@@ -64,7 +64,7 @@ The App maintains proposals and tags; a human reviews and merges release PRs. Ma
 
 ## Optional AI notes
 
-AI-written user-facing release notes are planned and remain unimplemented; no provider or model is configured. Ordinary changelog generation works without AI credentials or an available provider.
+AI-written user-facing release notes are planned and remain unimplemented. A separate [optional text-generation API](docs/text-generation.md) now supports explicit OpenAI, Anthropic, Azure and OpenAI-compatible connections through AI SDK Core; no provider or model is enabled by default. Ordinary changelog generation works without AI credentials or an available provider. The [architecture decision](docs/adr/0002-ai-sdk-provider-integration.md) records the provider integration choice.
 
 AI will not determine release membership, classification or breaking status. Any future notes must preserve supported impact, warnings, required actions and source references, omit explicitly internal changes, and avoid invented claims. AI output is a separate artifact from the deterministic changelog.
 

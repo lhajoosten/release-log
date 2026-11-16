@@ -13,6 +13,8 @@
   },
   "files": [
     "dist",
+    "patches",
+    "pnpm-workspace.yaml",
     "README.md",
     "LICENSE.md"
   ],
@@ -22,7 +24,8 @@
     "./proposals": "./dist/src/release-proposal.js",
     "./approval": "./dist/src/release-approval.js",
     "./publication": "./dist/src/release-publication.js",
-    "./tags": "./dist/src/release-tag.js"
+    "./tags": "./dist/src/release-tag.js",
+    "./ai": "./dist/src/text-generation.js"
   },
   "scripts": {
     "build": "node scripts/build.ts",
@@ -49,10 +52,15 @@
     "container:release": "node scripts/container-release.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "3.0.142",
+    "@ai-sdk/azure": "3.0.154",
+    "@ai-sdk/openai": "3.0.143",
+    "@ai-sdk/openai-compatible": "2.0.93",
     "@commitlint/config-conventional": "21.2.4",
     "@commitlint/lint": "21.2.4",
     "@commitlint/load": "21.2.4",
     "@commitlint/parse": "21.2.3",
+    "ai": "6.0.332",
     "mdast-util-from-markdown": "2.1.0",
     "toml-eslint-parser": "1.0.3",
     "yaml": "2.9.1"
