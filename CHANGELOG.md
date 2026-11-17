@@ -1,5 +1,40 @@
 # Changelog
 
+<!-- release-log:pending:v1 sha256:f8b9a6918553ccb1c78f94561d1798160ef2399b502ebdbe15acf1fab30e35a2 -->
+
+## v0.3.0 (2026-11-16)
+
+Inputs captured at: 2026-11-16T22:50:57.970Z (UTC; not a release date).
+
+### ✨ Features
+
+- Add capture timestamps&#44; contributor credits&#44; section emojis and full comparison links to changelogs&#44; plus an optional command to enrich existing releases with recorded tag&#45;date fallbacks&#46; ([#81](https://github.com/lhajoosten/release-log/pull/81)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Add optional text generation through explicitly configured AI providers&#46; ([#82](https://github.com/lhajoosten/release-log/pull/82)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Support release PR tool upgrades and GitHub Release publication&#46; ([#84](https://github.com/lhajoosten/release-log/pull/84)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+### 📚 Documentation
+
+- Document the published CLI and current release operations&#46; ([#74](https://github.com/lhajoosten/release-log/pull/74)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+### 🛠️ Required actions
+
+- Enable the trusted configuration options through the documented reviewed bootstrap and retain the required producer runtimes and App permissions&#46; ([#84](https://github.com/lhajoosten/release-log/pull/84))
+
+<details>
+<summary>🔧 Internal maintenance</summary>
+
+- Record worker findings and owner&#45;requested issue closures&#46; ([#79](https://github.com/lhajoosten/release-log/pull/79)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Keep release lifecycle fixtures compatible with package version bumps&#46; ([#85](https://github.com/lhajoosten/release-log/pull/85)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Activate the reviewed release controller with trusted legacy replay and GitHub Release publication&#46; ([#86](https://github.com/lhajoosten/release-log/pull/86)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+</details>
+
+<br>
+
+Full changelog: [v0&#46;2&#46;1&#8230;6a2c21b329c5ced82fb8c06b0c03a5f905563f53](https://github.com/lhajoosten/release-log/compare/v0.2.1...6a2c21b329c5ced82fb8c06b0c03a5f905563f53) (captured source).
+
+<!-- release-log:pending:end -->
+
 ## v0.2.1 (2026-11-16)
 
 ### 🐛 Fixes
