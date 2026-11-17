@@ -82,11 +82,6 @@ function presentation(snapshot: ReleaseSnapshot, content: string): string {
       "<summary>Internal maintenance</summary>",
       "<summary>🔧 Internal maintenance</summary>",
     );
-  const headingEnd = result.indexOf("\n\n") + 2;
-  result =
-    result.slice(0, headingEnd) +
-    `Inputs captured at: ${snapshot.capturedAt} (UTC; not a release date).\n\n` +
-    result.slice(headingEnd);
   const baseline = snapshot.input.range.baseline;
   if (baseline.kind === "tag") {
     const source = snapshot.input.range.sourceCommitSha;

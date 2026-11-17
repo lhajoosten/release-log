@@ -184,6 +184,129 @@ export async function reconcilePublication(
   return { existing, result, image };
 }
 
+function imageVersion(publication: NonNullable<Publication>): string {
+  const labels = record(record(record(publication.image).config).Labels);
+  const version = labels["org.opencontainers.image.version"];
+  const revision = labels["org.opencontainers.image.revision"];
+  if (
+    typeof version !== "string" ||
+    !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(version) ||
+    version.length > 128 ||
+    typeof revision !== "string" ||
+    !/^[a-f0-9]{40}$/u.test(revision)
+  )
+    throw new Error("Latest image has invalid version or source labels.");
+  checkImage(publication.image, `v${version}`, revision);
+  return version;
+}
+
+function compareVersions(left: string, right: string): number {
+  const a = left.split(".").map(BigInt);
+  const b = right.split(".").map(BigInt);
+  for (const index of [0, 1, 2]) {
+    const x = a[index];
+    const y = b[index];
+    if (x === undefined || y === undefined) throw new Error("Invalid stable image version.");
+    if (x !== y) return x > y ? 1 : -1;
+  }
+  return 0;
+}
+
+export async function copyLatestManifest(
+  digest: string,
+  token: string,
+  request: typeof fetch = fetch,
+): Promise<void> {
+  if (!digestPattern.test(digest)) throw new Error("Invalid latest source digest.");
+  const url = `https://ghcr.io/v2/lhajoosten/release-log/manifests/`;
+  const types = [
+    "application/vnd.docker.distribution.manifest.v2+json",
+    "application/vnd.oci.image.manifest.v1+json",
+  ];
+  const response = await request(url + digest, {
+    headers: { Authorization: `Bearer ${token}`, Accept: types.join(", ") },
+    signal: AbortSignal.timeout(30_000),
+    redirect: "error",
+  });
+  if (!response.ok) throw new Error(`Latest manifest read failed (${response.status}).`);
+  const body = await response.text();
+  const mediaType = response.headers.get("content-type")?.split(";")[0]?.trim();
+  if (
+    !mediaType ||
+    !types.includes(mediaType) ||
+    record(JSON.parse(body)).schemaVersion !== 2 ||
+    `sha256:${createHash("sha256").update(body).digest("hex")}` !== digest ||
+    response.headers.get("docker-content-digest") !== digest
+  )
+    throw new Error("Latest manifest bytes or media type differ from the verified publication.");
+  // Copy the exact manifest, preserving its digest; do not rebuild or create an index.
+  const written = await request(url + "latest", {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": mediaType },
+    body,
+    signal: AbortSignal.timeout(30_000),
+    redirect: "error",
+  });
+  if (written.status !== 201 || written.headers.get("docker-content-digest") !== digest)
+    throw new Error(
+      "Latest manifest write failed or has an uncertain result; inspect and retry from registry state.",
+    );
+}
+
+export async function reconcileLatestAlias(
+  tag: string,
+  sha: string,
+  publication: NonNullable<Publication>,
+  currentLatest: () => Promise<Publication>,
+  currentVersion: () => Promise<Publication>,
+  copy: () => Promise<void>,
+) {
+  if (!digestPattern.test(publication.digest))
+    throw new Error("Invalid verified publication digest.");
+  checkImage(publication.image, tag, sha);
+  const version = imageVersion(publication);
+  const decision = (latest: Publication) => {
+    if (!latest) return "update" as const;
+    const compared = compareVersions(imageVersion(latest), version);
+    if (compared > 0) return "retained-newer" as const;
+    if (compared === 0) {
+      if (latest.digest !== publication.digest)
+        throw new Error("Latest conflicts with the immutable version publication.");
+      return "unchanged" as const;
+    }
+    return "update" as const;
+  };
+  const result = (
+    outcome: "updated" | "unchanged" | "retained-newer",
+    latest: NonNullable<Publication>,
+  ) => ({
+    outcome,
+    image: `${repository}:latest`,
+    digest: latest.digest,
+    version: imageVersion(latest),
+  });
+  let latest = await currentLatest();
+  let outcome = decision(latest);
+  if (latest && outcome !== "update") return result(outcome, latest);
+  const versionBefore = await currentVersion();
+  if (!versionBefore || versionBefore.digest !== publication.digest)
+    throw new Error("Version tag changed before latest promotion.");
+  checkImage(versionBefore.image, tag, sha);
+  latest = await currentLatest();
+  outcome = decision(latest);
+  if (latest && outcome !== "update") return result(outcome, latest);
+  await copy();
+  const after = await currentLatest();
+  if (!after || after.digest !== publication.digest)
+    throw new Error("Latest digest differs after promotion; inspect before retrying.");
+  checkImage(after.image, tag, sha);
+  const versionAfter = await currentVersion();
+  if (!versionAfter || versionAfter.digest !== publication.digest)
+    throw new Error("Version tag changed during latest promotion.");
+  checkImage(versionAfter.image, tag, sha);
+  return result("updated", after);
+}
+
 async function git(ref: string) {
   return (await execute("git", ["rev-parse", ref])).stdout.trim();
 }
@@ -201,7 +324,7 @@ async function main() {
   const credential = process.env.GHCR_TOKEN;
   const actor = process.env.GHCR_ACTOR;
   if (!credential || !actor) throw new Error("Publication requires step-local GHCR credentials.");
-  async function current() {
+  async function registryToken() {
     const auth = await fetch(
       "https://ghcr.io/token?service=ghcr.io&scope=repository:lhajoosten/release-log:pull,push",
       {
@@ -215,8 +338,9 @@ async function main() {
     if (!auth.ok) throw new Error(`Registry authentication failed (${auth.status}).`);
     const token = record(await auth.json()).token;
     if (typeof token !== "string" || !token) throw new Error("Missing registry bearer token.");
-    return publicationDecision(tag, sha, token);
+    return token;
   }
+  const current = async () => publicationDecision(tag, sha, await registryToken());
   const directory = await mkdtemp(join(tmpdir(), "release-publish-"));
   const environment = { PATH: process.env.PATH, HOME: process.env.HOME };
   async function run(file: string, args: string[], authenticated = false) {
@@ -251,6 +375,14 @@ async function main() {
           await readFile("reports/container-release/candidate-scan/evidence.json", "utf8"),
         ) as unknown,
     );
+    const latest = await reconcileLatestAlias(
+      tag,
+      sha,
+      result,
+      async () => readPublication("latest", await registryToken()),
+      current,
+      async () => copyLatestManifest(result.digest, await registryToken()),
+    );
     const evidence = {
       image,
       digestReference: `${repository}@${result.digest}`,
@@ -260,6 +392,7 @@ async function main() {
       platform: "linux/amd64",
       configDigest: result.configDigest,
       reused: existing !== null,
+      latest,
       runId: process.env.GITHUB_RUN_ID,
       runAttempt: process.env.GITHUB_RUN_ATTEMPT,
     };
@@ -271,7 +404,7 @@ async function main() {
     if (process.env.GITHUB_STEP_SUMMARY)
       await appendFile(
         process.env.GITHUB_STEP_SUMMARY,
-        `Published/retained \`${evidence.digestReference}\`\n\nSource: \`${sha}\`; tag: \`${tag}\`; reused: ${evidence.reused}\n`,
+        `Published/retained \`${evidence.digestReference}\`\n\nSource: \`${sha}\`; tag: \`${tag}\`; reused: ${evidence.reused}\n\nLatest: ${latest.outcome} at \`${latest.digest}\`\n`,
       );
     process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
   } finally {

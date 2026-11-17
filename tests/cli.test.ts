@@ -175,7 +175,8 @@ void test(
 
       assert.equal(rendered.includes("  - Impact:"), verbosity === "detailed");
       assert.match(rendered, /^## v1\.2\.4/u);
-      assert.ok(rendered.includes("Inputs captured at: 2026-11-16T20:34:56.789Z"));
+      assert.ok(!rendered.includes("Inputs captured at:"));
+      assert.ok(rendered.includes("(2026-11-16)"));
       assert.ok(rendered.includes("### 🐛 Fixes"));
       assert.ok(rendered.includes("https://github.com/cli-author"));
       assert.ok(rendered.includes("/compare/v1.2.3..."));

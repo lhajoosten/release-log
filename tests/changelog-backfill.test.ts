@@ -171,11 +171,7 @@ void test("backfill enriches a tagged release that still has its committed pendi
   );
   assert.ok(after.includes("## v0.2.1 (2026-01-02)"));
   assert.ok(after.includes("### 🐛 Fixes"));
-  assert.ok(
-    after.includes(
-      "Date source: tagged commit committer (UTC); snapshot capture time unavailable.",
-    ),
-  );
+  assert.ok(!after.includes("Date source:"));
   assert.ok(!after.includes("<!-- release-log:pending:"));
   assert.ok(after.includes("/compare/v0.2.0...v0.2.1"));
   assert.equal(
@@ -269,11 +265,7 @@ void test("backfill date precedence preserves recorded dates and uses immutable 
     unavailableAuthor,
   );
   assert.ok(lightweight.includes("## v0.2.0 (2026-01-02)"));
-  assert.ok(
-    lightweight.includes(
-      "Date source: tagged commit committer (UTC); snapshot capture time unavailable.",
-    ),
-  );
+  assert.ok(!lightweight.includes("Date source:"));
   const dated = existing.replace("## v0.2.0", "## v0.2.0 (2025-12-12)");
   assert.ok(
     (
@@ -328,9 +320,7 @@ void test("backfill date precedence preserves recorded dates and uses immutable 
     unavailableAuthor,
   );
   assert.ok(annotated.includes("## v0.2.1 (2026-02-02)"));
-  assert.ok(
-    annotated.includes("Date source: annotated tag (UTC); snapshot capture time unavailable."),
-  );
+  assert.ok(!annotated.includes("Date source:"));
   assert.equal(
     await backfillChangelog(
       annotated,
@@ -341,4 +331,35 @@ void test("backfill date precedence preserves recorded dates and uses immutable 
     ),
     annotated,
   );
+});
+
+void test("backfill removes capture paragraphs while preserving their date and authored prose", async (context) => {
+  const { path } = await fixture(context);
+  for (const heading of ["## v0.2.0", "## v0.2.0 (2025-12-12)"]) {
+    const input = existing.replace(
+      "## v0.2.0",
+      `${heading}\n\nDate source: tagged commit committer (UTC); snapshot capture time unavailable.\n\nInputs captured at: 2026-03-04T05:06:07.000Z (UTC; not a release date).`,
+    );
+    const result = await backfillChangelog(
+      input,
+      fixtureConfiguration,
+      path,
+      "synthetic-token",
+      unavailableAuthor,
+    );
+    assert.ok(!result.includes("Inputs captured at:"));
+    assert.ok(!result.includes("Date source:"));
+    assert.ok(result.includes(heading.endsWith(")") ? heading : "## v0.2.0 (2026-03-04)"));
+    assert.ok(result.includes("### 🐛 Fixes"));
+    assert.equal(
+      await backfillChangelog(
+        result,
+        fixtureConfiguration,
+        path,
+        "synthetic-token",
+        unavailableAuthor,
+      ),
+      result,
+    );
+  }
 });

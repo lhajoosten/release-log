@@ -2,6 +2,8 @@
 
 Status: accepted, 2026-11-15. Implementation and local verification do not authorize first publication or a visibility change.
 
+The exclusion of `latest` and per-version writer serialization are superseded by [ADR 0004](0004-release-presentation-and-latest.md). Other distribution boundaries remain in force.
+
 ## Context
 
 The rolling release workflow already creates a version tag at a manually merged release landing. Consumers need a pullable packaged CLI. Distribution must take that tag as input without depending on proposal approval receipts or the older publication executor.
