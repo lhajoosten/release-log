@@ -426,6 +426,7 @@ void test("release workflow gates the event SHA image before step-local publicat
   assert.deepEqual(workflow.concurrency, {
     group: "container-release",
     "cancel-in-progress": false,
+    queue: "max",
   });
   assert.ok(
     typeof workflow.jobs === "object" && workflow.jobs !== null && "publish" in workflow.jobs,
