@@ -38,7 +38,7 @@ docker run --rm --network none --read-only --cap-drop ALL \
   ghcr.io/lhajoosten/release-log@sha256:1f0ba94d9a78c183942460179721c565f2698cc8523a5f9e868330578ff47c7f --help
 ```
 
-Use the digest reference in automation. The [runtime guide](docs/container.md#run-with-mounted-inputs) shows configuration/snapshot mounts, host UID/GID and explicit writes. Stable version tags and digest references are available; there is no `latest` alias or arm64 image.
+Use the digest reference in automation. The [runtime guide](docs/container.md#run-with-mounted-inputs) shows configuration/snapshot mounts, host UID/GID and explicit writes. Stable version tags and digest references are available. The updated publisher also promotes `ghcr.io/lhajoosten/release-log:latest` to the highest successfully published stable version with the same digest; its first live promotion is pending a release containing that implementation. No arm64 image is provided.
 
 ## Build the CLI from source
 
