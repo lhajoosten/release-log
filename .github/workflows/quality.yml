@@ -70,6 +70,18 @@ jobs:
       - name: Verify formatting, lint, types, and tests
         run: pnpm verify
 
+      - name: Reject stale release proposals
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'release-log/main'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          source_sha=$(git rev-parse "$HEAD_SHA^1")
+          if [ "$source_sha" != "$BASE_SHA" ]; then
+            echo "Release proposal is stale or has been merged with main; refresh it with the controller."
+            exit 1
+          fi
+
       - name: Validate PR title
         if: github.event_name == 'pull_request'
         env:
