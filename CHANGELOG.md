@@ -1,5 +1,26 @@
 # Changelog
 
+<!-- release-log:pending:v1 sha256:c0e088936e55e9212025dd86e5653a227406438381c1fa698f23932f27558e07 -->
+
+## v0.4.0 (2026-11-18)
+
+### ✨ Features
+
+- Support release proposals for standalone Cargo packages and workspaces with a shared version&#46; ([#91](https://github.com/lhajoosten/release-log/pull/91)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+<details>
+<summary>🔧 Internal maintenance</summary>
+
+- Activate the rolling release controller after the v0&#46;3&#46;0 recovery&#46; ([#89](https://github.com/lhajoosten/release-log/pull/89)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+</details>
+
+<br>
+
+Full changelog: [v0&#46;3&#46;0&#8230;ca768fafc464465e9bbd768766b51ce320f7f7e4](https://github.com/lhajoosten/release-log/compare/v0.3.0...ca768fafc464465e9bbd768766b51ce320f7f7e4) (captured source).
+
+<!-- release-log:pending:end -->
+
 ## v0.3.0 (recovery candidate)
 
 ### ✨ Features
