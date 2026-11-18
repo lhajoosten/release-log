@@ -135,6 +135,45 @@ void test("vulnerability policy counts package/advisory matches and rejects malf
     assert.throws(() => summarizeMatches(input));
 });
 
+void test("only the patched Alpine OpenSSL packages receive the temporary backport exception", () => {
+  const match = {
+    vulnerability: { id: "CVE-2026-95692", severity: "High", namespace: "nvd:cpe" },
+    artifact: {
+      name: "libcrypto3",
+      version: "3.5.9-r1",
+      type: "apk",
+      purl: "pkg:apk/alpine/libcrypto3@3.5.9-r1?arch=x86_64",
+    },
+  };
+  const beforeExpiry = new Date("2026-12-14T23:59:59Z");
+  assert.deepEqual(summarizeMatches({ matches: [match] }, beforeExpiry, true), {
+    counts: { High: 1 },
+    blocked: false,
+    backported: 1,
+  });
+  for (const id of ["CVE-2026-95692", "CVE-2026-107496", "CVE-2026-95691", "CVE-2026-88823"]) {
+    for (const name of ["libcrypto3", "libssl3"]) {
+      const item = {
+        vulnerability: { ...match.vulnerability, id },
+        artifact: { ...match.artifact, name, purl: `pkg:apk/alpine/${name}@3.5.9-r1?arch=x86_64` },
+      };
+      assert.equal(summarizeMatches({ matches: [item] }, beforeExpiry, true).blocked, false);
+    }
+  }
+  assert.equal(
+    summarizeMatches({ matches: [match] }, new Date("2026-12-15T00:00:00Z"), true).blocked,
+    true,
+  );
+  for (const changed of [
+    { ...match, artifact: { ...match.artifact, version: "3.5.9-r0" } },
+    { ...match, artifact: { ...match.artifact, type: "deb" } },
+    { ...match, vulnerability: { ...match.vulnerability, id: "CVE-other" } },
+    { ...match, vulnerability: { ...match.vulnerability, severity: "Critical" } },
+  ])
+    assert.equal(summarizeMatches({ matches: [changed] }, beforeExpiry, true).blocked, true);
+  assert.equal(summarizeMatches({ matches: [match] }, beforeExpiry).blocked, true);
+});
+
 void test("scanner downloads fail closed before extraction on HTTP failures or checksum mismatch", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "release-scanner-pin-"));
   try {

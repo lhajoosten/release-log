@@ -68,3 +68,26 @@ void test("APK staging uses fixed repository bytes and refuses HTTP/hash failure
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+void test("only the pinned OpenSSL backports use Alpine edge", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "release-apk-edge-"));
+  try {
+    const calls: string[] = [];
+    t.mock.method(globalThis, "fetch", async (url: string | URL | Request) => {
+      calls.push(typeof url === "string" ? url : url instanceof URL ? url.href : url.url);
+      return new Response(bytes);
+    });
+    await stageContainerApks(join(directory, "apks"), [
+      { ...pin, file: "libcrypto3-3.5.9-r1.apk" },
+      { ...pin, file: "libssl3-3.5.9-r1.apk" },
+      { ...pin, file: "libcrypto3-3.5.9-r0.apk" },
+    ]);
+    assert.deepEqual(calls, [
+      "https://dl-cdn.alpinelinux.org/alpine/edge/main/x86_64/libcrypto3-3.5.9-r1.apk",
+      "https://dl-cdn.alpinelinux.org/alpine/edge/main/x86_64/libssl3-3.5.9-r1.apk",
+      `${repository}libcrypto3-3.5.9-r0.apk`,
+    ]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

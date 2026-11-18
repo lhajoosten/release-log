@@ -67,13 +67,22 @@ export function archiveConfigPath(value: unknown) {
   return path;
 }
 
-export function summarizeMatches(value: unknown) {
+const backportedOpenSslCves = new Set([
+  "CVE-2026-95692",
+  "CVE-2026-107496",
+  "CVE-2026-95691",
+  "CVE-2026-88823",
+]);
+
+export function summarizeMatches(value: unknown, now = new Date(), allowBackport = false) {
   const report = record(value);
   if (!Array.isArray(report.matches)) throw new Error("Missing vulnerability matches.");
   const counts: Record<string, number> = {};
   let blocked = false;
+  let backported = 0;
   for (const item of report.matches) {
-    const vulnerability = record(record(item).vulnerability);
+    const match = record(item);
+    const vulnerability = record(match.vulnerability);
     const severity = vulnerability.severity;
     if (
       typeof vulnerability.id !== "string" ||
@@ -82,9 +91,22 @@ export function summarizeMatches(value: unknown) {
     )
       throw new Error("Malformed vulnerability match.");
     counts[severity] = (counts[severity] ?? 0) + 1;
-    if (["High", "Critical", "Unknown"].includes(severity)) blocked = true;
+    const artifact = isRecord(match.artifact) ? match.artifact : {};
+    const isBackported =
+      allowBackport &&
+      now.getTime() < Date.parse("2026-12-15T00:00:00Z") &&
+      severity === "High" &&
+      vulnerability.namespace === "nvd:cpe" &&
+      backportedOpenSslCves.has(vulnerability.id) &&
+      artifact.type === "apk" &&
+      (artifact.name === "libcrypto3" || artifact.name === "libssl3") &&
+      artifact.version === "3.5.9-r1" &&
+      typeof artifact.purl === "string" &&
+      artifact.purl.startsWith(`pkg:apk/alpine/${artifact.name}@3.5.9-r1?`);
+    if (isBackported) backported++;
+    else if (["High", "Critical", "Unknown"].includes(severity)) blocked = true;
   }
-  return { counts, blocked };
+  return { counts, blocked, ...(backported > 0 ? { backported } : {}) };
 }
 
 async function digest(path: string) {
@@ -110,7 +132,7 @@ export async function installScanner(name: keyof typeof scannerPins, directory: 
   return join(directory, name);
 }
 
-export async function scanContainer(image: string, output: string) {
+export async function scanContainer(image: string, output: string, allowBackport = false) {
   if (process.platform !== "linux" || process.arch !== "x64")
     throw new Error("Container security scanning currently requires Linux x86-64.");
   const destination = resolve(output);
@@ -224,7 +246,11 @@ export async function scanContainer(image: string, output: string) {
       300_000,
     );
     await writeFile(join(destination, "scan.log"), scan.stderr);
-    const findings = summarizeMatches(JSON.parse(await readFile(reportPath, "utf8")));
+    const findings = summarizeMatches(
+      JSON.parse(await readFile(reportPath, "utf8")),
+      new Date(),
+      allowBackport,
+    );
     const evidence = {
       scannedAt: new Date().toISOString(),
       imageId: metadata.Id,
@@ -237,8 +263,9 @@ export async function scanContainer(image: string, output: string) {
       database,
       inventory,
       ...findings,
-      policy:
-        "Fail on High, Critical or Unknown severity, including unfixed findings; no repository ignore rules.",
+      policy: allowBackport
+        ? "Fail on High, Critical or Unknown severity, except the documented OpenSSL backports through 2026-12-14 UTC."
+        : "Fail on High, Critical or Unknown severity, including unfixed findings; no repository ignore rules.",
     };
     await save("evidence.json", evidence);
     process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
@@ -254,9 +281,15 @@ export async function scanContainer(image: string, output: string) {
 
 if (import.meta.main) {
   const args = process.argv.slice(2);
-  if (args.length !== 4 || args[0] !== "--image" || !args[1] || args[2] !== "--output" || !args[3])
+  if (
+    (args.length !== 4 && !(args.length === 5 && args[4] === "--allow-openssl-backport")) ||
+    args[0] !== "--image" ||
+    !args[1] ||
+    args[2] !== "--output" ||
+    !args[3]
+  )
     throw new Error(
       "Usage: node scripts/scan-container.ts --image LOCAL_IMAGE --output NEW_DIRECTORY",
     );
-  await scanContainer(args[1], args[3]);
+  await scanContainer(args[1], args[3], args[4] === "--allow-openssl-backport");
 }
