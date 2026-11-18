@@ -1,3 +1,4 @@
+import { isProposalPath, maxProposalFiles } from "./proposal-paths.ts";
 import { createHash } from "node:crypto";
 import { parseDocument } from "yaml";
 import type { PendingReleaseInspection, ResolvedReleaseBaseline } from "./git.ts";
@@ -406,7 +407,7 @@ export function parseVerifiedReleaseApproval(value: unknown): VerifiedReleaseApp
     !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(item.version) ||
     !Array.isArray(item.files) ||
     item.files.length < 2 ||
-    item.files.length > 5 ||
+    item.files.length > maxProposalFiles ||
     !Array.isArray(item.automationCommitShas) ||
     item.automationCommitShas.length < 1 ||
     item.automationCommitShas.length > 101
@@ -418,16 +419,7 @@ export function parseVerifiedReleaseApproval(value: unknown): VerifiedReleaseApp
   const files = item.files.map((entry: unknown) => {
     const file = object(entry, ["path", "sha256"]);
 
-    if (
-      typeof file.path !== "string" ||
-      ![
-        "package.json",
-        "pyproject.toml",
-        "CHANGELOG.md",
-        ".release-log/inputs.json",
-        ".github/workflows/rolling-release-caller.yml",
-      ].includes(file.path)
-    )
+    if (typeof file.path !== "string" || !isProposalPath(file.path))
       return invalid("Verification evidence contains an unsupported output path.");
 
     return { path: file.path, sha256: sha(file.sha256, true) };

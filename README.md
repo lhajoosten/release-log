@@ -5,7 +5,7 @@
 ## How it works
 
 1. **Merge an ordinary PR.** When the batch warrants a release, the GitHub App creates or refreshes one release PR containing the next version, changelog and captured release inputs.
-2. **Review the release PR.** Each refresh includes the complete range since the previous version tag. Supported root Node/Python manifests are updated together, and released changelog sections are preserved.
+2. **Review the release PR.** Each refresh includes the complete range since the previous version tag. Supported Node, Python, and Cargo version files are updated together, and released changelog sections are preserved.
 3. **Merge the release PR.** The workflow creates `vMAJOR.MINOR.PATCH` at that exact merge landing. With `githubRelease: true`, it also publishes that version’s verified changelog as a GitHub Release and requests latest. It does not create another proposal for the release itself.
 4. **Use the tag downstream.** Your repository can trigger image publication, packaging or deployment from that version tag.
 

@@ -24,7 +24,7 @@ The tag is the completed release boundary. It is not a GitHub Release object, ar
 ## Deterministic proposal contents
 
 - Derive membership from Git reachability between the baseline and captured source, not dates or only the triggering PR. Preserve PR context and source links.
-- Calculate the next version using the existing agreed bump policy. Update supported root `package.json` and/or static `pyproject.toml` version fields; preserve the existing adapter restrictions and do not run consumer build backends or lifecycle scripts.
+- Calculate the next version using the existing agreed bump policy. Update the supported [Node, Python, and Cargo version files](cli.md#node-python-and-cargo-version-files) without executing consumer tooling.
 - Create `CHANGELOG.md` initially. In later cycles, preserve released sections and regenerate only the owned pending section. Do not append duplicate entries on each refresh.
 - Maintain one active same-repository release branch/PR. Preserve sequential proposal history with non-force ref updates; do not overwrite unexpected human changes or silently reopen deliberately closed PRs.
 - Preserve the fixed bootstrap and onboarding SHAs in `release-log.config.json` for this repository's first release. Thereafter use the version tag for the current released manifest version. Do not move onboarding forward or fabricate a previous tag.
@@ -45,7 +45,7 @@ The release roll does not require custom approval capture, approval-policy check
 
 ## Implementation checkpoint
 
-Git/PR capture, snapshots, version calculation, Node/Python manifest updates, changelog generation, the recurring proposal controller, tag-bound cycle selector, tag-only command, and integrated `roll` CLI are implemented. The standalone manual rehearsal remains read-only. The root npm package remains private at `0.2.1`. The GHCR `v0.2.1` image has verified anonymous version/digest pulls, CLI execution and a retained-digest publication retry. No npm package or GitHub Release assets are distributed. AI-written release notes are unimplemented; no provider/model is configured.
+Git/PR capture, snapshots, version calculation, Node, Python, and Cargo version updates, changelog generation, the recurring proposal controller, tag-bound cycle selector, tag-only command, and integrated `roll` CLI are implemented. The standalone manual rehearsal remains read-only. The root npm package remains private at `0.2.1`. The GHCR `v0.2.1` image has verified anonymous version/digest pulls, CLI execution and a retained-digest publication retry. No npm package or GitHub Release assets are distributed. AI-written release notes are unimplemented; no provider/model is configured.
 
 `.github/workflows/rolling-release.yml` is reusable (`workflow_call`). This repository enables it through `.github/workflows/rolling-release-caller.yml` on merged PRs targeting `main`, with `write: true`. Both the reusable workflow and `tool-sha` pin `e3f2d317370447f6608be17941ade53b099d8fd2`, the merged implementation and fixture-fix revision. Its [main-push Quality run](https://github.com/lhajoosten/release-log/actions/runs/43965439163), container-security run and documentation run passed before selection. The caller enables `selfUpgrade` and `githubRelease` and explicitly retains `8828be515345d761a7375b5c00b1beff0cfabaeb` for unrecorded legacy snapshots. The selected runner declares `0.2.1`; its version is independent of the consumer release version. Review the configuration, added App permissions and first bootstrap run as described below.
 

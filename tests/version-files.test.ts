@@ -125,7 +125,7 @@ void test("missing/dynamic/mismatched manifests and stale preparations fail befo
   const path = await directory(context);
   await assert.rejects(
     prepareReleaseFiles(path, fixture.serialized, fixtureConfiguration, version),
-    /root package.json or pyproject.toml/u,
+    /root package.json, pyproject.toml, or Cargo.toml/u,
   );
   await writeFile(join(path, "package.json"), '{"version":"1.2.3"}');
   await writeFile(join(path, "pyproject.toml"), '[project]\nversion="2.0.0"\n');
@@ -231,7 +231,7 @@ void test("symlinked manifests and out-of-allowlist writes are rejected", async 
       path,
       { plan, files: [{ path: "../outside", before: null, after: "bad" }] },
     ]),
-    /fixed proposal output paths/u,
+    /supported proposal paths/u,
   );
   assert.equal(
     await readFile(join(outside, "pyproject.toml"), "utf8"),
