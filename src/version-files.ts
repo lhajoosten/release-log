@@ -2,6 +2,8 @@ import { getStaticTOMLValue, parseTOML, traverseNodes } from "toml-eslint-parser
 import type { AST } from "toml-eslint-parser";
 import type { ReleasePlan } from "./release-plan.ts";
 
+type VersionPlan = Pick<ReleasePlan, "currentVersion" | "nextVersion">;
+
 export class VersionFilesError extends Error {
   constructor(message: string) {
     super(message);
@@ -16,7 +18,7 @@ export interface VersionFileUpdate {
 
 function expectedVersion(
   value: unknown,
-  plan: ReleasePlan,
+  plan: VersionPlan,
   label: string,
 ): asserts value is string {
   if (
@@ -30,7 +32,7 @@ function expectedVersion(
     );
 }
 
-export function updatePackageVersion(source: string, plan: ReleasePlan): VersionFileUpdate {
+export function updatePackageVersion(source: string, plan: VersionPlan): VersionFileUpdate {
   let manifest: unknown;
   try {
     manifest = JSON.parse(source);
@@ -88,7 +90,7 @@ function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function updatePyprojectVersion(source: string, plan: ReleasePlan): VersionFileUpdate {
+export function updatePyprojectVersion(source: string, plan: VersionPlan): VersionFileUpdate {
   let ast: ReturnType<typeof parseTOML>;
   try {
     ast = parseTOML(source);

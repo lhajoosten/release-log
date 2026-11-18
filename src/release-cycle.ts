@@ -1,3 +1,4 @@
+import { updatePackageVersion, updatePyprojectVersion } from "./version-files.ts";
 import {
   GitHubProposalRepository,
   ProposalConflictError,
@@ -338,9 +339,11 @@ export async function selectReleaseCycle(
 
     const files = await api.contents(await api.tree(adoption.commitSha));
     const changelog = files["CHANGELOG.md"];
+    const manifestVersion = { currentVersion: releasedVersion(adoption.tag), nextVersion: null };
+    const nodeManifest = files["package.json"];
+    const pythonManifest = files["pyproject.toml"];
     if (
-      proposalObject(JSON.parse(files["package.json"] ?? "null")).version !==
-        releasedVersion(adoption.tag) ||
+      (nodeManifest === null && pythonManifest === null) ||
       !changelog ||
       changelog.includes("<!-- release-log:pending:") ||
       !changelog.split("\n").some((line) => line.startsWith(`## ${adoption.tag} (`))
@@ -349,6 +352,8 @@ export async function selectReleaseCycle(
         "baseline-unavailable",
         "The adopted commit must contain the finalized changelog and matching package version.",
       );
+    if (nodeManifest !== null) updatePackageVersion(nodeManifest, manifestVersion);
+    if (pythonManifest !== null) updatePyprojectVersion(pythonManifest, manifestVersion);
     if (configuration.githubRelease) {
       const release = proposalObject((await api.request(`/releases/tags/${adoption.tag}`)).data);
       if (
