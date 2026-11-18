@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { inspectCommit } from "../src/git.ts";
 import {
   captureReleaseSnapshot,
@@ -10,7 +12,7 @@ import { reconcileReleaseProposal } from "../src/release-proposal.ts";
 import { requestGitHubJson, GitHubReadError } from "../src/github.ts";
 import { fixture, json, object, text, botId } from "./proposal-fixture.ts";
 
-for (const mode of ["node", "python", "both"] as const) {
+for (const mode of ["node", "python", "both", "cargo", "cargo-workspace"] as const) {
   void test(`${mode}: real Git branch creation, stable rolling PR refresh, and retries preserve the complete generated diff`, async (context) => {
     const f = await fixture(context, mode);
     const dry = await reconcileReleaseProposal(await f.request(), f.transport);
@@ -27,13 +29,40 @@ for (const mode of ["node", "python", "both"] as const) {
     assert.match(changelog, /^# Changelog/u);
     assert.match(changelog, /## v1\.3\.0/u);
     assert.ok(changelog.includes("[#1]"));
-    if (mode !== "python")
+    if (mode === "node" || mode === "both")
       assert.match(f.git(["show", `${head}:package.json`]), /"version": "1.3.0"/u);
-    if (mode !== "node")
+    if (mode === "python" || mode === "both")
       assert.equal(
         f.git(["show", `${head}:pyproject.toml`]),
         '# preserve\n[project]\nversion = "1.3.0" # preserve\n',
       );
+    if (mode === "cargo") {
+      assert.equal(
+        f.git(["show", `${head}:Cargo.toml`]),
+        "[package]\nname = \"standalone\"\nversion = '1.3.0' # preserve\n",
+      );
+      assert.equal(f.git(["ls-tree", head, "Cargo.lock"]), "");
+    }
+    if (mode === "cargo-workspace") {
+      const root = f.git(["show", `${head}:Cargo.toml`]);
+      assert.match(root, /version = "1\.3\.0"\n/u);
+      assert.match(root, /upkeep-core = \{ version = "=1\.3\.0", path = "crates\/upkeep-core" \}/u);
+      const lock = f.git(["show", `${head}:Cargo.lock`]);
+      assert.deepEqual(lock.match(/version = "1\.3\.0"/gu), [
+        'version = "1.3.0"',
+        'version = "1.3.0"',
+      ]);
+      const member = f.git(["show", `${head}:crates/upkeep-cli/Cargo.toml`]);
+      assert.match(member, /version\.workspace = true/u);
+      assert.match(member, /version = "~1\.3\.0"/u);
+      assert.deepEqual(f.git(["diff", "--name-only", dry.sourceSha, head]).trim().split("\n"), [
+        ".release-log/inputs.json",
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/upkeep-cli/Cargo.toml",
+      ]);
+    }
     assert.equal(f.git(["show", `${head}:unrelated.txt`]), "keep me\n");
     const writes = f.calls.filter(({ method }) => method !== "GET").length;
     const retry = await reconcileReleaseProposal(await f.request(true), f.transport);
@@ -59,6 +88,20 @@ for (const mode of ["node", "python", "both"] as const) {
     assert.equal(f.git(["status", "--porcelain"]), "");
   });
 }
+
+void test("an independently versioned Cargo member stops reconciliation before proposal writes", async (context) => {
+  const f = await fixture(context, "cargo-workspace");
+  const path = join(f.directory, "crates/upkeep-core/Cargo.toml");
+  const manifest = await readFile(path, "utf8");
+  await writeFile(path, manifest.replace("version.workspace = true", 'version = "1.2.3"'));
+  await f.advance();
+  await assert.rejects(
+    reconcileReleaseProposal(await f.request(true), f.transport),
+    /must inherit the shared workspace version/u,
+  );
+  assert.equal(f.ref("heads/release-log/main"), null);
+  assert.ok(f.calls.every(({ method }) => method === "GET"));
+});
 
 void test("no-release batches create neither a branch nor a PR", async (context) => {
   const f = await fixture(context, "node", "docs(api): explain keys");

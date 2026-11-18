@@ -1,5 +1,6 @@
 import { updateToolPins } from "./tool-upgrade.ts";
-import { workflowPath } from "./proposal-paths.ts";
+import { isCargoManifest, isProposalPath, proposalPaths, workflowPath } from "./proposal-paths.ts";
+import type { ProposalPath } from "./proposal-paths.ts";
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -8,6 +9,8 @@ import { createReleasePlan } from "./release-plan.ts";
 import type { ReleasePlan, ReleaseVersionConfiguration } from "./release-plan.ts";
 import { replayReleaseSnapshot, serializeReleaseSnapshot } from "./release-snapshot.ts";
 import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
+import { cargoMemberPaths, readCargoContents, updateCargoVersions } from "./cargo-version.ts";
+import type { CargoContents } from "./cargo-version.ts";
 import { updatePackageVersion, updatePyprojectVersion } from "./version-files.ts";
 
 export class ProposalFilesError extends Error {
@@ -16,14 +19,8 @@ export class ProposalFilesError extends Error {
     this.name = "ProposalFilesError";
   }
 }
-export const proposalPaths = [
-  "package.json",
-  "pyproject.toml",
-  "CHANGELOG.md",
-  ".release-log/inputs.json",
-  workflowPath,
-] as const;
-export type ProposalPath = (typeof proposalPaths)[number];
+export { proposalPaths } from "./proposal-paths.ts";
+export type { ProposalPath } from "./proposal-paths.ts";
 
 export interface ProposalFile {
   readonly path: ProposalPath;
@@ -39,13 +36,14 @@ const unsupportedLocks = ["package-lock.json", "npm-shrinkwrap.json", "uv.lock"]
 export const releaseInputPaths = [...proposalPaths, ...unsupportedLocks] as const;
 export type ReleaseFileContents = Readonly<
   Record<Exclude<(typeof releaseInputPaths)[number], typeof workflowPath>, string | null> &
-    Partial<Record<typeof workflowPath, string | null>>
+    Partial<Record<typeof workflowPath, string | null>> &
+    CargoContents
 >;
 const readable: ReadonlySet<string> = new Set(releaseInputPaths);
 
 async function inspectPath(root: string, relative: string): Promise<string> {
-  if (!readable.has(relative))
-    throw new ProposalFilesError("Only the fixed proposal output paths are permitted.");
+  if (!readable.has(relative) && !isProposalPath(relative))
+    throw new ProposalFilesError("Only supported proposal paths are permitted.");
   let target = root;
   const parts = relative.split("/");
   for (const [index, part] of parts.entries()) {
@@ -93,6 +91,7 @@ export async function prepareReleaseFiles(
 ): Promise<PreparedRelease> {
   const root = await rootPath(repository);
   return prepareReleaseFileContents(snapshotJSON, expected, version, {
+    ...(await readCargoContents((path) => currentFile(root, path))),
     [workflowPath]: expected.selfUpgrade ? await currentFile(root, workflowPath) : null,
     "package.json": await currentFile(root, "package.json"),
     "pyproject.toml": await currentFile(root, "pyproject.toml"),
@@ -110,10 +109,9 @@ export async function prepareReleaseFileContents(
   version: ReleaseVersionConfiguration,
   contents: ReleaseFileContents,
 ): Promise<PreparedRelease> {
-  for (const path of releaseInputPaths) {
-    const value = contents[path] ?? null;
+  for (const value of Object.values(contents)) {
     if (
-      value !== null &&
+      value != null &&
       (typeof value !== "string" || Buffer.byteLength(value, "utf8") > 16 * 1024 * 1024)
     )
       throw new ProposalFilesError(
@@ -129,9 +127,10 @@ export async function prepareReleaseFileContents(
   }
   const packageJSON = contents["package.json"];
   const pyprojectTOML = contents["pyproject.toml"];
-  if (packageJSON === null && pyprojectTOML === null)
+  const cargo = updateCargoVersions(contents, plan);
+  if (packageJSON === null && pyprojectTOML === null && cargo === null)
     throw new ProposalFilesError(
-      "A root package.json or pyproject.toml with a static version is required.",
+      "A root package.json, pyproject.toml, or Cargo.toml with a static release version is required.",
     );
   const manifests: ProposalFile[] = [];
   const packageUpdate = packageJSON === null ? null : updatePackageVersion(packageJSON, plan);
@@ -140,6 +139,13 @@ export async function prepareReleaseFileContents(
     throw new ProposalFilesError(
       "Node and Python manifest versions disagree; align them before planning.",
     );
+  if (cargo) {
+    if ([packageUpdate, pythonUpdate].some((update) => update && update.version !== cargo.version))
+      throw new ProposalFilesError(
+        "Cargo and other manifest versions disagree; align them before planning.",
+      );
+    manifests.push(...cargo.files);
+  }
   if (packageJSON !== null && packageUpdate)
     manifests.push({ path: "package.json", before: packageJSON, after: packageUpdate.content });
   if (pyprojectTOML !== null && pythonUpdate)
@@ -186,9 +192,17 @@ export async function writeReleaseFiles(
     throw new ProposalFilesError("A no-release plan cannot write proposal files.");
   if (new Set(prepared.files.map((file) => file.path)).size !== prepared.files.length)
     throw new ProposalFilesError("Duplicate proposal output paths.");
+  const cargoRoot = prepared.files.some(
+    ({ path }) => path === "Cargo.lock" || isCargoManifest(path),
+  )
+    ? await currentFile(root, "Cargo.toml")
+    : null;
+  const cargoOutputs = new Set<string>(
+    cargoRoot === null ? [] : ["Cargo.toml", "Cargo.lock", ...cargoMemberPaths(cargoRoot)],
+  );
   for (const file of prepared.files) {
-    if (!allowed.has(file.path))
-      throw new ProposalFilesError("Only the fixed proposal output paths are permitted.");
+    if (!allowed.has(file.path) && (!cargoOutputs.has(file.path) || file.before === null))
+      throw new ProposalFilesError("Only supported proposal paths are permitted.");
     if (Buffer.byteLength(file.after, "utf8") > 16 * 1024 * 1024)
       throw new ProposalFilesError("A proposal output exceeds 16 MiB.");
     if ((await currentFile(root, file.path)) !== file.before)

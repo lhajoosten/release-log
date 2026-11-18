@@ -1,3 +1,4 @@
+import { posix } from "node:path";
 import { createHash } from "node:crypto";
 import { ProposalConflictError, proposalObject, proposalSha } from "./github-proposals.ts";
 import type { ProposalTree } from "./github-proposals.ts";
@@ -122,21 +123,27 @@ export function verifyGeneratedTree(
   files: readonly ProposalFile[],
 ): void {
   const owned = new Set<string>(files.map((file) => file.path));
+  const parentDirectories = new Set<string>();
+  for (const path of owned)
+    for (
+      let directory = posix.dirname(path);
+      directory !== "." && directory !== "/";
+      directory = posix.dirname(directory)
+    )
+      parentDirectories.add(directory);
   for (const path of new Set([...source.entries.keys(), ...head.entries.keys()])) {
     const before = source.entries.get(path);
     const after = head.entries.get(path);
-    if (
-      path === ".release-log" ||
-      (owned.has(".github/workflows/rolling-release-caller.yml") &&
-        [".github", ".github/workflows"].includes(path))
-    ) {
+    if (parentDirectories.has(path)) {
       if (
         !after ||
         after.type !== "tree" ||
         after.mode !== "040000" ||
         (before && (before.type !== "tree" || before.mode !== "040000"))
       )
-        throw new ProposalConflictError("Unexpected snapshot directory changes in the proposal.");
+        throw new ProposalConflictError(
+          "Unexpected generated file directory changes in the proposal.",
+        );
     } else if (owned.has(path)) {
       if (!after || after.type !== "blob" || after.mode !== (before?.mode ?? "100644"))
         throw new ProposalConflictError("Unexpected generated file type or mode in the proposal.");
@@ -145,7 +152,7 @@ export function verifyGeneratedTree(
         "The proposal branch contains unrelated file changes; preserve them and recover manually.",
       );
   }
-  for (const file of files)
-    if (!head.entries.has(file.path))
+  for (const path of [...owned, ...parentDirectories])
+    if (!head.entries.has(path))
       throw new ProposalConflictError("A generated proposal file is missing.");
 }

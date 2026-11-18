@@ -1,3 +1,4 @@
+import { updateCargoVersions } from "./cargo-version.ts";
 import { updatePackageVersion, updatePyprojectVersion } from "./version-files.ts";
 import {
   GitHubProposalRepository,
@@ -343,7 +344,7 @@ export async function selectReleaseCycle(
     const nodeManifest = files["package.json"];
     const pythonManifest = files["pyproject.toml"];
     if (
-      (nodeManifest === null && pythonManifest === null) ||
+      (nodeManifest === null && pythonManifest === null && files["Cargo.toml"] == null) ||
       !changelog ||
       changelog.includes("<!-- release-log:pending:") ||
       !changelog.split("\n").some((line) => line.startsWith(`## ${adoption.tag} (`))
@@ -354,6 +355,7 @@ export async function selectReleaseCycle(
       );
     if (nodeManifest !== null) updatePackageVersion(nodeManifest, manifestVersion);
     if (pythonManifest !== null) updatePyprojectVersion(pythonManifest, manifestVersion);
+    updateCargoVersions(files, manifestVersion);
     if (configuration.githubRelease) {
       const release = proposalObject((await api.request(`/releases/tags/${adoption.tag}`)).data);
       if (

@@ -2,7 +2,7 @@ import { getStaticTOMLValue, parseTOML, traverseNodes } from "toml-eslint-parser
 import type { AST } from "toml-eslint-parser";
 import type { ReleasePlan } from "./release-plan.ts";
 
-type VersionPlan = Pick<ReleasePlan, "currentVersion" | "nextVersion">;
+export type VersionPlan = Pick<ReleasePlan, "currentVersion" | "nextVersion">;
 
 export class VersionFilesError extends Error {
   constructor(message: string) {
@@ -16,7 +16,7 @@ export interface VersionFileUpdate {
   readonly content: string;
 }
 
-function expectedVersion(
+export function expectedVersion(
   value: unknown,
   plan: VersionPlan,
   label: string,
@@ -78,7 +78,7 @@ export function updatePackageVersion(source: string, plan: VersionPlan): Version
   };
 }
 
-function keyPath(node: AST.TOMLKeyValue): readonly (string | number)[] {
+export function keyPath(node: AST.TOMLKeyValue): readonly (string | number)[] {
   const keys = getStaticTOMLValue(node.key);
   if (node.parent.type === "TOMLTable") return [...node.parent.resolvedKey, ...keys];
   if (node.parent.type === "TOMLTopLevelTable") return keys;
@@ -86,7 +86,7 @@ function keyPath(node: AST.TOMLKeyValue): readonly (string | number)[] {
   return [];
 }
 
-function record(value: unknown): value is Record<string, unknown> {
+export function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

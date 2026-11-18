@@ -1,3 +1,4 @@
+import { readCargoContents } from "./cargo-version.ts";
 import { createHash } from "node:crypto";
 import { inspectCommit, inspectGitTree, inspectPendingRelease, readGitBlob } from "./git.ts";
 import type { PendingReleaseInspection, ResolvedReleaseBaseline } from "./git.ts";
@@ -130,6 +131,7 @@ async function contents(
     ".github/workflows/rolling-release-caller.yml": includeWorkflow
       ? await get(".github/workflows/rolling-release-caller.yml")
       : null,
+    ...(await readCargoContents(get)),
     "package.json": await get("package.json"),
     "pyproject.toml": await get("pyproject.toml"),
     "CHANGELOG.md": await get("CHANGELOG.md"),

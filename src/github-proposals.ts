@@ -1,7 +1,8 @@
+import { readCargoContents } from "./cargo-version.ts";
 import { createHash } from "node:crypto";
 import { GitHubReadError, requestGitHubJson } from "./github.ts";
 import type { GitHubRead } from "./github.ts";
-import { releaseInputPaths } from "./proposal-files.ts";
+import { isCargoManifest, isProposalPath } from "./proposal-paths.ts";
 import type { ProposalFile, ReleaseFileContents } from "./proposal-files.ts";
 import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
 
@@ -174,6 +175,14 @@ export class GitHubProposalRepository {
           if (entry && (entry.type !== "tree" || entry.mode !== "040000"))
             throw new ProposalConflictError("Workflow directories must be ordinary Git trees.");
         }
+      if (isCargoManifest(path)) {
+        const parts = path.split("/");
+        for (let count = 1; count < parts.length; count++) {
+          const parent = tree.entries.get(parts.slice(0, count).join("/"));
+          if (parent && (parent.type !== "tree" || parent.mode !== "040000"))
+            throw new ProposalConflictError("Cargo member directories must be ordinary Git trees.");
+        }
+      }
       const parent = tree.entries.get(".release-log");
       if (
         path.startsWith(".release-log/") &&
@@ -223,6 +232,7 @@ export class GitHubProposalRepository {
       ".github/workflows/rolling-release-caller.yml": this.config.selfUpgrade
         ? await get(".github/workflows/rolling-release-caller.yml")
         : null,
+      ...(await readCargoContents(get)),
       "package.json": await get("package.json"),
       "pyproject.toml": await get("pyproject.toml"),
       "CHANGELOG.md": await get("CHANGELOG.md"),
@@ -322,7 +332,11 @@ export class GitHubProposalRepository {
         await this.request("/git/trees", "POST", {
           base_tree: source.treeSha,
           tree: files.map((file) => {
-            if (!releaseInputPaths.includes(file.path))
+            if (
+              !isProposalPath(file.path) ||
+              ((file.path === "Cargo.lock" || isCargoManifest(file.path)) &&
+                !source.entries.has(file.path))
+            )
               throw new ProposalConflictError("Unexpected proposal output path.");
             if (Buffer.byteLength(file.after, "utf8") > 2 * 1024 * 1024)
               throw new ProposalConflictError(

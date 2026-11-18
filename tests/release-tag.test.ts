@@ -12,9 +12,10 @@ async function mergedProposal(
   context: TestContext,
   mergeKind: "merge" | "squash" = "merge",
   bootstrap = false,
+  mode: "node" | "cargo-workspace" = "node",
 ) {
   const setup = bootstrap ? { bootstrap: true, bootstrapCommit: true, adoption: true } : {};
-  const f = await fixture(context, "node", "feat(api): export rows", setup);
+  const f = await fixture(context, mode, "feat(api): export rows", setup);
   const proposalRequest = await f.request(true);
   const proposal = await reconcileReleaseProposal(proposalRequest, f.transport);
   assert.equal(proposal.outcome, "created");
@@ -163,6 +164,20 @@ for (const mergeKind of ["merge", "squash"] as const) {
     assert.equal(state.f.calls.filter(({ method }) => method !== "GET").length, writeCount);
   });
 }
+
+void test("a Cargo workspace proposal is tagged at the exact merge landing", async (context) => {
+  const state = await mergedProposal(context, "merge", false, "cargo-workspace");
+  const result = await reconcileReleaseTag(
+    { ...state.request, write: true },
+    tagTransport(state.f),
+  );
+  assert.equal(result.outcome, "created");
+  assert.equal(state.f.ref("tags/v1.3.0"), state.landingSha);
+  assert.match(
+    state.f.git(["show", `${state.landingSha}:Cargo.lock`]),
+    /name = "upkeep-core"\nversion = "1\.3\.0"/u,
+  );
+});
 
 void test("a later main commit does not retarget the release tag", async (context) => {
   const state = await mergedProposal(context);
