@@ -75,12 +75,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          source_sha=$(git rev-parse "$HEAD_SHA^1")
-          if [ "$source_sha" != "$BASE_SHA" ]; then
-            echo "Release proposal is stale or has been merged with main; refresh it with the controller."
-            exit 1
-          fi
+        run: pnpm check:release-proposal-source --base "$BASE_SHA" --head "$HEAD_SHA"
 
       - name: Validate PR title
         if: github.event_name == 'pull_request'

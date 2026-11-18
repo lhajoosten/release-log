@@ -13,6 +13,9 @@ const config = fileURLToPath(new URL("../commitlint.config.mjs", import.meta.url
 const cli = fileURLToPath(import.meta.resolve("@commitlint/cli/cli.js"));
 const rangeScript = fileURLToPath(new URL("../scripts/check-commit-range.ts", import.meta.url));
 const prConfig = fileURLToPath(new URL("../commitlint.pr.config.mjs", import.meta.url));
+const releaseSourceScript = fileURLToPath(
+  new URL("../scripts/check-release-proposal-source.ts", import.meta.url),
+);
 
 async function repository(context: TestContext): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "release-log-commitlint-"));
@@ -64,6 +67,36 @@ function checkCommits(directory: string, args: readonly string[]) {
     timeout: 10_000,
   });
 }
+
+void test("release proposal source must be the current base, including after a refresh", async (context) => {
+  const directory = await repository(context);
+  const base = await git(directory, ["rev-parse", "HEAD"]);
+  await git(directory, ["switch", "-c", "proposal"]);
+  await git(directory, ["commit", "--allow-empty", "-m", "chore: proposal"]);
+  const proposal = await git(directory, ["rev-parse", "HEAD"]);
+  const check = (currentBase: string, head: string) =>
+    execute(process.execPath, [releaseSourceScript, "--base", currentBase, "--head", head], {
+      cwd: directory,
+      timeout: 10_000,
+    });
+  await check(base, proposal);
+
+  await git(directory, ["switch", "main"]);
+  await git(directory, ["commit", "--allow-empty", "-m", "feat: advance main"]);
+  const advanced = await git(directory, ["rev-parse", "HEAD"]);
+  await assert.rejects(check(advanced, proposal), /Release proposal is stale/u);
+
+  await git(directory, ["switch", "proposal"]);
+  await git(directory, ["merge", "--no-ff", "main", "-m", "merge main"]);
+  const merged = await git(directory, ["rev-parse", "HEAD"]);
+  await assert.rejects(check(advanced, merged), /Release proposal is stale/u);
+
+  await git(directory, ["switch", "main"]);
+  await git(directory, ["commit", "--allow-empty", "-m", "chore: refreshed proposal"]);
+  const refreshed = await git(directory, ["rev-parse", "HEAD"]);
+  await check(advanced, refreshed);
+  await assert.rejects(check("not-a-sha", refreshed), /Usage:/u);
+});
 
 void test("commit-range checks accept generated merges and conventional side-branch commits", async (context) => {
   const directory = await repository(context);
