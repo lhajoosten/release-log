@@ -144,6 +144,7 @@ export async function reconcilePublication(
       pinned,
       "--output",
       "reports/container-release/reused-scan",
+      "--allow-openssl-backport",
     ]);
   } else {
     const local = "release-log-candidate:release";

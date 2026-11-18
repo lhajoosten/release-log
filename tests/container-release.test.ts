@@ -262,6 +262,7 @@ void test("retry pulls by digest, tests and scans retained config identity, and 
     h.calls.map((call) => call.args[0]),
     ["pull", "check:container", "container:scan"],
   );
+  assert.ok(h.calls[2]?.args.includes("--allow-openssl-backport"));
   assert.deepEqual(h.calls[0]?.args, [
     "pull",
     "--platform",
@@ -469,5 +470,6 @@ void test("release workflow gates the event SHA image before step-local publicat
     "pnpm check:container --image release-log-candidate:release",
   ]);
   assert.match(commands[4] ?? "", /pnpm container:scan --image release-log-candidate:release/u);
+  assert.match(commands[4] ?? "", /--allow-openssl-backport/u);
   assert.equal(commands[5], "pnpm container:release publish");
 });

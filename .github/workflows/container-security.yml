@@ -45,15 +45,9 @@ jobs:
         run: pnpm container:build --tag release-log-security:scan
 
       - name: Scan the image with checksum-pinned Syft and Grype
-        env:
-          EVENT_NAME: ${{ github.event_name }}
         run: |
           mkdir -p reports
-          if [ "$EVENT_NAME" = pull_request ]; then
-            pnpm container:scan --image release-log-security:scan --output reports/container-security --allow-openssl-backport
-          else
-            pnpm container:scan --image release-log-security:scan --output reports/container-security
-          fi
+          pnpm container:scan --image release-log-security:scan --output reports/container-security --allow-openssl-backport
 
       - name: Preserve inventory, findings and failure evidence
         if: always()
