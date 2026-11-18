@@ -1,16 +1,18 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:f8b9a6918553ccb1c78f94561d1798160ef2399b502ebdbe15acf1fab30e35a2 -->
-
-## v0.3.0 (2026-11-16)
-
-Inputs captured at: 2026-11-16T22:50:57.970Z (UTC; not a release date).
+## v0.3.0 (recovery candidate)
 
 ### ✨ Features
 
 - Add capture timestamps&#44; contributor credits&#44; section emojis and full comparison links to changelogs&#44; plus an optional command to enrich existing releases with recorded tag&#45;date fallbacks&#46; ([#81](https://github.com/lhajoosten/release-log/pull/81)) by [&#64;lhajoosten](https://github.com/lhajoosten)
 - Add optional text generation through explicitly configured AI providers&#46; ([#82](https://github.com/lhajoosten/release-log/pull/82)) by [&#64;lhajoosten](https://github.com/lhajoosten)
 - Support release PR tool upgrades and GitHub Release publication&#46; ([#84](https://github.com/lhajoosten/release-log/pull/84)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+- Format historical release notes consistently and publish the verified stable container manifest under the latest alias. ([#87](https://github.com/lhajoosten/release-log/pull/87))
+
+### 🐛 Fixes
+
+- Recover rolling releases after a stale proposal lands, and use the patched OpenSSL packages in the container. ([#88](https://github.com/lhajoosten/release-log/pull/88))
 
 ### 📚 Documentation
 
@@ -31,9 +33,7 @@ Inputs captured at: 2026-11-16T22:50:57.970Z (UTC; not a release date).
 
 <br>
 
-Full changelog: [v0&#46;2&#46;1&#8230;6a2c21b329c5ced82fb8c06b0c03a5f905563f53](https://github.com/lhajoosten/release-log/compare/v0.2.1...6a2c21b329c5ced82fb8c06b0c03a5f905563f53) (captured source).
-
-<!-- release-log:pending:end -->
+Full changelog: [v0.2.1…v0.3.0](https://github.com/lhajoosten/release-log/compare/v0.2.1...v0.3.0)
 
 ## v0.2.1 (2026-11-16)
 

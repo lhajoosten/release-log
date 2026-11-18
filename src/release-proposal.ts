@@ -128,22 +128,32 @@ export async function reconcileReleaseProposal(
         "The captured baseline or version is not the latest verified release; collect again.",
       );
     completed = await api.readPull(cycle.baseline.pullNumber);
-    if (!completed.merged || completed.mergeCommitSha !== cycle.baseline.commitSha)
-      throw new ProposalConflictError(
-        "The completed release changed during reconciliation; retry from fresh state.",
-      );
-    const verified = await verifyPrevious(api, completed, config, automation.botUserId);
-    const landing = await api.tree(cycle.baseline.commitSha);
-    const mergeParents = [verified.source.commitSha, verified.head.commitSha];
-    const squashParents = [verified.source.commitSha];
-    if (
-      landing.treeSha !== verified.head.treeSha ||
-      (JSON.stringify(landing.parents) !== JSON.stringify(mergeParents) &&
-        JSON.stringify(landing.parents) !== JSON.stringify(squashParents))
-    )
-      throw new ProposalConflictError(
-        "The completed proposal no longer matches its verified landing; retry from fresh state.",
-      );
+    if (cycle.baseline.adopted) {
+      if (
+        !completed.merged ||
+        completed.state !== "closed" ||
+        completed.headSha !== config.adoptedRelease?.headSha ||
+        completed.mergeCommitSha !== config.adoptedRelease.landingSha
+      )
+        throw new ProposalConflictError("The superseded PR changed during adoption.");
+    } else {
+      if (!completed.merged || completed.mergeCommitSha !== cycle.baseline.commitSha)
+        throw new ProposalConflictError(
+          "The completed release changed during reconciliation; retry from fresh state.",
+        );
+      const verified = await verifyPrevious(api, completed, config, automation.botUserId);
+      const landing = await api.tree(cycle.baseline.commitSha);
+      const mergeParents = [verified.source.commitSha, verified.head.commitSha];
+      const squashParents = [verified.source.commitSha];
+      if (
+        landing.treeSha !== verified.head.treeSha ||
+        (JSON.stringify(landing.parents) !== JSON.stringify(mergeParents) &&
+          JSON.stringify(landing.parents) !== JSON.stringify(squashParents))
+      )
+        throw new ProposalConflictError(
+          "The completed proposal no longer matches its verified landing; retry from fresh state.",
+        );
+    }
   }
   await requireFresh();
   const initialHead = await api.ref("heads", api.headRef, true);

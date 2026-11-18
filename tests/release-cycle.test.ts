@@ -497,3 +497,68 @@ void test("a conflicting latest version tag is never replaced by an older baseli
   );
   assertReadOnly(state.f.calls, before);
 });
+
+void test("trusted adoption selects an exact finalized replacement boundary and rejects a moved tag", async (context) => {
+  const state = await mergedProposal(context);
+  const { f, request, landingSha, pull } = state;
+  f.git(["read-tree", "--reset", "-u", "HEAD"]);
+  const blob = f
+    .git(["hash-object", "-w", "--stdin"], "# Changelog\n\n## v1.3.0 (2026-11-18)\n")
+    .trim();
+  f.git(["update-index", "--cacheinfo", "100644", blob, "CHANGELOG.md"]);
+  f.git(["commit", "-m", "chore: finalize replacement release"]);
+  const commitSha = f.git(["rev-parse", "HEAD"]).trim();
+  f.git(["tag", "v1.3.0", commitSha]);
+  const configuration = {
+    ...request.configuration,
+    adoptedRelease: {
+      pullNumber: 1,
+      headSha: text(object(pull.head).sha),
+      landingSha,
+      commitSha,
+      tag: "v1.3.0",
+    },
+  };
+  const selected = await selectReleaseCycle(
+    { ...request, configuration, sourceSha: commitSha },
+    cycleTransport(f),
+  );
+  assert.equal(selected.outcome, "selected");
+  assert.ok(selected.baseline.kind === "tag" && selected.baseline.adopted);
+  assert.equal(selected.baseline.commitSha, commitSha);
+  await assert.rejects(
+    selectReleaseCycle(
+      {
+        ...request,
+        configuration: {
+          ...configuration,
+          adoptedRelease: { ...configuration.adoptedRelease, headSha: landingSha },
+        },
+        sourceSha: commitSha,
+      },
+      cycleTransport(f),
+    ),
+    /does not match merged history/u,
+  );
+  f.git(["read-tree", "--reset", "-u", "HEAD"]);
+  await f.advance("fix(api): preserve later changes");
+  const sourceSha = f.ref("heads/main");
+  assert.ok(sourceSha);
+  const proposal = await reconcileReleaseProposal(
+    {
+      ...request,
+      configuration,
+      snapshot: await f.snapshot("v1.3.0", configuration),
+      version: { kind: "released", currentVersion: "1.3.0" },
+      write: true,
+    },
+    cycleTransport(f),
+  );
+  assert.equal(proposal.outcome, "created");
+  assert.equal(proposal.baselineSha, commitSha);
+  f.git(["tag", "-f", "v1.3.0", landingSha]);
+  await assert.rejects(
+    selectReleaseCycle({ ...request, configuration, sourceSha }, cycleTransport(f)),
+    /points to a different commit/u,
+  );
+});

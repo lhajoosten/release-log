@@ -48,6 +48,7 @@ export type ReleaseCycleBaseline =
       readonly objectSha: string;
       readonly commitSha: string;
       readonly pullNumber: number;
+      readonly adopted?: true;
     }
   | { readonly kind: "bootstrap"; readonly commitSha: string };
 
@@ -316,6 +317,74 @@ export async function selectReleaseCycle(
       "source-not-descendant",
       "The latest merged release landing is not an ancestor of the captured source; refusing to fall back to an older release tag.",
     );
+
+  const adoption = configuration.adoptedRelease;
+  if (adoption && latest.number === adoption.pullNumber) {
+    const current = await api.readPull(latest.number);
+    if (
+      latest.headSha !== adoption.headSha ||
+      landingSha !== adoption.landingSha ||
+      current.headSha !== adoption.headSha ||
+      current.mergeCommitSha !== landingSha ||
+      current.state !== "closed" ||
+      !current.merged ||
+      !(await isAncestor(landingSha, adoption.commitSha)) ||
+      !(await isAncestor(adoption.commitSha, sourceSha))
+    )
+      return cycleError(
+        "baseline-unavailable",
+        "The reviewed release adoption does not match merged history.",
+      );
+
+    const files = await api.contents(await api.tree(adoption.commitSha));
+    const changelog = files["CHANGELOG.md"];
+    if (
+      proposalObject(JSON.parse(files["package.json"] ?? "null")).version !==
+        releasedVersion(adoption.tag) ||
+      !changelog ||
+      changelog.includes("<!-- release-log:pending:") ||
+      !changelog.split("\n").some((line) => line.startsWith(`## ${adoption.tag} (`))
+    )
+      return cycleError(
+        "baseline-unavailable",
+        "The adopted commit must contain the finalized changelog and matching package version.",
+      );
+    if (configuration.githubRelease) {
+      const release = proposalObject((await api.request(`/releases/tags/${adoption.tag}`)).data);
+      if (
+        release.tag_name !== adoption.tag ||
+        release.draft !== false ||
+        release.prerelease !== false ||
+        typeof release.published_at !== "string"
+      )
+        return cycleError(
+          "github-release-pending",
+          "The adopted boundary requires its published stable GitHub Release.",
+        );
+    }
+    if ((await api.ref("tags", adoption.tag, true)) !== adoption.commitSha)
+      return cycleError(
+        "tag-changed",
+        "The adopted lightweight tag is missing or points to a different commit.",
+      );
+    if ((await api.ref("heads", configuration.releaseBranch)) !== sourceSha)
+      return cycleError("source-not-current", "The release branch advanced during adoption.");
+    if (closedUnmerged.length > 0)
+      return { outcome: "closed-unmerged", sourceSha, pullNumbers: closedUnmerged };
+    return {
+      outcome: "selected",
+      sourceSha,
+      baseline: {
+        kind: "tag",
+        adopted: true,
+        name: adoption.tag,
+        objectSha: adoption.commitSha,
+        commitSha: adoption.commitSha,
+        pullNumber: latest.number,
+      },
+      version: { kind: "released", currentVersion: releasedVersion(adoption.tag) },
+    };
+  }
 
   const tagResult = await reconcileReleaseTag(
     {
