@@ -53,6 +53,13 @@ interface ReleaseRepositoryConfiguration {
   readonly contextPolicy?: ReleaseContextPolicy;
   readonly selfUpgrade?: true;
   readonly githubRelease?: true;
+  readonly adoptedRelease?: {
+    readonly pullNumber: number;
+    readonly headSha: string;
+    readonly landingSha: string;
+    readonly commitSha: string;
+    readonly tag: string;
+  };
   readonly changelog?: {
     readonly verbosity: ChangelogVerbosity;
     readonly format?: "classic" | "compact";
@@ -318,6 +325,7 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
       ...(isObject(value) && value.schemaVersion === 2 ? ["bootstrap"] : []),
       ...(isObject(value) && Object.hasOwn(value, "contextPolicy") ? ["contextPolicy"] : []),
       ...(isObject(value) && Object.hasOwn(value, "selfUpgrade") ? ["selfUpgrade"] : []),
+      ...(isObject(value) && Object.hasOwn(value, "adoptedRelease") ? ["adoptedRelease"] : []),
       ...(isObject(value) && Object.hasOwn(value, "githubRelease") ? ["githubRelease"] : []),
       ...(isObject(value) && Object.hasOwn(value, "changelog") ? ["changelog"] : []),
       ...(isObject(value) && Object.hasOwn(value, "automationExclusions")
@@ -412,6 +420,29 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
     );
   }
 
+  let adoptedRelease: ReleaseRepositoryConfiguration["adoptedRelease"];
+  if (Object.hasOwn(item, "adoptedRelease")) {
+    const pin = object(
+      item.adoptedRelease,
+      ["pullNumber", "headSha", "landingSha", "commitSha", "tag"],
+      "adopted release",
+    );
+    const tag = text(pin.tag, "adopted release tag", 64);
+    const commitSha = sha(pin.commitSha);
+    const landingSha = sha(pin.landingSha);
+    if (commitSha === landingSha || !/^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(tag))
+      return invalid(
+        "An adopted release requires a distinct reviewed commit and stable version tag.",
+      );
+    adoptedRelease = {
+      pullNumber: positive(pin.pullNumber, "superseded PR number"),
+      headSha: sha(pin.headSha),
+      landingSha,
+      commitSha,
+      tag,
+    };
+  }
+
   const common: ReleaseRepositoryConfiguration = {
     repository,
     repositoryId: positive(item.repositoryId, "repository ID"),
@@ -420,6 +451,7 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
     ...(contextPolicy === undefined ? {} : { contextPolicy }),
     ...(item.selfUpgrade === true ? { selfUpgrade: true } : {}),
     ...(item.githubRelease === true ? { githubRelease: true } : {}),
+    ...(adoptedRelease === undefined ? {} : { adoptedRelease }),
     ...(changelog === undefined ? {} : { changelog }),
     ...(automationExclusions === undefined ? {} : { automationExclusions }),
   };

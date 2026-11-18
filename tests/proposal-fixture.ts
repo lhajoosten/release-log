@@ -136,7 +136,7 @@ export async function fixture(
           changelog: { verbosity: setup.changelogVerbosity },
         };
 
-  async function snapshot(baselineTag?: string) {
+  async function snapshot(baselineTag?: string, captureConfiguration = configuration) {
     const source = git(["rev-parse", "refs/heads/main"]).trim();
     const range = await inspectPendingRelease(
       directory,
@@ -183,7 +183,7 @@ export async function fixture(
           pullRequests: pulls,
           bootstrapCommits,
         },
-        configuration,
+        captureConfiguration,
       ),
     );
   }

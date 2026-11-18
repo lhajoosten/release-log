@@ -59,7 +59,7 @@ jobs:
       - name: Apply vulnerability policy to the candidate
         run: |
           mkdir -p reports/container-release
-          pnpm container:scan --image release-log-candidate:release --output reports/container-release/candidate-scan
+          pnpm container:scan --image release-log-candidate:release --output reports/container-release/candidate-scan --allow-openssl-backport
 
       - name: Publish or verify the retained release
         env:

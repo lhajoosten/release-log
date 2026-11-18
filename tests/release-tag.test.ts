@@ -86,6 +86,38 @@ function tagTransport(f: Awaited<ReturnType<typeof fixture>>) {
   };
 }
 
+void test("a release head updated by merging main cannot be tagged as a generated proposal", async (context) => {
+  const state = await mergedProposal(context);
+  const tree = state.f.git(["rev-parse", `${state.headSha}^{tree}`]).trim();
+  const sourceTree = state.f.git(["rev-parse", `${state.sourceSha}^{tree}`]).trim();
+  const updatedSource = state.f
+    .git(["commit-tree", sourceTree, "-p", state.sourceSha], "feat: advance main\n")
+    .trim();
+  const updatedHead = state.f
+    .git(
+      ["commit-tree", tree, "-p", state.headSha, "-p", updatedSource],
+      "Merge branch 'main' into release-log/main\n",
+    )
+    .trim();
+  const landing = state.f
+    .git(["commit-tree", tree, "-p", updatedSource, "-p", updatedHead], "Merge release PR\n")
+    .trim();
+  state.f.git(["update-ref", "refs/heads/release-log/main", updatedHead, state.headSha]);
+  state.f.git(["update-ref", "refs/heads/main", landing, state.landingSha]);
+  state.pull.merge_commit_sha = landing;
+  const before = state.f.calls.length;
+
+  await assert.rejects(
+    reconcileReleaseTag(
+      { ...state.request, landingSha: landing, write: true },
+      tagTransport(state.f),
+    ),
+    /does not contain a supported generated proposal commit/u,
+  );
+  assert.ok(state.f.calls.slice(before).every(({ method }) => method === "GET"));
+  assert.equal(state.f.ref("tags/v1.3.0"), null);
+});
+
 void test("bootstrap release tags are read-only by default", async (context) => {
   const state = await mergedProposal(context, "merge", true);
   const before = state.f.calls.length;

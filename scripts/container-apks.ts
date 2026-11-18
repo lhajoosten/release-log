@@ -3,6 +3,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const repository = "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/";
+const edgeRepository = "https://dl-cdn.alpinelinux.org/alpine/edge/main/x86_64/";
+const edgePackages = new Set(["libcrypto3-3.5.9-r1.apk", "libssl3-3.5.9-r1.apk"]);
 export interface ApkPin {
   file: string;
   sha256: string;
@@ -41,7 +43,8 @@ export function readApkLock(value: unknown): ApkPin[] {
 export async function stageContainerApks(directory: string, pins: readonly ApkPin[]) {
   await mkdir(directory);
   for (const pin of pins) {
-    const response = await fetch(repository + pin.file, { signal: AbortSignal.timeout(60_000) });
+    const source = edgePackages.has(pin.file) ? edgeRepository : repository;
+    const response = await fetch(source + pin.file, { signal: AbortSignal.timeout(60_000) });
     if (!response.ok)
       throw new Error(`APK download failed for ${pin.file}: HTTP ${response.status}.`);
     const bytes = new Uint8Array(await response.arrayBuffer());

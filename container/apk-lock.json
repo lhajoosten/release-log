@@ -35,8 +35,8 @@
       "sha256": "d64eeddb867cdb678944535e1e56d0438a9ca5114344cbf624abae31519f2afd"
     },
     {
-      "file": "libcrypto3-3.5.9-r0.apk",
-      "sha256": "6632d758d8f5e9ea3b650fe966f23bbf9a202f8b8dceecac93da135dec5e3689"
+      "file": "libcrypto3-3.5.9-r1.apk",
+      "sha256": "9ed3115c674dfca1f01c8d3235dc47f04c703aae180423982dc995e330f71010"
     },
     {
       "file": "libcurl-8.23.0-r0.apk",
@@ -55,8 +55,8 @@
       "sha256": "ec665a344b6e887f00f0a47015cc732c3a281b69e84641dc8662ea234fde6cdb"
     },
     {
-      "file": "libssl3-3.5.9-r0.apk",
-      "sha256": "05e3393fb95aa5751ca2f9d242f659f6cff82c1cc7767cc2df4a086f7ad01877"
+      "file": "libssl3-3.5.9-r1.apk",
+      "sha256": "e4064ad4fd4f26bc841b04173c12a1252f2dcc6f2e345bb6777c85750bbd2027"
     },
     {
       "file": "libunistring-1.4.2-r0.apk",
