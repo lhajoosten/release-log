@@ -62,7 +62,8 @@ async function selfUse(context: TestContext) {
   await f.advance("chore(tooling): activate the reviewed runner");
   let ci = "success";
   let human = true;
-  f.intercept((method, path) => {
+  let quality: (() => string | null | Promise<string | null>) | undefined;
+  f.intercept(async (method, path) => {
     if (method !== "GET") return null;
     const source = f.ref("heads/main");
     if (path.startsWith("/commits/") && path.endsWith("/pulls"))
@@ -77,7 +78,9 @@ async function selfUse(context: TestContext) {
         merged_by: { type: human ? "User" : "Bot" },
         base: { ref: "main", repo: { id: 1449550207 } },
       });
-    if (path === "/actions/workflows/quality.yml/runs")
+    if (path === "/actions/workflows/quality.yml/runs") {
+      const status = quality ? await quality() : "completed";
+      if (status === null) return json({ total_count: 0, workflow_runs: [] });
       return json({
         total_count: 1,
         workflow_runs: [
@@ -86,13 +89,14 @@ async function selfUse(context: TestContext) {
             head_branch: "main",
             event: "push",
             path: ".github/workflows/quality.yml",
-            status: "completed",
-            conclusion: ci,
+            status,
+            conclusion: status === "completed" ? ci : null,
             run_number: 1,
             repository: { id: 1449550207 },
           },
         ],
       });
+    }
     return null;
   });
   async function upgradedRequest() {
@@ -117,6 +121,9 @@ async function selfUse(context: TestContext) {
     request: upgradedRequest,
     ci(value: string) {
       ci = value;
+    },
+    quality(value: () => string | null | Promise<string | null>) {
+      quality = value;
     },
     human(value: boolean) {
       human = value;
@@ -174,6 +181,102 @@ void test("self-upgrades require a pinned producer, human merge and successful C
     await assert.rejects(reconcileReleaseProposal(request, s.f.transport), /human-merged/u);
   });
   assert.ok(s.f.calls.every((call) => call.method === "GET"));
+});
+
+function advanceQualityClock(context: TestContext) {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const clock = setInterval(() => context.mock.timers.tick(15_000), 10);
+  context.after(() => clearInterval(clock));
+}
+
+void test("pending Quality automatically admits the exact source and refreshes the same proposal", async (context) => {
+  const s = await selfUse(context);
+  advanceQualityClock(context);
+  const runtimes = await loadProducerRuntimes({ activeSha: s.f.baseline, producers: [] });
+  await withProducerRuntimes(runtimes, async () => {
+    async function reconcileAfterQuality() {
+      const statuses = ["missing", "queued", "in_progress", "completed"];
+      s.quality(() => {
+        const status = statuses.shift() ?? "completed";
+        if (status !== "completed") {
+          assert.ok(s.f.calls.slice(start).every((call) => call.method === "GET"));
+        }
+        return status === "missing" ? null : status;
+      });
+      const start = s.f.calls.length;
+      const result = await reconcileReleaseProposal(await s.request(), s.f.transport);
+      assert.equal(statuses.length, 0);
+      assert.equal(result.sourceSha, s.f.ref("heads/main"));
+      return result;
+    }
+
+    const created = await reconcileAfterQuality();
+    assert.equal(created.outcome, "created");
+    await s.f.advance("fix(api): retain keys");
+    await s.f.advance("fix(api): retain values");
+    const refreshed = await reconcileAfterQuality();
+    assert.equal(refreshed.outcome, "refreshed");
+    assert.equal(refreshed.pullNumber, created.pullNumber);
+    assert.equal(s.f.pulls.length, 1);
+    const capture = await replayReleaseSnapshot(
+      s.f.git(["show", `${refreshed.headSha}:.release-log/inputs.json`]),
+      (await s.request()).configuration,
+    );
+    assert.deepEqual(
+      capture.input.range.commitShas.toSorted(),
+      s.f
+        .git(["rev-list", `${refreshed.baselineSha}..${refreshed.sourceSha}`])
+        .trim()
+        .split("\n")
+        .toSorted(),
+    );
+    assert.equal(
+      (await reconcileReleaseProposal(await s.request(), s.f.transport)).outcome,
+      "unchanged",
+    );
+  });
+});
+
+void test("Quality timeout, failed admission, and superseded source leave the proposal untouched", async (context) => {
+  const s = await selfUse(context);
+  advanceQualityClock(context);
+  const runtimes = await loadProducerRuntimes({ activeSha: s.f.baseline, producers: [] });
+  await withProducerRuntimes(runtimes, async () => {
+    const request = await s.request();
+    let polls = 0;
+    s.quality(() => {
+      polls++;
+      return "in_progress";
+    });
+    await assert.rejects(
+      reconcileReleaseProposal(request, s.f.transport),
+      /Quality run is still pending/u,
+    );
+    assert.equal(polls, 25);
+
+    polls = 0;
+    s.ci("failure");
+    s.quality(() => (++polls === 1 ? "queued" : "completed"));
+    await assert.rejects(reconcileReleaseProposal(request, s.f.transport), /must pass/u);
+    assert.equal(polls, 2);
+
+    polls = 0;
+    s.ci("success");
+    s.quality(() => (++polls === 1 ? "completed" : "queued"));
+    await assert.rejects(reconcileReleaseProposal(request, s.f.transport), /still pending/u);
+    assert.equal(polls, 2);
+
+    s.quality(async () => {
+      await s.f.advance("fix(api): retain keys");
+      return "queued";
+    });
+    await assert.rejects(
+      reconcileReleaseProposal(request, s.f.transport),
+      /Main changed after capture/u,
+    );
+    assert.ok(s.f.calls.every((call) => call.method === "GET"));
+    assert.equal(s.f.pulls.length, 0);
+  });
 });
 
 void test("creation, retry, refresh, changed caller pin and merge routing preserve exact-landing tags", async (context) => {
