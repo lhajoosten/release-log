@@ -70,6 +70,7 @@ export function readToolPin(content: string): string {
 export async function verifyToolUpgradeCandidate(
   api: GitHubProposalRepository,
   sha: string,
+  checkFreshWhileWaiting?: () => Promise<void>,
 ): Promise<void> {
   const associated = await api.request(`/commits/${sha}/pulls?per_page=100`);
   if (associated.next || !Array.isArray(associated.data) || associated.data.length > 100)
@@ -101,6 +102,21 @@ export async function verifyToolUpgradeCandidate(
     throw new ProposalConflictError(
       "The proposed tool revision requires a human-merged release-log PR.",
     );
+  // Leave time for proposal verification and writes within the shared API deadline.
+  const retries = checkFreshWhileWaiting ? 24 : 0;
+  for (let attempt = 0; ; attempt++) {
+    if (await qualityPassed(api, sha)) return;
+    if (attempt === retries) {
+      throw new ProposalConflictError(
+        "The latest main-push Quality run is still pending for the proposed tool revision; retry after it succeeds.",
+      );
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 15_000));
+    await checkFreshWhileWaiting?.();
+  }
+}
+
+async function qualityPassed(api: GitHubProposalRepository, sha: string): Promise<boolean> {
   const response = await api.request(
     `/actions/workflows/quality.yml/runs?head_sha=${sha}&event=push&per_page=100`,
   );
@@ -109,7 +125,6 @@ export async function verifyToolUpgradeCandidate(
   if (
     response.next ||
     !Array.isArray(runs) ||
-    runs.length === 0 ||
     runs.length > 100 ||
     evidence.total_count !== runs.length
   )
@@ -131,17 +146,11 @@ export async function verifyToolUpgradeCandidate(
   )
     throw new ProposalConflictError("Quality run provenance is incomplete or inconsistent.");
   const latest = listed.toSorted((a, b) => Number(b.run_number) - Number(a.run_number))[0];
-  if (
-    !latest ||
-    latest.head_sha !== sha ||
-    latest.head_branch !== "main" ||
-    latest.event !== "push" ||
-    latest.status !== "completed" ||
-    latest.conclusion !== "success" ||
-    latest.path !== ".github/workflows/quality.yml" ||
-    proposalObject(latest.repository).id !== 1449550207
-  )
-    throw new ProposalConflictError(
-      "The proposed tool revision must pass the latest main-push Quality run before retrying.",
-    );
+  if (!latest) return false;
+  if (latest.status === "completed" && latest.conclusion === "success") return true;
+  if ((latest.status === "queued" || latest.status === "in_progress") && latest.conclusion === null)
+    return false;
+  throw new ProposalConflictError(
+    "The proposed tool revision must pass the latest main-push Quality run before retrying.",
+  );
 }

@@ -48,7 +48,7 @@ export interface ProposalPullRequest {
 export class GitHubProposalRepository {
   readonly headRef: string;
   private readonly prefix: string;
-  private readonly signal = AbortSignal.timeout(300_000);
+  private readonly signal: AbortSignal;
   private requests = 0;
   private readonly config: ReleaseInputConfiguration;
   private readonly botUserId: number;
@@ -59,6 +59,7 @@ export class GitHubProposalRepository {
     botUserId: number,
     token: string,
     transport: GitHubRead = fetch,
+    timeoutMs = 300_000,
   ) {
     if (!Number.isSafeInteger(botUserId) || botUserId <= 0 || !token.trim())
       throw new ProposalConflictError(
@@ -68,6 +69,7 @@ export class GitHubProposalRepository {
     this.botUserId = botUserId;
     this.token = token;
     this.transport = transport;
+    this.signal = AbortSignal.timeout(timeoutMs);
     this.headRef = `release-log/${config.releaseBranch}`;
     this.prefix = `https://api.github.com/repos/${config.repository}`;
   }
