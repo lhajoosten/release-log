@@ -1,6 +1,16 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:c0e088936e55e9212025dd86e5653a227406438381c1fa698f23932f27558e07 -->
+<!-- release-log:pending:v1 sha256:4ddbb5167b3b97e54be81a22742c8339df4fadcbb878fd8d30c7bc4f6a024537 -->
+
+## v0.4.1 (2026-11-19)
+
+### 🐛 Fixes
+
+- Update the release&#45;log container to Node&#46;js 26&#46;13&#46;1&#46; ([#95](https://github.com/lhajoosten/release-log/pull/95)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+Full changelog: [v0&#46;4&#46;0&#8230;68d7f315e1be990a58c45dc8a9f6e56f37470c00](https://github.com/lhajoosten/release-log/compare/v0.4.0...68d7f315e1be990a58c45dc8a9f6e56f37470c00) (captured source).
+
+<!-- release-log:pending:end -->
 
 ## v0.4.0 (2026-11-18)
 
@@ -19,7 +29,6 @@
 
 Full changelog: [v0&#46;3&#46;0&#8230;ca768fafc464465e9bbd768766b51ce320f7f7e4](https://github.com/lhajoosten/release-log/compare/v0.3.0...ca768fafc464465e9bbd768766b51ce320f7f7e4) (captured source).
 
-<!-- release-log:pending:end -->
 
 ## v0.3.0 (recovery candidate)
 
