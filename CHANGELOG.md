@@ -1,6 +1,30 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:c0e088936e55e9212025dd86e5653a227406438381c1fa698f23932f27558e07 -->
+<!-- release-log:pending:v1 sha256:725253e891d62078094d6551d3f8e6b731e9572a3e6ea0b104a01ef6d36882c2 -->
+
+## v0.4.1 (2026-11-19)
+
+### 🐛 Fixes
+
+- Recognize stacked pull requests during initial release adoption&#46; ([#94](https://github.com/lhajoosten/release-log/pull/94)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Update the release&#45;log container to Node&#46;js 26&#46;13&#46;1&#46; ([#95](https://github.com/lhajoosten/release-log/pull/95)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+<details>
+<summary>🔧 Internal maintenance</summary>
+
+- Document a proposed release candidate and stable promotion policy&#46; ([#97](https://github.com/lhajoosten/release-log/pull/97)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Propose a versioned JSON export contract for reviewed releases&#46; ([#98](https://github.com/lhajoosten/release-log/pull/98)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Record the owner&#8217;s closure of adoption issue &#35;26&#46; ([#99](https://github.com/lhajoosten/release-log/pull/99)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Wait for the exact main&#45;push Quality result before proposing a release&#45;log self&#45;upgrade&#46; ([#100](https://github.com/lhajoosten/release-log/pull/100)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Propose the first deterministic release notes contract&#46; ([#101](https://github.com/lhajoosten/release-log/pull/101)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+</details>
+
+<br>
+
+Full changelog: [v0&#46;4&#46;0&#8230;9e1659722e0c5e3dd1a216343ea9763ce461c5b0](https://github.com/lhajoosten/release-log/compare/v0.4.0...9e1659722e0c5e3dd1a216343ea9763ce461c5b0) (captured source).
+
+<!-- release-log:pending:end -->
 
 ## v0.4.0 (2026-11-18)
 
@@ -19,7 +43,6 @@
 
 Full changelog: [v0&#46;3&#46;0&#8230;ca768fafc464465e9bbd768766b51ce320f7f7e4](https://github.com/lhajoosten/release-log/compare/v0.3.0...ca768fafc464465e9bbd768766b51ce320f7f7e4) (captured source).
 
-<!-- release-log:pending:end -->
 
 ## v0.3.0 (recovery candidate)
 
