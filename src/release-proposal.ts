@@ -82,7 +82,14 @@ export async function reconcileReleaseProposal(
   if (request.write !== undefined && typeof request.write !== "boolean")
     throw new ProposalConflictError("An explicit boolean write option is required.");
   let snapshot = await replayReleaseSnapshot(snapshotJSON, config);
-  const api = new GitHubProposalRepository(config, automation.botUserId, token, transport);
+  const api = new GitHubProposalRepository(
+    config,
+    automation.botUserId,
+    token,
+    transport,
+    // Self-upgrade admission reserves up to six minutes for the main-push Quality run.
+    config.selfUpgrade ? 600_000 : undefined,
+  );
   const sourceSha = snapshot.normalized.sourceCommitSha;
   const baseline = snapshot.input.range.baseline;
   const requireFresh = async () => {
@@ -225,7 +232,7 @@ export async function reconcileReleaseProposal(
   }
   if (config.selfUpgrade) {
     await api.requireDescendant(activeProducerSha() ?? "", sourceSha);
-    await verifyToolUpgradeCandidate(api, sourceSha);
+    await verifyToolUpgradeCandidate(api, sourceSha, requireFresh);
   }
   if (
     prior?.identity.snapshotId === snapshot.snapshotId &&
