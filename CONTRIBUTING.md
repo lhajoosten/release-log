@@ -2,7 +2,7 @@
 
 ## Local setup
 
-Use Node.js **26.13.0** and pnpm **12.14.0**, pinned by `.node-version` and `package.json`. With fnm already installed, `fnm install` and `fnm use` select the project runtime. Install the pinned pnpm version separately if needed; Node.js 26 does not bundle Corepack.
+Use Node.js **26.13.1** and pnpm **12.14.0**, pinned by `.node-version` and `package.json`. With fnm already installed, `fnm install` and `fnm use` select the project runtime. Install the pinned pnpm version separately if needed; Node.js 26 does not bundle Corepack.
 
 From the repository root:
 
