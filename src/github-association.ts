@@ -536,6 +536,14 @@ export async function collectMergedPullRequests(
         `PR #${pull.number} has an unsupported landing parent structure.`,
       );
     }
+    // A stacked PR can be linked only to its intermediate branch. For a fully
+    // historical merge, the matching original commit list and Git footprint
+    // corroborate the introduced commits even when that link is filtered out.
+    const historicalMerge =
+      landingKind === "merge" &&
+      historical !== null &&
+      landed.every((commit) => historical.has(commit.sha));
+
     for (const commit of landed) {
       if (!inRange.has(commit.sha))
         throw new PullRequestAssociationError(
@@ -549,7 +557,7 @@ export async function collectMergedPullRequests(
         );
       const linked = await candidates(commit.sha);
       if (
-        (linked.length === 0 && commit.parentShas.length < 2) ||
+        (linked.length === 0 && commit.parentShas.length < 2 && !historicalMerge) ||
         (linked.length > 0 && !linked.includes(pull.number))
       )
         throw new PullRequestAssociationError(
