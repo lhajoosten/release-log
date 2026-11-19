@@ -1,6 +1,17 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:c0e088936e55e9212025dd86e5653a227406438381c1fa698f23932f27558e07 -->
+<!-- release-log:pending:v1 sha256:b444f4233310ea740510bdec8b9e3cd5993b7d4812b2ee64921bdaa50045c05a -->
+
+## v0.4.1 (2026-11-19)
+
+### 🐛 Fixes
+
+- Recognize stacked pull requests during initial release adoption&#46; ([#94](https://github.com/lhajoosten/release-log/pull/94)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Update the release&#45;log container to Node&#46;js 26&#46;13&#46;1&#46; ([#95](https://github.com/lhajoosten/release-log/pull/95)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+Full changelog: [v0&#46;4&#46;0&#8230;3ac812e764a2199414748a3adfc07f14bd32dd64](https://github.com/lhajoosten/release-log/compare/v0.4.0...3ac812e764a2199414748a3adfc07f14bd32dd64) (captured source).
+
+<!-- release-log:pending:end -->
 
 ## v0.4.0 (2026-11-18)
 
@@ -19,7 +30,6 @@
 
 Full changelog: [v0&#46;3&#46;0&#8230;ca768fafc464465e9bbd768766b51ce320f7f7e4](https://github.com/lhajoosten/release-log/compare/v0.3.0...ca768fafc464465e9bbd768766b51ce320f7f7e4) (captured source).
 
-<!-- release-log:pending:end -->
 
 ## v0.3.0 (recovery candidate)
 
