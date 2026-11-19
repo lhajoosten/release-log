@@ -259,6 +259,119 @@ void test("merge histories retain side-branch and structural merge evidence as o
   assert.equal(api.calls.filter((call) => call.path === "/pulls/1").length, 2);
 });
 
+// Upkeep #4 links 398cdc2 to the feature branch. Upkeep #5 lands that stack on main,
+// before the fixed cutoff at #6. Recreate the topology with synthetic commits.
+async function stackedAdoption(context: TestContext) {
+  const directory = await repository(context);
+  const base = await createCommit(directory, "chore: bootstrap");
+  await git(directory, ["switch", "-c", "feat/python-discovery"]);
+  const first = await createCommit(directory, "feat: discover Python projects");
+  await git(directory, ["switch", "-c", "inner"]);
+  const introduced = await createCommit(directory, "fix: detect Python workspaces");
+  await git(directory, ["switch", "feat/python-discovery"]);
+  await git(directory, ["merge", "--no-ff", "inner", "-m", "Merge pull request #4"]);
+  const innerLanding = await git(directory, ["rev-parse", "HEAD"]);
+  await git(directory, ["switch", "main"]);
+  await git(directory, [
+    "merge",
+    "--no-ff",
+    "feat/python-discovery",
+    "-m",
+    "Merge pull request #5",
+  ]);
+  const outerLanding = await git(directory, ["rev-parse", "HEAD"]);
+  const onboardingSha = await createCommit(directory, "chore: configure initial adoption");
+  const range = await inspectPendingRelease(
+    directory,
+    { kind: "bootstrap", commitSha: base },
+    onboardingSha,
+  );
+  const api = http();
+  const inner = pullFixture(4, innerLanding, introduced, 1, {
+    base: { ref: "feat/python-discovery", repo: { id: 1, full_name: "example/project" } },
+  });
+  const outer = pullFixture(5, outerLanding, innerLanding, 3);
+  const outerFootprint = await inspectPendingRelease(
+    directory,
+    { kind: "bootstrap", commitSha: base },
+    outerLanding,
+  );
+  api.originals.set(
+    5,
+    await Promise.all([first, introduced, innerLanding].map((sha) => original(directory, sha))),
+  );
+  api.pulls.set(5, outer);
+  api.links.set(outerLanding, [outer]);
+  api.links.set(introduced, [inner]);
+  api.links.set(first, [outer]);
+  return {
+    api,
+    introduced,
+    inner,
+    outerFootprint,
+    request: {
+      repository: "example/project",
+      releaseBranch: "main",
+      localRepository: directory,
+      range,
+      token,
+      onboardingSha,
+    },
+  };
+}
+
+void test("initial adoption attributes the Upkeep stack once to the outer PR", async (context) => {
+  const { api, introduced, outerFootprint, request } = await stackedAdoption(context);
+  const association = await collectMergedPullRequests(request, api.read);
+  assert.deepEqual(
+    association.pullRequests.map((pull) => pull.number),
+    [5],
+  );
+  assert.deepEqual(
+    association.pullRequests[0]?.landedCommits.map((commit) => commit.sha),
+    outerFootprint.commitShas,
+  );
+  assert.equal(
+    association.bootstrapCommits?.some((commit) => commit.sha === introduced),
+    false,
+  );
+});
+
+void test("initial adoption rejects an incomplete outer merge footprint", async (context) => {
+  const { api, request } = await stackedAdoption(context);
+  const originals = api.originals.get(5);
+  const outer = api.pulls.get(5);
+  assert.ok(originals && outer);
+  originals[1] = await original(request.localRepository, request.range.baseline.commitSha);
+  await assert.rejects(
+    collectMergedPullRequests(request, api.read),
+    /original commits do not account for the complete merge footprint/u,
+  );
+});
+
+void test("stacked merge attribution remains strict without adoption or across the cutoff", async (context) => {
+  const { api, introduced, request } = await stackedAdoption(context);
+  const { onboardingSha: cutoff, ...strict } = request;
+  assert.notEqual(cutoff, introduced);
+  for (const input of [strict, { ...request, onboardingSha: introduced }]) {
+    await assert.rejects(
+      collectMergedPullRequests(input, api.read),
+      /lacks unique association evidence/u,
+    );
+  }
+});
+
+void test("initial adoption rejects conflicting release-branch landing evidence", async (context) => {
+  const { api, introduced, inner, request } = await stackedAdoption(context);
+  inner.base = { ref: "main", repo: { id: 1, full_name: "example/project" } };
+  api.pulls.set(4, inner);
+  api.originals.set(4, [await original(request.localRepository, introduced)]);
+  await assert.rejects(
+    collectMergedPullRequests(request, api.read),
+    hasCode("ambiguous-association"),
+  );
+});
+
 void test("squash histories retain original PR commits without requiring them in the landed range", async (context) => {
   const fixture = await linear(context);
   const first = fixture.source;
