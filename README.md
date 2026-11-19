@@ -42,7 +42,7 @@ Use the digest reference in automation. The [runtime guide](docs/container.md#ru
 
 ## Build the CLI from source
 
-Use Node.js **26.13.0** and pnpm **12.14.0**:
+Use Node.js **26.13.1** and pnpm **12.14.0**:
 
 ```sh
 pnpm install --frozen-lockfile
