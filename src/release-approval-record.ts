@@ -2,7 +2,7 @@ import { isProposalPath, maxProposalFiles } from "./proposal-paths.ts";
 import { createHash } from "node:crypto";
 import { parseDocument } from "yaml";
 import type { PendingReleaseInspection, ResolvedReleaseBaseline } from "./git.ts";
-import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
+import type { ReleaseInputConfiguration } from "./config/repository.ts";
 
 export class ReleaseApprovalError extends Error {
   readonly code:

@@ -8,14 +8,14 @@ import {
 } from "./github-proposals.ts";
 import type { GitHubRead } from "./github.ts";
 import { selectReleaseCycle } from "./release-cycle.ts";
-import { parseReleaseAutomation, reconcileReleaseProposal } from "./release-proposal.ts";
-import type { ReleaseAutomationConfiguration, ReleaseProposalResult } from "./release-proposal.ts";
-import {
-  captureReleaseSnapshot,
-  parseReleaseInputConfiguration,
-  serializeReleaseSnapshot,
-} from "./release-snapshot.ts";
-import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
+import { reconcileReleaseProposal } from "./proposal/reconcile.ts";
+import { parseReleaseAutomation } from "./config/automation.ts";
+import type { ReleaseProposalResult } from "./proposal/reconcile.ts";
+import type { ReleaseAutomationConfiguration } from "./config/automation.ts";
+import { captureReleaseSnapshot } from "./snapshot/capture.ts";
+import { serializeReleaseSnapshot } from "./snapshot/replay.ts";
+import { parseReleaseInputConfiguration } from "./config/repository.ts";
+import type { ReleaseInputConfiguration } from "./config/repository.ts";
 import { reconcileReleaseTag } from "./release-tag.ts";
 import type { ReleaseTagResult } from "./release-tag.ts";
 

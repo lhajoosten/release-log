@@ -3,20 +3,12 @@ import { createHash } from "node:crypto";
 import { GitHubReadError, requestGitHubJson } from "./github.ts";
 import type { GitHubRead } from "./github.ts";
 import { isCargoManifest, isProposalPath } from "./proposal-paths.ts";
-import type { ProposalFile, ReleaseFileContents } from "./proposal-files.ts";
-import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
+import type { ProposalFile, ReleaseFileContents } from "./proposal/prepare.ts";
+import type { ReleaseInputConfiguration } from "./config/repository.ts";
+import { ProposalConflictError, proposalObject } from "./evidence/proposal.ts";
 
-export class ProposalConflictError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ProposalConflictError";
-  }
-}
-export function proposalObject(value: unknown): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    throw new ProposalConflictError("GitHub returned incomplete proposal evidence.");
-  return Object.fromEntries(Object.entries(value));
-}
+export { ProposalConflictError, proposalObject } from "./evidence/proposal.ts";
+
 export function proposalSha(value: unknown): string {
   if (typeof value !== "string" || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(value))
     throw new ProposalConflictError("GitHub returned an invalid immutable object ID.");
@@ -45,7 +37,11 @@ export interface ProposalPullRequest {
   readonly mergedByUserId: number | null;
 }
 
-export class GitHubProposalRepository {
+export interface RepositoryEvidenceReader {
+  request(path: string): Promise<{ data: unknown; next: boolean }>;
+}
+
+export class GitHubProposalRepository implements RepositoryEvidenceReader {
   readonly headRef: string;
   private readonly prefix: string;
   private readonly signal: AbortSignal;

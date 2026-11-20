@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { parseReleaseInputConfiguration } from "../src/release-snapshot.ts";
+import { parseReleaseInputConfiguration } from "../src/config/repository.ts";
 import { readToolPin, workflowPath } from "../src/tool-upgrade.ts";
 import { proposalObject } from "../src/github-proposals.ts";
 

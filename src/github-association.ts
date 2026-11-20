@@ -5,6 +5,19 @@ import type { GitHubRead } from "./github.ts";
 import { parseReleaseExclusionAuthorities, verifyReleaseApproval } from "./release-approval.ts";
 import type { ReleaseExclusionAuthority, VerifiedReleaseApproval } from "./release-approval.ts";
 
+import type {
+  AssociatedPullRequest,
+  CapturedPullRequest,
+  PullRequestAssociation,
+  PullRequestCommitEvidence,
+} from "./snapshot/association.ts";
+
+export type {
+  AssociatedPullRequest,
+  PullRequestAssociation,
+  PullRequestCommitEvidence,
+} from "./snapshot/association.ts";
+
 export type AssociationErrorCode =
   | "invalid-input"
   | "invalid-response"
@@ -24,46 +37,6 @@ export class PullRequestAssociationError extends Error {
     this.name = "PullRequestAssociationError";
     this.code = code;
   }
-}
-
-export interface PullRequestCommitEvidence {
-  readonly sha: string;
-  readonly message: string;
-  readonly parentShas: readonly string[];
-}
-
-interface CapturedPullRequest {
-  readonly number: number;
-  readonly id: number;
-  readonly title: string;
-  readonly body: string;
-  readonly updatedAt: string;
-  readonly mergedAt: string;
-  readonly mergeCommitSha: string;
-  readonly commitCount: number;
-  readonly headSha: string;
-  readonly headRef: string;
-  readonly headRepositoryId: number | null;
-  readonly baseRepositoryId: number;
-  readonly authorId: number | null;
-  readonly authorType: string;
-  readonly authorLogin?: string | null;
-}
-
-export interface AssociatedPullRequest extends CapturedPullRequest {
-  readonly url: string;
-  readonly landingKind: "merge" | "linear";
-  readonly originalCommits: readonly PullRequestCommitEvidence[];
-  readonly landedCommits: readonly GitCommitEvidence[];
-}
-
-export interface PullRequestAssociation {
-  readonly repository: string;
-  readonly releaseBranch: string;
-  readonly range: PendingReleaseInspection;
-  readonly pullRequests: readonly AssociatedPullRequest[];
-  readonly bootstrapCommits?: readonly GitCommitEvidence[];
-  readonly verifiedAutomation?: readonly VerifiedReleaseApproval[];
 }
 
 function record(value: unknown): value is Record<string, unknown> {

@@ -9,12 +9,13 @@ import { collectMergedPullRequests } from "./github-association.ts";
 import { GitHubReadError } from "./github.ts";
 import { renderChangelog } from "./changelog.ts";
 import { createReleasePlan } from "./release-plan.ts";
-import { reconcileReleaseProposal, parseReleaseAutomation } from "./release-proposal.ts";
+import { reconcileReleaseProposal } from "./proposal/reconcile.ts";
+import { parseReleaseAutomation } from "./config/automation.ts";
 import { reconcileReleaseTag } from "./release-tag.ts";
 import { rollRelease } from "./release-roll.ts";
 import { selectReleaseCycle } from "./release-cycle.ts";
 import { ProposalConflictError } from "./github-proposals.ts";
-import type { ReleaseVersionConfiguration } from "./release-plan.ts";
+import type { ReleaseVersionConfiguration } from "./planning/derive-release-plan.ts";
 import {
   parseReleaseApproval,
   parseReleaseApprovalJSON,
@@ -28,18 +29,13 @@ import {
   auditReleaseExclusion,
   parseReleaseExclusionAuthorities,
 } from "./release-approval.ts";
-import { prepareReleaseFiles, writeReleaseFiles } from "./proposal-files.ts";
-import {
-  inspectReleasePublication,
-  publishGitHubRelease,
-  parsePublicationPolicy,
-  parsePublicationReceipt,
-} from "./release-publication.ts";
-import {
-  captureReleaseSnapshot,
-  parseReleaseInputConfiguration,
-  serializeReleaseSnapshot,
-} from "./release-snapshot.ts";
+import { prepareReleaseFiles, writeReleaseFiles } from "./proposal/files.ts";
+import { inspectReleasePublication } from "./publication/inspect.ts";
+import { publishGitHubRelease } from "./publication/execute.ts";
+import { parsePublicationPolicy, parsePublicationReceipt } from "./publication/schema.ts";
+import { captureReleaseSnapshot } from "./snapshot/capture.ts";
+import { serializeReleaseSnapshot } from "./snapshot/replay.ts";
+import { parseReleaseInputConfiguration } from "./config/repository.ts";
 
 class UsageError extends Error {
   constructor(message: string) {

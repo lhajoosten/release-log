@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { parseReleaseInputConfiguration } from "../src/release-snapshot.ts";
-import type { ReleaseInputConfiguration } from "../src/release-snapshot.ts";
+import { parseReleaseInputConfiguration } from "../src/config/repository.ts";
+import type { ReleaseInputConfiguration } from "../src/config/repository.ts";
 
 export interface RehearsalOptions {
   readonly configuration: ReleaseInputConfiguration;

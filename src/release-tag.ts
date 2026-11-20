@@ -6,14 +6,18 @@ import {
   proposalObject,
   proposalSha,
 } from "./github-proposals.ts";
-import type { ProposalPullRequest, ProposalTree } from "./github-proposals.ts";
+import type {
+  RepositoryEvidenceReader,
+  ProposalPullRequest,
+  ProposalTree,
+} from "./github-proposals.ts";
 import { GitHubReadError } from "./github.ts";
 import type { GitHubRead } from "./github.ts";
-import { parseReleaseAutomation } from "./release-proposal.ts";
-import type { ReleaseAutomationConfiguration } from "./release-proposal.ts";
-import { verifyPrevious } from "./proposal-verification.ts";
-import { parseReleaseInputConfiguration } from "./release-snapshot.ts";
-import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
+import { parseReleaseAutomation } from "./config/automation.ts";
+import type { ReleaseAutomationConfiguration } from "./config/automation.ts";
+import { verifyPrevious } from "./proposal/verification.ts";
+import { parseReleaseInputConfiguration } from "./config/repository.ts";
+import type { ReleaseInputConfiguration } from "./config/repository.ts";
 import type { ResolvedReleaseBaseline } from "./git.ts";
 
 export interface ReleaseTagRequest {
@@ -46,7 +50,7 @@ function sameTree(left: ProposalTree, right: ProposalTree): boolean {
   return true;
 }
 
-async function readTagTarget(api: GitHubProposalRepository, tag: string): Promise<string | null> {
+async function readTagTarget(api: RepositoryEvidenceReader, tag: string): Promise<string | null> {
   let response: { data: unknown; next: boolean };
   try {
     response = await api.request(`/git/ref/tags/${encodeURIComponent(tag)}`);
@@ -82,7 +86,7 @@ async function readTagTarget(api: GitHubProposalRepository, tag: string): Promis
 }
 
 async function requireBaselineUnchanged(
-  api: GitHubProposalRepository,
+  api: Pick<GitHubProposalRepository, "ref">,
   baseline: ResolvedReleaseBaseline,
 ): Promise<void> {
   if (baseline.kind !== "tag") return;
@@ -93,7 +97,7 @@ async function requireBaselineUnchanged(
 }
 
 async function requireLandingOnCurrentMain(
-  api: GitHubProposalRepository,
+  api: Pick<GitHubProposalRepository, "ref" | "requireDescendant">,
   configuration: ReleaseInputConfiguration,
   landingSha: string,
 ): Promise<void> {
