@@ -1,6 +1,30 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:725253e891d62078094d6551d3f8e6b731e9572a3e6ea0b104a01ef6d36882c2 -->
+<!-- release-log:pending:v1 sha256:99d49b56118e17401955628216d856b0a59f2730ab7e3c3a56eea3f1df80c2d8 -->
+
+## v0.5.0 (2026-11-20)
+
+### ✨ Features
+
+- Preview the pending changelog in release pull requests&#46; ([#104](https://github.com/lhajoosten/release-log/pull/104)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+### 🐛 Fixes
+
+- Accept conventional commits with or without scopes during ordinary release validation&#46; ([#106](https://github.com/lhajoosten/release-log/pull/106)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+<details>
+<summary>🔧 Internal maintenance</summary>
+
+- Skip redundant CI builds on generated release proposals&#46; ([#105](https://github.com/lhajoosten/release-log/pull/105)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Skip redundant container scans and documentation deploys&#46; ([#107](https://github.com/lhajoosten/release-log/pull/107)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+</details>
+
+<br>
+
+Full changelog: [v0&#46;4&#46;1&#8230;b77edebf146d2e28761db8024a8493ea970a4fc1](https://github.com/lhajoosten/release-log/compare/v0.4.1...b77edebf146d2e28761db8024a8493ea970a4fc1) (captured source).
+
+<!-- release-log:pending:end -->
 
 ## v0.4.1 (2026-11-19)
 
@@ -24,7 +48,6 @@
 
 Full changelog: [v0&#46;4&#46;0&#8230;9e1659722e0c5e3dd1a216343ea9763ce461c5b0](https://github.com/lhajoosten/release-log/compare/v0.4.0...9e1659722e0c5e3dd1a216343ea9763ce461c5b0) (captured source).
 
-<!-- release-log:pending:end -->
 
 ## v0.4.0 (2026-11-18)
 
