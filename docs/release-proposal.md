@@ -32,6 +32,8 @@ A refresh commit has the captured source as its first parent and the previous pr
 
 Commit footers and the PR body carry the same versioned machine identity: repository, branch, bot ID, captured baseline/source, snapshot/configuration identities, version configuration, previous head and file digests. The footer is wrapped to satisfy contribution line limits. The PR also contains exactly one ordinary internal v1 release-context block with an explicit review action. A title or label alone is never ownership.
 
+The PR body previews the pending changelog for the full captured batch. Each refresh regenerates the same sections and source links as the pending section in `CHANGELOG.md`. Released history stays in the file. If the preview would make the body exceed 60 KiB, the description points reviewers to `CHANGELOG.md` in **Files changed**. The proposal identity records the body format so existing proposals can still be verified with their original description.
+
 ## Verification and conflict policy
 
 Before any branch mutation:

@@ -372,34 +372,69 @@ void test("initial adoption rejects conflicting release-branch landing evidence"
   );
 });
 
-void test("squash histories retain original PR commits without requiring them in the landed range", async (context) => {
+void test("merge and squash landings with scoped commits produce the same PR classification and bump", async (context) => {
   const fixture = await linear(context);
   const first = fixture.source;
-  const second = await createCommit(fixture.directory, "fix: revise original PR");
+  const head = await createCommit(fixture.directory, "fix(keys): revise original PR");
+  await git(fixture.directory, ["tag", "v1.2.3", fixture.base]);
+  const title = "feat(api): add exports";
+
   await git(fixture.directory, ["switch", "-c", "squash", fixture.base]);
-  const landing = await createCommit(fixture.directory, "feat: squashed change");
-  const metadata = pullFixture(1, landing, second, 2);
-  fixture.api.pulls.set(1, metadata);
+  const squash = await createCommit(fixture.directory, title);
+  await git(fixture.directory, ["switch", "-c", "merge", fixture.base]);
+  await git(fixture.directory, ["merge", "--no-ff", head, "-m", "Merge pull request #1"]);
+  const merge = await git(fixture.directory, ["rev-parse", "HEAD"]);
+
   fixture.api.originals.set(1, [
     await original(fixture.directory, first),
-    await original(fixture.directory, second),
+    await original(fixture.directory, head),
   ]);
-  fixture.api.links.clear();
-  fixture.api.links.set(landing, [metadata]);
-  const range = await inspectPendingRelease(
-    fixture.directory,
-    { kind: "bootstrap", commitSha: fixture.base },
-    landing,
-  );
-  const result = await collectMergedPullRequests({ ...fixture.request, range }, fixture.api.read);
-  assert.deepEqual(
-    result.pullRequests[0]?.landedCommits.map((commit) => commit.sha),
-    [landing],
-  );
-  assert.deepEqual(
-    result.pullRequests[0]?.originalCommits.map((commit) => commit.sha),
-    [first, second],
-  );
+  const config = {
+    schemaVersion: 1,
+    repository: "example/project",
+    repositoryId: 1,
+    releaseBranch: "main",
+    releasePolicy: "release-policy-v1",
+    contextPolicy: "optional",
+  } as const;
+  for (const [landing, footprint] of [
+    [squash, [squash]],
+    [merge, [merge, first, head]],
+  ] as const) {
+    const metadata = pullFixture(1, landing, head, 2, { title });
+    fixture.api.pulls.set(1, metadata);
+    fixture.api.links.clear();
+    for (const sha of footprint) fixture.api.links.set(sha, [metadata]);
+    const range = await inspectPendingRelease(
+      fixture.directory,
+      { kind: "tag", name: "v1.2.3" },
+      landing,
+    );
+    const association = await collectMergedPullRequests(
+      { ...fixture.request, range },
+      fixture.api.read,
+    );
+    assert.deepEqual(
+      association.pullRequests[0]?.landedCommits.map((commit) => commit.sha),
+      [...footprint].toSorted(),
+    );
+    assert.deepEqual(
+      association.pullRequests[0]?.originalCommits.map((commit) => commit.sha),
+      [first, head],
+    );
+
+    const snapshot = await captureReleaseSnapshot(association, config);
+    const plan = await createReleasePlan(await serializeReleaseSnapshot(snapshot), config, {
+      kind: "released",
+      currentVersion: "1.2.3",
+    });
+    assert.equal(plan.bump, "minor");
+    assert.equal(plan.nextVersion, "1.3.0");
+    assert.deepEqual(
+      plan.contributions.map(({ number, type, scope }) => ({ number, type, scope })),
+      [{ number: 1, type: "feat", scope: "api" }],
+    );
+  }
 });
 
 async function rebase(context: TestContext) {
@@ -1037,7 +1072,7 @@ void test("a fixed onboarding SHA separates legacy PR/commit warnings from stric
   await git(fixture.directory, ["add", "."]);
 
   const onboardingSha = await createCommit(fixture.directory, "Configure the initial application");
-  const source = await createCommit(fixture.directory, "fix: retain selected rows");
+  const source = await createCommit(fixture.directory, "fix(app): retain selected rows");
   const next = pullFixture(2, source, source, 1, {
     title: "fix(app): retain selected rows",
     body: "```release-log\nversion: 1\naudience: users\nsummary: Retain selected rows.\nimpact: Preserve the selection.\nrequired_action: null\n```",

@@ -28,7 +28,7 @@ function runtimeIdentity(): { version: string; normalizerId: string } {
   return {
     version: manifest.version,
     normalizerId: digest({
-      normalizationVersion: 3,
+      normalizationVersion: 4,
       conventionalPolicyId,
       dependencies: manifest.dependencies,
       lockfileId: createHash("sha256")

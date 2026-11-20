@@ -9,6 +9,8 @@ import {
   serializeReleaseSnapshot,
 } from "../src/release-snapshot.ts";
 import { reconcileReleaseProposal } from "../src/release-proposal.ts";
+import { prepareReleaseFiles } from "../src/proposal-files.ts";
+import { capturedIdentity, describe } from "../src/proposal-identity.ts";
 import { requestGitHubJson, GitHubReadError } from "../src/github.ts";
 import { fixture, json, object, text, botId } from "./proposal-fixture.ts";
 
@@ -31,6 +33,10 @@ for (const mode of ["node", "python", "both", "cargo", "cargo-workspace"] as con
     assert.match(changelog, /^# Changelog/u);
     assert.match(changelog, /## v1\.3\.0/u);
     assert.ok(changelog.includes("[#1]"));
+    const firstBody = text(f.pulls[0]?.body);
+    assert.match(firstBody, /^### Features$/mu);
+    assert.ok(firstBody.includes("[#1]"));
+    assert.ok(!firstBody.includes("[#2]"));
     if (mode === "node" || mode === "both")
       assert.match(f.git(["show", `${head}:package.json`]), /"version": "1.3.0"/u);
     if (mode === "python" || mode === "both")
@@ -84,12 +90,73 @@ for (const mode of ["node", "python", "both", "cargo", "cargo-workspace"] as con
     const complete = f.git(["show", `${refreshed.headSha}:CHANGELOG.md`]);
     assert.equal((complete.match(/pending:v1/gu) ?? []).length, 1);
     assert.ok(complete.includes("[#1]") && complete.includes("[#2]"));
+    const refreshedBody = text(f.pulls[0]?.body);
+    assert.match(refreshedBody, /^### Features$/mu);
+    assert.match(refreshedBody, /^### Fixes$/mu);
+    const pending =
+      /<!-- release-log:pending:v1 [^>]+ -->\n\n([\s\S]+?)\n<!-- release-log:pending:end -->/u.exec(
+        complete,
+      )?.[1];
+    assert.ok(pending);
+    assert.ok(refreshedBody.endsWith(pending));
     assert.ok(
       !f.calls.some(({ path }) => path.includes("/releases") || path.includes("/git/refs/tags")),
     );
     assert.equal(f.git(["status", "--porcelain"]), "");
   });
 }
+
+void test("a legacy proposal stays verifiable and gains a changelog on the next refresh", async (context) => {
+  const f = await fixture(context);
+  const request = await f.request(true);
+  const initial = await reconcileReleaseProposal(request, f.transport);
+  const pull = f.pulls[0];
+  assert.ok(initial.headSha && pull);
+  const snapshot = await replayReleaseSnapshot(request.snapshot, request.configuration);
+  const prepared = await prepareReleaseFiles(
+    f.directory,
+    request.snapshot,
+    request.configuration,
+    request.version,
+  );
+  const legacy = describe(snapshot, prepared, botId, null, undefined, "legacy");
+  const tree = f.git(["rev-parse", `${initial.headSha}^{tree}`]).trim();
+  const legacyHead = f.git(["commit-tree", tree, "-p", initial.sourceSha], legacy.message).trim();
+  f.git(["update-ref", "refs/heads/release-log/main", legacyHead]);
+  pull.body = legacy.body;
+
+  assert.equal(capturedIdentity(legacy.message).bodyFormat, "legacy");
+  assert.ok(!legacy.body.includes("[#1]"));
+  const unchanged = await reconcileReleaseProposal(request, f.transport);
+  assert.equal(unchanged.outcome, "unchanged");
+  assert.equal(unchanged.proposalId, legacy.id);
+
+  await f.advance("fix(api): retain keys");
+  const refreshed = await reconcileReleaseProposal(await f.request(true), f.transport);
+  assert.equal(refreshed.outcome, "refreshed");
+  assert.equal(refreshed.pullNumber, initial.pullNumber);
+  const refreshedBody = text(pull.body);
+  assert.ok(refreshedBody.includes("[#1]") && refreshedBody.includes("[#2]"));
+  pull.body = refreshedBody.replace("### Fixes", "### Changed");
+  await assert.rejects(
+    reconcileReleaseProposal(await f.request(true), f.transport),
+    /Proposal metadata, ancestry or generated identity was edited/u,
+  );
+});
+
+void test("a changelog that exceeds the proposal body budget stays available in Files changed", async (context) => {
+  const f = await fixture(context);
+  const { snapshot: serialized, configuration, version } = await f.request();
+  const snapshot = await replayReleaseSnapshot(serialized, configuration);
+  const prepared = await prepareReleaseFiles(f.directory, serialized, configuration, version);
+  const pendingChangelog = `${prepared.pendingChangelog ?? ""}${"é".repeat(32 * 1024)}\n`;
+  const description = describe(snapshot, { ...prepared, pendingChangelog }, botId, null);
+
+  assert.match(description.body, /## Included changes/u);
+  assert.match(description.body, /See `CHANGELOG.md` in \*\*Files changed\*\*/u);
+  assert.ok(!description.body.includes("é"));
+  assert.equal(capturedIdentity(description.message).bodyFormat, "changelog-v1");
+});
 
 void test("an independently versioned Cargo member stops reconciliation before proposal writes", async (context) => {
   const f = await fixture(context, "cargo-workspace");

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { test } from "node:test";
@@ -715,7 +715,7 @@ void test("producer reconstruction follows the captured runner version after a p
       "--test",
       "--test-reporter=tap",
       "--test-name-pattern=^creation, retry, refresh, changed caller pin and merge routing preserve exact-landing tags$",
-      "tests/tool-upgrade.test.ts",
+      relative(root, fileURLToPath(import.meta.url)),
     ],
     { cwd: directory, env: environment, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 },
   );

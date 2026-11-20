@@ -6,9 +6,14 @@ import type { PreparedRelease, ProposalFile } from "./prepare.ts";
 import type { ReleaseVersionConfiguration } from "../planning/derive-release-plan.ts";
 import type { ReleaseSnapshot } from "../snapshot/model.ts";
 
+export type ProposalBodyFormat = "legacy" | "changelog-v1";
+
+const maximumBodyBytes = 60 * 1024;
+
 interface ProposalIdentity {
   readonly schemaVersion: 1;
   readonly producerSha?: string;
+  readonly bodyFormat?: "changelog-v1";
   readonly repositoryId: number;
   readonly releaseBranch: string;
   readonly botUserId: number;
@@ -36,6 +41,7 @@ export function describe(
   botUserId: number,
   previousHeadSha: string | null,
   producerSha?: string,
+  bodyFormat: ProposalBodyFormat = "changelog-v1",
 ): Description {
   const nextVersion = prepared.plan.nextVersion;
   if (nextVersion === null)
@@ -46,6 +52,7 @@ export function describe(
   const identity: ProposalIdentity = {
     schemaVersion: 1,
     ...(producerSha === undefined ? {} : { producerSha: proposalSha(producerSha) }),
+    ...(bodyFormat === "legacy" ? {} : { bodyFormat }),
     repositoryId: snapshot.configuration.repositoryId,
     releaseBranch: snapshot.configuration.releaseBranch,
     botUserId,
@@ -62,7 +69,7 @@ export function describe(
   const title = `chore(release): prepare v${nextVersion}`;
   const markerLines = encoded.match(/.{1,72}/gu) ?? [];
   const message = `chore: prepare v${nextVersion}\n\nRelease-Log-Proposal:\n${markerLines.join("\n")}\n`;
-  const body = [
+  const metadata = [
     `<!-- release-log:proposal:v1 ${encoded} -->`,
     "",
     `## Proposed release v${nextVersion}`,
@@ -83,11 +90,22 @@ export function describe(
     "```",
     "",
   ].join("\n");
+  if (bodyFormat === "legacy") return { identity, id, title, body: metadata, message };
+
+  const pending = prepared.pendingChangelog;
+  if (pending === undefined)
+    throw new ProposalConflictError("A release proposal must have a rendered changelog.");
+  const body =
+    Buffer.byteLength(metadata, "utf8") + Buffer.byteLength(pending, "utf8") + 1 <= maximumBodyBytes
+      ? `${metadata}\n${pending}`
+      : `${metadata}\n## Included changes\n\nSee \`CHANGELOG.md\` in **Files changed** for the full release changelog.\n`;
+
   return { identity, id, title, body, message };
 }
 export function capturedIdentity(message: string): {
   sourceSha: string;
   producerSha?: string;
+  bodyFormat: ProposalBodyFormat;
   version: ReleaseVersionConfiguration;
   previousHeadSha: string | null;
 } {
@@ -103,6 +121,9 @@ export function capturedIdentity(message: string): {
     throw new ProposalConflictError("The generated proposal marker is malformed.");
   }
   const object = proposalObject(raw);
+  const bodyFormat = object.bodyFormat;
+  if (bodyFormat !== undefined && bodyFormat !== "changelog-v1")
+    throw new ProposalConflictError("Unsupported proposal body format.");
   const version = proposalObject(object.version);
   let selected: ReleaseVersionConfiguration;
   if (version.kind === "bootstrap" && version.initialVersion === "0.1.0")
@@ -113,6 +134,7 @@ export function capturedIdentity(message: string): {
   return {
     sourceSha: proposalSha(object.sourceSha),
     ...(object.producerSha === undefined ? {} : { producerSha: proposalSha(object.producerSha) }),
+    bodyFormat: bodyFormat ?? "legacy",
     version: selected,
     previousHeadSha: object.previousHeadSha === null ? null : proposalSha(object.previousHeadSha),
   };

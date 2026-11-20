@@ -27,6 +27,7 @@ export interface ProposalFile {
 }
 export interface PreparedRelease {
   readonly plan: ReleasePlan;
+  readonly pendingChangelog?: string;
   readonly files: readonly ProposalFile[];
 }
 const unsupportedLocks = ["package-lock.json", "npm-shrinkwrap.json", "uv.lock"] as const;
@@ -94,9 +95,11 @@ export function prepareVerifiedRelease(
     version.kind === "released" ? version.currentVersion : undefined,
   );
   if (!plan.release) return { plan, files: [] };
+  if (rendered === null) throw new ProposalFilesError("A release plan must render a changelog.");
   const inputs = contents[".release-log/inputs.json"];
   return {
     plan,
+    pendingChangelog: rendered,
     files: [
       ...manifests,
       ...(snapshot.configuration.selfUpgrade === true
