@@ -16,6 +16,8 @@ if (
 }
 /** @type {Array<[string, string, import("dependency-cruiser").DependencyType]>} */
 const edges = [
+  ["src/snapshot/evidence.ts", "src/approval/record.ts", "import"],
+  ["src/publication/inspect.ts", "src/approval/verify.ts", "import"],
   ["src/cycle/select.ts", "src/tagging/reconcile.ts", "import"],
   ["src/release-roll.ts", "src/cycle/select.ts", "import"],
   ["src/publication/inspect.ts", "src/publication/plan.ts", "import"],

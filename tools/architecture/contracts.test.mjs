@@ -127,6 +127,23 @@ const cases = [
     },
   ],
   [
+    "application imports approval from the owning module",
+    "application-bypasses-approval-facades",
+    {
+      "src/consumer.ts": "import './release-approval.ts';",
+      "src/release-approval.ts": "export {};",
+    },
+  ],
+  [
+    "record decoding cannot reach verification through a shared helper",
+    "approval-records-independent-of-workflows",
+    {
+      "src/approval/record.ts": "import './helper.ts';",
+      "src/approval/helper.ts": "import type { T } from './verify.ts'; export type R = T;",
+      "src/approval/verify.ts": "export type T = string;",
+    },
+  ],
+  [
     "proposal write phase is private to the reconciler",
     "proposal-phases-owned-by-reconciler",
     {

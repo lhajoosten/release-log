@@ -66,6 +66,21 @@ const config = {
       to: { path: "^src/release-(cycle|tag)\\.ts$" },
     },
     {
+      name: "application-bypasses-approval-facades",
+      severity: "error",
+      from: { path: "^src/" },
+      to: { path: "^src/release-approval(-record)?\\.ts$" },
+    },
+    {
+      name: "approval-records-independent-of-workflows",
+      severity: "error",
+      from: { path: "^src/approval/(record|policy|validation)\\.ts$" },
+      to: {
+        path: "^src/approval/(review|verify|history|exclusion)\\.ts$",
+        reachable: true,
+      },
+    },
+    {
       name: "proposal-phases-owned-by-reconciler",
       severity: "error",
       from: { path: "^src/", pathNot: "^src/proposal/reconcile\\.ts$" },

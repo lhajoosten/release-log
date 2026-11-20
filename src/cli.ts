@@ -19,16 +19,14 @@ import type { ReleaseVersionConfiguration } from "./planning/derive-release-plan
 import {
   parseReleaseApproval,
   parseReleaseApprovalJSON,
-  parseReleaseApprovalPolicy,
-  captureReleaseReview,
-  finalizeReleaseApproval,
   parseReleaseReviewTarget,
   parseReleaseReview,
   parseReleaseMergeAttestation,
-  verifyReleaseApproval,
-  auditReleaseExclusion,
-  parseReleaseExclusionAuthorities,
-} from "./release-approval.ts";
+} from "./approval/record.ts";
+import { parseReleaseApprovalPolicy } from "./approval/policy.ts";
+import { captureReleaseReview, finalizeReleaseApproval } from "./approval/review.ts";
+import { verifyReleaseApproval } from "./approval/verify.ts";
+import { auditReleaseExclusion, parseReleaseExclusionAuthorities } from "./approval/exclusion.ts";
 import { prepareReleaseFiles, writeReleaseFiles } from "./proposal/files.ts";
 import { inspectReleasePublication } from "./publication/inspect.ts";
 import { publishGitHubRelease } from "./publication/execute.ts";

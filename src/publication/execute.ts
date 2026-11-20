@@ -1,5 +1,6 @@
 import type { GitHubRead } from "../github.ts";
-import { parseReleaseApproval, parseReleaseApprovalPolicy } from "../release-approval.ts";
+import { parseReleaseApproval } from "../approval/record.ts";
+import { parseReleaseApprovalPolicy } from "../approval/policy.ts";
 import { parseReleaseInputConfiguration } from "../config/repository.ts";
 import { publicationAssets } from "./assets.ts";
 import { fail } from "./error.ts";

@@ -2,8 +2,9 @@ import { inspectCommit, inspectPendingRelease } from "./git.ts";
 import type { GitCommitEvidence, PendingReleaseInspection } from "./git.ts";
 import { GitHubReadError, readGitHubJson } from "./github.ts";
 import type { GitHubRead } from "./github.ts";
-import { parseReleaseExclusionAuthorities, verifyReleaseApproval } from "./release-approval.ts";
-import type { ReleaseExclusionAuthority, VerifiedReleaseApproval } from "./release-approval.ts";
+import { parseReleaseExclusionAuthorities } from "./approval/exclusion.ts";
+import { verifyReleaseApproval } from "./approval/verify.ts";
+import type { ReleaseExclusionAuthority, VerifiedReleaseApproval } from "./approval/record.ts";
 
 import type {
   AssociatedPullRequest,
