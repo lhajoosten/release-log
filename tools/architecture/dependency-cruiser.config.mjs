@@ -54,6 +54,18 @@ const config = {
       },
     },
     {
+      name: "application-bypasses-proposal-compatibility-facades",
+      severity: "error",
+      from: { path: "^src/" },
+      to: { path: "^src/(release-proposal|proposal-files|proposal-identity)\\.ts$" },
+    },
+    {
+      name: "proposal-phases-owned-by-reconciler",
+      severity: "error",
+      from: { path: "^src/", pathNot: "^src/proposal/reconcile\\.ts$" },
+      to: { path: "^src/proposal/(history|write)\\.ts$" },
+    },
+    {
       name: "production-independent-of-tests",
       severity: "error",
       from: { path: "^src/" },

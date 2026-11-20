@@ -7,6 +7,8 @@ import { deriveReleasePlan } from "../planning/derive-release-plan.ts";
 import type { ReleasePlan, ReleaseVersionConfiguration } from "../planning/derive-release-plan.ts";
 import { encodeVerifiedSnapshot } from "../snapshot/canonical.ts";
 import type { ReleaseSnapshot } from "../snapshot/model.ts";
+import { replayReleaseSnapshot } from "../snapshot/replay.ts";
+import type { ReleaseInputConfiguration } from "../config/repository.ts";
 import { updateCargoVersions } from "../cargo-version.ts";
 import type { CargoContents } from "../cargo-version.ts";
 import { updatePackageVersion, updatePyprojectVersion } from "../version-files.ts";
@@ -114,4 +116,15 @@ export function prepareVerifiedRelease(
       },
     ],
   };
+}
+
+export async function prepareReleaseFileContents(
+  snapshotJSON: string,
+  expected: ReleaseInputConfiguration,
+  version: ReleaseVersionConfiguration,
+  contents: ReleaseFileContents,
+): Promise<PreparedRelease> {
+  validateReleaseFileContents(contents);
+  const snapshot = await replayReleaseSnapshot(snapshotJSON, expected);
+  return prepareVerifiedRelease(snapshot, version, contents);
 }

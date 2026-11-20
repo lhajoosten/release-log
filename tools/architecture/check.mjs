@@ -18,7 +18,10 @@ if (
 const edges = [
   ["src/publication/inspect.ts", "src/publication/plan.ts", "import"],
   ["src/release-plan.ts", "src/planning/derive-release-plan.ts", "import"],
-  ["src/release-proposal.ts", "src/config/automation.ts", "import"],
+  ["src/release-proposal.ts", "src/proposal/reconcile.ts", "export"],
+  ["src/proposal/reconcile.ts", "src/proposal/history.ts", "import"],
+  ["src/proposal/reconcile.ts", "src/proposal/write.ts", "import"],
+  ["src/proposal-identity.ts", "src/proposal/identity.ts", "export"],
   ["src/planning/derive-release-plan.ts", "src/snapshot/model.ts", "type-only"],
   ["src/release-snapshot.ts", "src/snapshot/replay.ts", "export"],
 ];

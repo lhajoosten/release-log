@@ -21,6 +21,8 @@ for (const mode of ["node", "python", "both", "cargo", "cargo-workspace"] as con
     assert.ok(f.calls.every(({ method }) => method === "GET"));
     const created = await reconcileReleaseProposal(await f.request(true), f.transport);
     assert.equal(created.outcome, "created");
+    assert.match(created.proposalId, /^[a-f0-9]{64}$/u);
+    assert.match(created.headSha, /^[a-f0-9]{40,64}$/u);
     assert.equal(created.pullNumber, 1);
     assert.equal(f.pulls.length, 1);
     const head = f.ref("heads/release-log/main");

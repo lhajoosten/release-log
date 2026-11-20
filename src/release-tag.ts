@@ -15,7 +15,7 @@ import { GitHubReadError } from "./github.ts";
 import type { GitHubRead } from "./github.ts";
 import { parseReleaseAutomation } from "./config/automation.ts";
 import type { ReleaseAutomationConfiguration } from "./config/automation.ts";
-import { verifyPrevious } from "./proposal-verification.ts";
+import { verifyPrevious } from "./proposal/verification.ts";
 import { parseReleaseInputConfiguration } from "./config/repository.ts";
 import type { ReleaseInputConfiguration } from "./config/repository.ts";
 import type { ResolvedReleaseBaseline } from "./git.ts";

@@ -1,16 +1,16 @@
 import { isDeepStrictEqual } from "node:util";
-import { reconstructProposal } from "./producer-runtime.ts";
-import { capturedIdentity, verifyGeneratedTree } from "./proposal-identity.ts";
-import type { Description } from "./proposal-identity.ts";
-import { ProposalConflictError, proposalObject } from "./github-proposals.ts";
+import { reconstructProposal } from "../producer-runtime.ts";
+import { capturedIdentity, verifyGeneratedTree } from "./identity.ts";
+import type { Description } from "./identity.ts";
+import { ProposalConflictError, proposalObject } from "../github-proposals.ts";
 import type {
   GitHubProposalRepository,
   ProposalPullRequest,
   ProposalTree,
-} from "./github-proposals.ts";
-import { parseReleaseInputConfiguration } from "./config/repository.ts";
-import type { ReleaseInputConfiguration } from "./config/repository.ts";
-import type { ReleaseSnapshot } from "./snapshot/model.ts";
+} from "../github-proposals.ts";
+import { parseReleaseInputConfiguration } from "../config/repository.ts";
+import type { ReleaseInputConfiguration } from "../config/repository.ts";
+import type { ReleaseSnapshot } from "../snapshot/model.ts";
 
 export interface VerifiedProposal extends Description {
   readonly source: ProposalTree;
@@ -53,7 +53,7 @@ export function capturedVerificationConfiguration(
 }
 
 export async function verifyPrevious(
-  api: GitHubProposalRepository,
+  api: Pick<GitHubProposalRepository, "tree" | "contents">,
   pull: ProposalPullRequest,
   expected: ReleaseInputConfiguration,
   botUserId: number,

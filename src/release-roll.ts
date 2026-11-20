@@ -8,9 +8,9 @@ import {
 } from "./github-proposals.ts";
 import type { GitHubRead } from "./github.ts";
 import { selectReleaseCycle } from "./release-cycle.ts";
-import { reconcileReleaseProposal } from "./release-proposal.ts";
+import { reconcileReleaseProposal } from "./proposal/reconcile.ts";
 import { parseReleaseAutomation } from "./config/automation.ts";
-import type { ReleaseProposalResult } from "./release-proposal.ts";
+import type { ReleaseProposalResult } from "./proposal/reconcile.ts";
 import type { ReleaseAutomationConfiguration } from "./config/automation.ts";
 import { captureReleaseSnapshot } from "./snapshot/capture.ts";
 import { serializeReleaseSnapshot } from "./snapshot/replay.ts";

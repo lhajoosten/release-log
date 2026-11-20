@@ -9,7 +9,7 @@ import { collectMergedPullRequests } from "./github-association.ts";
 import { GitHubReadError } from "./github.ts";
 import { renderChangelog } from "./changelog.ts";
 import { createReleasePlan } from "./release-plan.ts";
-import { reconcileReleaseProposal } from "./release-proposal.ts";
+import { reconcileReleaseProposal } from "./proposal/reconcile.ts";
 import { parseReleaseAutomation } from "./config/automation.ts";
 import { reconcileReleaseTag } from "./release-tag.ts";
 import { rollRelease } from "./release-roll.ts";
@@ -29,7 +29,7 @@ import {
   auditReleaseExclusion,
   parseReleaseExclusionAuthorities,
 } from "./release-approval.ts";
-import { prepareReleaseFiles, writeReleaseFiles } from "./proposal-files.ts";
+import { prepareReleaseFiles, writeReleaseFiles } from "./proposal/files.ts";
 import { inspectReleasePublication } from "./publication/inspect.ts";
 import { publishGitHubRelease } from "./publication/execute.ts";
 import { parsePublicationPolicy, parsePublicationReceipt } from "./publication/schema.ts";

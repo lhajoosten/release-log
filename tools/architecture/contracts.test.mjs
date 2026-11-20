@@ -102,6 +102,22 @@ const cases = [
     },
   ],
   [
+    "application cannot import a compatibility facade",
+    "application-bypasses-proposal-compatibility-facades",
+    {
+      "src/consumer.ts": "import type { T } from './proposal-files.ts'; export type U = T;",
+      "src/proposal-files.ts": "export type T = string;",
+    },
+  ],
+  [
+    "proposal write phase is private to the reconciler",
+    "proposal-phases-owned-by-reconciler",
+    {
+      "src/release-tag.ts": "import './proposal/write.ts';",
+      "src/proposal/write.ts": "export {};",
+    },
+  ],
+  [
     "test dependency violation",
     "production-independent-of-tests",
     {
@@ -152,7 +168,14 @@ void test("workflow may import planning and type-only cycles are allowed", async
       "tsconfig.json",
       JSON.stringify({ compilerOptions: { module: "NodeNext", moduleResolution: "NodeNext" } }),
     );
-    write(root, "src/release-proposal.ts", "import './planning/plan.ts';");
+    write(root, "src/release-proposal.ts", "export { reconcile } from './proposal/reconcile.ts';");
+    write(
+      root,
+      "src/proposal/reconcile.ts",
+      "import './history.ts'; import './write.ts'; import '../planning/plan.ts'; export const reconcile = 1;",
+    );
+    write(root, "src/proposal/history.ts", "export {};");
+    write(root, "src/proposal/write.ts", "export {};");
     write(root, "src/planning/plan.ts", "import type { B } from '../b.ts'; export type A = B;");
     write(root, "src/b.ts", "import type { A } from './planning/plan.ts'; export type B = A;");
     assert.deepEqual(await cruise(root), { status: 0, names: [] });
