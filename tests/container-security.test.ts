@@ -20,7 +20,7 @@ void test("security workflow runs unprivileged scans and retains failure evidenc
       "permissions" in workflow &&
       "jobs" in workflow,
   );
-  assert.deepEqual(workflow.permissions, { contents: "read" });
+  assert.deepEqual(workflow.permissions, { contents: "read", "pull-requests": "read" });
   assert.ok(typeof workflow.on === "object" && workflow.on !== null);
   assert.ok("pull_request" in workflow.on && "schedule" in workflow.on);
   assert.ok(!("pull_request_target" in workflow.on) && !("workflow_run" in workflow.on));
@@ -35,11 +35,11 @@ void test("security workflow runs unprivileged scans and retains failure evidenc
       assert.match(String(step.uses), /@[a-f0-9]{40}$/u);
       if (String(step.uses).startsWith("actions/checkout@")) {
         assert.ok("with" in step);
-        assert.deepEqual(step.with, { "persist-credentials": false });
+        assert.deepEqual(step.with, { "persist-credentials": false, "fetch-depth": 2 });
       }
       if (String(step.uses).startsWith("actions/upload-artifact@")) {
         assert.ok("if" in step && "with" in step);
-        assert.equal(step.if, "always()");
+        assert.equal(step.if, "always() && steps.release.outputs.skip != 'true'");
         assert.ok(typeof step.with === "object" && step.with !== null && "path" in step.with);
         assert.equal(step.with.path, "reports/container-security/");
         uploadsFailureEvidence = true;
