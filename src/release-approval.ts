@@ -7,13 +7,13 @@ import type { ProposalTree } from "./github-proposals.ts";
 import type { GitHubRead } from "./github.ts";
 import { reconstructProposal } from "./producer-runtime.ts";
 import { capturedVerificationConfiguration, verifyPrevious } from "./proposal-verification.ts";
-import type { ReleaseFileContents } from "./proposal-files.ts";
+import type { ReleaseFileContents } from "./proposal/prepare.ts";
 import { capturedIdentity, verifyGeneratedTree } from "./proposal-identity.ts";
 import { validateConventionalMessage } from "./conventional.ts";
 import { selectReleaseCycle } from "./release-cycle.ts";
 import { requireSameReadiness, verifyReleaseReadiness } from "./release-readiness.ts";
-import { parseReleaseInputConfiguration } from "./release-snapshot.ts";
-import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
+import { parseReleaseInputConfiguration } from "./config/repository.ts";
+import type { ReleaseInputConfiguration } from "./config/repository.ts";
 
 import {
   ReleaseApprovalError,

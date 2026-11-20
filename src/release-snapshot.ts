@@ -6,8 +6,7 @@ import {
   readHistoricalBreakingChanges,
   validateConventionalMessage,
 } from "./conventional.ts";
-import type { ConventionalMetadata } from "./conventional.ts";
-import type { AssociatedPullRequest, PullRequestAssociation } from "./github-association.ts";
+import type { AssociatedPullRequest, PullRequestAssociation } from "./snapshot/association.ts";
 import { parseVerifiedReleaseApproval } from "./release-approval-record.ts";
 
 import type {
@@ -16,241 +15,39 @@ import type {
   ResolvedReleaseBaseline,
 } from "./git.ts";
 import { validatePullRequestMetadata } from "./pr-readiness.ts";
-import type { ReadinessIssue } from "./pr-readiness.ts";
-import { isReleaseContextPolicy, parseReleaseContext } from "./release-context.ts";
-import type { ReleaseContextPolicy, ReleaseContextV1 } from "./release-context.ts";
+import { parseReleaseContext } from "./release-context.ts";
 
-const maximumBytes = 16 * 1024 * 1024;
+import {
+  ReleaseSnapshotError,
+  array,
+  invalid,
+  isObject,
+  limit,
+  object,
+  positive,
+  sha,
+  text,
+  unique,
+} from "./evidence/schema.ts";
+import { canonical, maximumBytes, encodeVerifiedSnapshot } from "./snapshot/canonical.ts";
+import { parseReleaseInputConfiguration } from "./config/repository.ts";
+import type { ReleaseInputConfiguration } from "./config/repository.ts";
+import type {
+  HistoricalReleaseEntry,
+  NormalizedBootstrapCommit,
+  NormalizedReleaseInputs,
+  ReleaseSnapshot,
+} from "./snapshot/model.ts";
 
-export class ReleaseSnapshotError extends Error {
-  readonly code:
-    | "schema-invalid"
-    | "resource-limit"
-    | "metadata-invalid"
-    | "integrity-mismatch"
-    | "configuration-mismatch"
-    | "normalizer-mismatch";
-  readonly issues: readonly ReadinessIssue[];
-  constructor(
-    code: ReleaseSnapshotError["code"],
-    message: string,
-    issues: readonly ReadinessIssue[] = [],
-  ) {
-    super(message);
-    this.name = "ReleaseSnapshotError";
-    this.code = code;
-    this.issues = issues;
-  }
-}
-
-export type ChangelogVerbosity = "detailed" | "concise" | "one-liner";
-
-interface ReleaseRepositoryConfiguration {
-  readonly repository: string;
-  readonly repositoryId: number;
-  readonly releaseBranch: string;
-  readonly releasePolicy: "release-policy-v1";
-  readonly contextPolicy?: ReleaseContextPolicy;
-  readonly selfUpgrade?: true;
-  readonly githubRelease?: true;
-  readonly adoptedRelease?: {
-    readonly pullNumber: number;
-    readonly headSha: string;
-    readonly landingSha: string;
-    readonly commitSha: string;
-    readonly tag: string;
-  };
-  readonly changelog?: {
-    readonly verbosity: ChangelogVerbosity;
-    readonly format?: "classic" | "compact";
-  };
-  readonly automationExclusions?: readonly {
-    readonly pullNumber: number;
-    readonly verificationId: string;
-  }[];
-}
-
-export type ReleaseInputConfiguration = ReleaseRepositoryConfiguration &
-  (
-    | { readonly schemaVersion: 1 }
-    | {
-        readonly schemaVersion: 2;
-        readonly bootstrap: {
-          readonly baselineSha: string;
-          readonly onboardingSha: string;
-        };
-      }
-  );
-
-export interface NormalizedBootstrapCommit {
-  readonly sha: string;
-  readonly url: string;
-  readonly metadata: ConventionalMetadata;
-}
-
-export interface HistoricalReleaseEntry {
-  readonly source:
-    | { readonly kind: "pull-request"; readonly number: number; readonly url: string }
-    | { readonly kind: "commit"; readonly sha: string; readonly url: string };
-  readonly title: string;
-  readonly context: ReleaseContextV1 | null;
-  readonly breakingChanges: readonly string[];
-  readonly warnings: readonly ReadinessIssue[];
-}
-
-export interface NormalizedReleaseInputs {
-  readonly repository: string;
-  readonly releaseBranch: string;
-  readonly baselineCommitSha: string;
-  readonly sourceCommitSha: string;
-  readonly bootstrapCommits: readonly NormalizedBootstrapCommit[];
-  readonly historicalEntries: readonly HistoricalReleaseEntry[];
-  readonly excludedPullRequests?: readonly {
-    readonly number: number;
-    readonly url: string;
-    readonly verificationId: string;
-    readonly commitShas: readonly string[];
-  }[];
-  readonly pullRequests: readonly {
-    readonly number: number;
-    readonly url: string;
-    readonly title: ConventionalMetadata;
-    readonly context: ReleaseContextV1 | null;
-    readonly rawBlock: string | null;
-    readonly breakingChanges: readonly string[];
-    readonly commits: readonly {
-      readonly source: "original" | "landed";
-      readonly sha: string;
-      readonly metadata: ConventionalMetadata;
-    }[];
-    readonly validation: { readonly valid: true; readonly warnings: readonly ReadinessIssue[] };
-  }[];
-}
-
-export interface ReleaseSnapshot {
-  readonly schemaVersion: 3 | 4 | 5;
-  readonly capturedAt?: string;
-  readonly tool: { readonly version: string; readonly normalizerId: string };
-  readonly configuration: ReleaseInputConfiguration;
-  readonly configurationId: string;
-  readonly input: PullRequestAssociation & {
-    readonly bootstrapCommits: readonly GitCommitEvidence[];
-  };
-  readonly normalized: NormalizedReleaseInputs;
-  readonly snapshotId: string;
-}
-
-function invalid(message: string): never {
-  throw new ReleaseSnapshotError("schema-invalid", message);
-}
-
-function limit(message: string): never {
-  throw new ReleaseSnapshotError("resource-limit", message);
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function object(value: unknown, keys: readonly string[], label: string): Record<string, unknown> {
-  if (!isObject(value)) return invalid(`Expected ${label} to be an object.`);
-  const actual = Object.keys(value);
-  if (actual.length !== keys.length || actual.some((key) => !keys.includes(key)))
-    return invalid(`Unexpected or missing fields in ${label}.`);
-  return value;
-}
-
-function text(value: unknown, label: string, bytes = 1024 * 1024): string {
-  if (typeof value !== "string") return invalid(`Expected ${label} to be text.`);
-  if (Buffer.byteLength(value, "utf8") > bytes) return limit(`${label} exceeds its text limit.`);
-  return value;
-}
-
-function positive(value: unknown, label: string): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0)
-    return invalid(`Expected a positive integer for ${label}.`);
-  return value;
-}
-
-function sha(value: unknown): string {
-  const result = text(value, "object ID", 64);
-  if (result.trim() !== result || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(result))
-    return invalid("Expected a complete lowercase SHA-1 or SHA-256 object ID.");
-  return result;
-}
-
-function array(value: unknown, size: number, label: string): readonly unknown[] {
-  if (!Array.isArray(value)) return invalid(`Expected ${label} to be an array.`);
-  if (value.length > size) return limit(`${label} exceeds its entry limit.`);
-  return value;
-}
-
-function unique(values: readonly (string | number)[], label: string): void {
-  if (new Set(values).size !== values.length) invalid(`Duplicate entries in ${label}.`);
-}
-
-function canonical(value: unknown): string {
-  const chunks: string[] = [];
-  const visiting = new Set<object>();
-  let bytes = 0;
-  let nodes = 0;
-  function emit(part: string): void {
-    bytes += Buffer.byteLength(part, "utf8");
-    if (bytes > maximumBytes) limit("Snapshot exceeds 16 MiB in UTF-8.");
-    chunks.push(part);
-  }
-  function walk(item: unknown, depth: number): void {
-    if (++nodes > 100_000 || depth > 32)
-      limit("Snapshot exceeds the 100000-node or 32-level nesting limit.");
-    if (item === null) {
-      emit("null");
-      return;
-    }
-    if (typeof item === "string") {
-      emit(JSON.stringify(item));
-      return;
-    }
-    if (typeof item === "boolean") {
-      emit(String(item));
-      return;
-    }
-    if (typeof item === "number" && Number.isFinite(item)) {
-      emit(JSON.stringify(item));
-      return;
-    }
-    if (typeof item !== "object")
-      return invalid(
-        "Snapshots contain only JSON data; unsupported values are not silently discarded.",
-      );
-    if (visiting.has(item)) return invalid("Snapshot data must not contain cycles.");
-    visiting.add(item);
-    if (Array.isArray(item)) {
-      emit("[");
-      for (const [index, child] of item.entries()) {
-        if (index) emit(",");
-        walk(child, depth + 1);
-      }
-      emit("]");
-    } else {
-      if (Object.getPrototypeOf(item) !== Object.prototype && Object.getPrototypeOf(item) !== null)
-        return invalid("Snapshot objects must be plain JSON objects.");
-      const entries = Object.entries(item).toSorted(([left], [right]) =>
-        left < right ? -1 : left > right ? 1 : 0,
-      );
-      emit("{");
-      for (const [index, [key, child]] of entries.entries()) {
-        if (index) emit(",");
-        emit(JSON.stringify(key));
-        emit(":");
-        walk(child, depth + 1);
-      }
-      emit("}");
-    }
-    visiting.delete(item);
-  }
-  walk(value, 0);
-  return chunks.join("");
-}
+export type {
+  HistoricalReleaseEntry,
+  NormalizedBootstrapCommit,
+  NormalizedReleaseInputs,
+  ReleaseSnapshot,
+} from "./snapshot/model.ts";
+export { parseReleaseInputConfiguration } from "./config/repository.ts";
+export type { ChangelogVerbosity, ReleaseInputConfiguration } from "./config/repository.ts";
+export { ReleaseSnapshotError } from "./evidence/schema.ts";
 
 function digest(value: unknown): string {
   return createHash("sha256").update(canonical(value)).digest("hex");
@@ -311,169 +108,6 @@ function snapshotTool(config: ReleaseInputConfiguration): typeof tool {
           contextPolicyNormalizationVersion: 1,
         }),
       };
-}
-
-export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConfiguration {
-  const item = object(
-    value,
-    [
-      "schemaVersion",
-      "repository",
-      "repositoryId",
-      "releaseBranch",
-      "releasePolicy",
-      ...(isObject(value) && value.schemaVersion === 2 ? ["bootstrap"] : []),
-      ...(isObject(value) && Object.hasOwn(value, "contextPolicy") ? ["contextPolicy"] : []),
-      ...(isObject(value) && Object.hasOwn(value, "selfUpgrade") ? ["selfUpgrade"] : []),
-      ...(isObject(value) && Object.hasOwn(value, "adoptedRelease") ? ["adoptedRelease"] : []),
-      ...(isObject(value) && Object.hasOwn(value, "githubRelease") ? ["githubRelease"] : []),
-      ...(isObject(value) && Object.hasOwn(value, "changelog") ? ["changelog"] : []),
-      ...(isObject(value) && Object.hasOwn(value, "automationExclusions")
-        ? ["automationExclusions"]
-        : []),
-    ],
-    "release configuration",
-  );
-  const repository = text(item.repository, "repository", 256);
-  const releaseBranch = text(item.releaseBranch, "release branch", 1024);
-
-  if (
-    (item.schemaVersion !== 1 && item.schemaVersion !== 2) ||
-    item.releasePolicy !== "release-policy-v1"
-  )
-    return invalid("Unsupported release configuration schema or policy revision.");
-  if (
-    !/^[a-zA-Z0-9][a-zA-Z0-9-]*\/[a-zA-Z0-9_.-]+$/u.test(repository) ||
-    repository.trim() !== repository ||
-    [".", ".."].includes(repository.split("/")[1] ?? "") ||
-    !releaseBranch.trim() ||
-    /[\0\r\n]/u.test(releaseBranch)
-  )
-    return invalid("Invalid repository identity or release branch in configuration.");
-  if (Object.hasOwn(item, "contextPolicy") && !isReleaseContextPolicy(item.contextPolicy))
-    return invalid("Context policy must be required or optional.");
-
-  if (
-    Object.hasOwn(item, "selfUpgrade") &&
-    (item.selfUpgrade !== true ||
-      repository !== "lhajoosten/release-log" ||
-      item.repositoryId !== 1449550207)
-  )
-    return invalid("Self-upgrades require explicit trusted release-log repository identity.");
-
-  if (Object.hasOwn(item, "githubRelease") && item.githubRelease !== true)
-    return invalid("Omit githubRelease or explicitly enable it with true.");
-
-  const contextPolicy = isReleaseContextPolicy(item.contextPolicy) ? item.contextPolicy : undefined;
-  let changelog: ReleaseRepositoryConfiguration["changelog"];
-
-  if (Object.hasOwn(item, "changelog")) {
-    const options = object(
-      item.changelog,
-      [
-        "verbosity",
-        ...(isObject(item.changelog) && Object.hasOwn(item.changelog, "format") ? ["format"] : []),
-      ],
-      "changelog configuration",
-    );
-    const verbosity = options.verbosity;
-
-    if (verbosity !== "detailed" && verbosity !== "concise" && verbosity !== "one-liner")
-      return invalid("Changelog verbosity must be detailed, concise or one-liner.");
-
-    const format = options.format;
-    if (Object.hasOwn(options, "format") && format !== "classic" && format !== "compact")
-      return invalid("Changelog format must be classic or compact.");
-
-    changelog = { verbosity, ...(format === "classic" || format === "compact" ? { format } : {}) };
-  }
-
-  let automationExclusions: ReleaseRepositoryConfiguration["automationExclusions"];
-
-  if (Object.hasOwn(item, "automationExclusions")) {
-    automationExclusions = array(
-      item.automationExclusions,
-      100,
-      "trusted automation exclusion pins",
-    )
-      .map((entry) => {
-        const pin = object(entry, ["pullNumber", "verificationId"], "automation exclusion pin");
-        const verificationId = text(pin.verificationId, "verification ID", 64);
-
-        if (!/^[a-f0-9]{64}$/u.test(verificationId))
-          return invalid("Exclusion pins require complete lowercase verification digests.");
-
-        return { pullNumber: positive(pin.pullNumber, "exclusion PR number"), verificationId };
-      })
-      .toSorted((left, right) => left.pullNumber - right.pullNumber);
-
-    if (automationExclusions.length === 0)
-      return invalid("Omit automationExclusions rather than supply an empty authority list.");
-
-    unique(
-      automationExclusions.map((pin) => pin.pullNumber),
-      "exclusion PR numbers",
-    );
-    unique(
-      automationExclusions.map((pin) => pin.verificationId),
-      "exclusion verification IDs",
-    );
-  }
-
-  let adoptedRelease: ReleaseRepositoryConfiguration["adoptedRelease"];
-  if (Object.hasOwn(item, "adoptedRelease")) {
-    const pin = object(
-      item.adoptedRelease,
-      ["pullNumber", "headSha", "landingSha", "commitSha", "tag"],
-      "adopted release",
-    );
-    const tag = text(pin.tag, "adopted release tag", 64);
-    const commitSha = sha(pin.commitSha);
-    const landingSha = sha(pin.landingSha);
-    if (commitSha === landingSha || !/^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(tag))
-      return invalid(
-        "An adopted release requires a distinct reviewed commit and stable version tag.",
-      );
-    adoptedRelease = {
-      pullNumber: positive(pin.pullNumber, "superseded PR number"),
-      headSha: sha(pin.headSha),
-      landingSha,
-      commitSha,
-      tag,
-    };
-  }
-
-  const common: ReleaseRepositoryConfiguration = {
-    repository,
-    repositoryId: positive(item.repositoryId, "repository ID"),
-    releaseBranch,
-    releasePolicy: "release-policy-v1",
-    ...(contextPolicy === undefined ? {} : { contextPolicy }),
-    ...(item.selfUpgrade === true ? { selfUpgrade: true } : {}),
-    ...(item.githubRelease === true ? { githubRelease: true } : {}),
-    ...(adoptedRelease === undefined ? {} : { adoptedRelease }),
-    ...(changelog === undefined ? {} : { changelog }),
-    ...(automationExclusions === undefined ? {} : { automationExclusions }),
-  };
-
-  if (item.schemaVersion === 2) {
-    const bootstrap = object(
-      item.bootstrap,
-      ["baselineSha", "onboardingSha"],
-      "trusted onboarding record",
-    );
-
-    return {
-      ...common,
-      schemaVersion: 2,
-      bootstrap: {
-        baselineSha: sha(bootstrap.baselineSha),
-        onboardingSha: sha(bootstrap.onboardingSha),
-      },
-    };
-  }
-
-  return { ...common, schemaVersion: 1 };
 }
 
 function commitEvidence(value: unknown): GitCommitEvidence {
@@ -1159,10 +793,7 @@ async function validateSnapshot(
 
 export async function serializeReleaseSnapshot(snapshot: ReleaseSnapshot): Promise<string> {
   const validated = await validateSnapshot(snapshot, snapshot.configuration);
-  const serialized = canonical(validated) + "\n";
-  if (Buffer.byteLength(serialized, "utf8") > maximumBytes)
-    return limit("Snapshot exceeds 16 MiB including its final newline.");
-  return serialized;
+  return encodeVerifiedSnapshot(validated);
 }
 
 export async function replayReleaseSnapshot(

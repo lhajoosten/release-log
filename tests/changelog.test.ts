@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { prepareReleaseFileContents } from "../src/proposal-files.ts";
 import { test } from "node:test";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { renderChangelog, updateChangelog, ChangelogError } from "../src/changelog.ts";
@@ -37,6 +39,43 @@ void test("mixed groups/scopes and internal entries match the hand-written golde
   const { serialized, text } = await rendered();
   assert.equal(text, golden);
   assert.equal(await renderChangelog(serialized, fixtureConfiguration, version), golden);
+});
+
+void test("proposal preparation renders the verified range and preserves the exact released history", async () => {
+  const { serialized } = await rendered();
+  const preamble = "# Changelog\n\n";
+  const history = "## v1.2.3\r\n\r\nHuman-authored release notes.  \r\n";
+  const manifest = '{ "version": "1.2.3" }\n';
+  const prepared = await prepareReleaseFileContents(
+    JSON.stringify(JSON.parse(serialized) as unknown, null, 2),
+    fixtureConfiguration,
+    version,
+    {
+      "package.json": manifest,
+      "pyproject.toml": null,
+      "CHANGELOG.md": preamble + history,
+      ".release-log/inputs.json": null,
+      "package-lock.json": null,
+      "npm-shrinkwrap.json": null,
+      "uv.lock": null,
+    },
+  );
+  assert.equal(prepared.plan.nextVersion, "1.3.0");
+  const hash = createHash("sha256").update(golden).digest("hex");
+  const block = `<!-- release-log:pending:v1 sha256:${hash} -->\n\n${golden}\n<!-- release-log:pending:end -->\n\n`;
+  assert.deepEqual(prepared.files, [
+    { path: "package.json", before: manifest, after: '{ "version": "1.3.0" }\n' },
+    { path: "CHANGELOG.md", before: preamble + history, after: preamble + block + history },
+    { path: ".release-log/inputs.json", before: null, after: serialized },
+  ]);
+});
+
+void test("standalone rendering rejects altered normalized evidence before rendering", async () => {
+  const { snapshot } = await releaseFixture([{ title: "fix(api): retain keys" }]);
+  const tampered = { ...snapshot, normalized: { ...snapshot.normalized, pullRequests: [] } };
+  await assert.rejects(renderChangelog(JSON.stringify(tampered), fixtureConfiguration, version), {
+    code: "integrity-mismatch",
+  });
 });
 
 void test("every accepted type has the policy-defined group ordering and equal scopes use numeric PR order", async () => {

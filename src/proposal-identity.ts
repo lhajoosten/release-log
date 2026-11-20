@@ -2,9 +2,9 @@ import { posix } from "node:path";
 import { createHash } from "node:crypto";
 import { ProposalConflictError, proposalObject, proposalSha } from "./github-proposals.ts";
 import type { ProposalTree } from "./github-proposals.ts";
-import type { PreparedRelease, ProposalFile } from "./proposal-files.ts";
-import type { ReleaseVersionConfiguration } from "./release-plan.ts";
-import type { ReleaseSnapshot } from "./release-snapshot.ts";
+import type { PreparedRelease, ProposalFile } from "./proposal/prepare.ts";
+import type { ReleaseVersionConfiguration } from "./planning/derive-release-plan.ts";
+import type { ReleaseSnapshot } from "./snapshot/model.ts";
 
 interface ProposalIdentity {
   readonly schemaVersion: 1;

@@ -8,8 +8,9 @@ import type {
   ProposalPullRequest,
   ProposalTree,
 } from "./github-proposals.ts";
-import { parseReleaseInputConfiguration } from "./release-snapshot.ts";
-import type { ReleaseInputConfiguration, ReleaseSnapshot } from "./release-snapshot.ts";
+import { parseReleaseInputConfiguration } from "./config/repository.ts";
+import type { ReleaseInputConfiguration } from "./config/repository.ts";
+import type { ReleaseSnapshot } from "./snapshot/model.ts";
 
 export interface VerifiedProposal extends Description {
   readonly source: ProposalTree;

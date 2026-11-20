@@ -9,12 +9,13 @@ import { collectMergedPullRequests } from "./github-association.ts";
 import { GitHubReadError } from "./github.ts";
 import { renderChangelog } from "./changelog.ts";
 import { createReleasePlan } from "./release-plan.ts";
-import { reconcileReleaseProposal, parseReleaseAutomation } from "./release-proposal.ts";
+import { reconcileReleaseProposal } from "./release-proposal.ts";
+import { parseReleaseAutomation } from "./config/automation.ts";
 import { reconcileReleaseTag } from "./release-tag.ts";
 import { rollRelease } from "./release-roll.ts";
 import { selectReleaseCycle } from "./release-cycle.ts";
 import { ProposalConflictError } from "./github-proposals.ts";
-import type { ReleaseVersionConfiguration } from "./release-plan.ts";
+import type { ReleaseVersionConfiguration } from "./planning/derive-release-plan.ts";
 import {
   parseReleaseApproval,
   parseReleaseApprovalJSON,
@@ -35,11 +36,8 @@ import {
   parsePublicationPolicy,
   parsePublicationReceipt,
 } from "./release-publication.ts";
-import {
-  captureReleaseSnapshot,
-  parseReleaseInputConfiguration,
-  serializeReleaseSnapshot,
-} from "./release-snapshot.ts";
+import { captureReleaseSnapshot, serializeReleaseSnapshot } from "./release-snapshot.ts";
+import { parseReleaseInputConfiguration } from "./config/repository.ts";
 
 class UsageError extends Error {
   constructor(message: string) {

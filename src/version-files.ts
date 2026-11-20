@@ -1,6 +1,6 @@
 import { getStaticTOMLValue, parseTOML, traverseNodes } from "toml-eslint-parser";
 import type { AST } from "toml-eslint-parser";
-import type { ReleasePlan } from "./release-plan.ts";
+import type { ReleasePlan } from "./planning/derive-release-plan.ts";
 
 export type VersionPlan = Pick<ReleasePlan, "currentVersion" | "nextVersion">;
 

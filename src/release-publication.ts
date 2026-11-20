@@ -14,8 +14,8 @@ import {
   verifyReleaseApproval,
 } from "./release-approval.ts";
 import type { ReleaseApproval, ReleaseApprovalPolicy } from "./release-approval.ts";
-import { parseReleaseInputConfiguration } from "./release-snapshot.ts";
-import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
+import { parseReleaseInputConfiguration } from "./config/repository.ts";
+import type { ReleaseInputConfiguration } from "./config/repository.ts";
 
 export class ReleasePublicationError extends Error {
   readonly code:

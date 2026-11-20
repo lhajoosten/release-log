@@ -18,8 +18,8 @@ import {
 } from "./git.ts";
 import { readGitHubJson } from "./github.ts";
 import type { GitHubRead } from "./github.ts";
-import { parseReleaseInputConfiguration } from "./release-snapshot.ts";
-import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
+import { parseReleaseInputConfiguration } from "./config/repository.ts";
+import type { ReleaseInputConfiguration } from "./config/repository.ts";
 
 interface Edit {
   readonly start: number;

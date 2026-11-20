@@ -1,45 +1,28 @@
 import { createHash } from "node:crypto";
 import { activeProducerSha } from "./producer-runtime.ts";
-import { readToolPin, verifyToolUpgradeCandidate, workflowPath } from "./tool-upgrade.ts";
+import { readToolPin } from "./proposal/tool-pins.ts";
+import { workflowPath } from "./proposal-paths.ts";
+import { verifyToolUpgradeCandidate } from "./tool-upgrade.ts";
 import { isDeepStrictEqual } from "node:util";
 import { describe, verifyGeneratedTree } from "./proposal-identity.ts";
-import {
-  GitHubProposalRepository,
-  ProposalConflictError,
-  proposalObject,
-} from "./github-proposals.ts";
+import { GitHubProposalRepository, ProposalConflictError } from "./github-proposals.ts";
 import type { ProposalPullRequest } from "./github-proposals.ts";
 import type { GitHubRead } from "./github.ts";
 import { verifyPrevious } from "./proposal-verification.ts";
 import { selectReleaseCycle } from "./release-cycle.ts";
-import { prepareReleaseFileContents } from "./proposal-files.ts";
+import { prepareVerifiedRelease, validateReleaseFileContents } from "./proposal/prepare.ts";
+import { encodeVerifiedSnapshot } from "./snapshot/canonical.ts";
 import { validatePullRequestMetadata } from "./pr-readiness.ts";
-import type { ReleaseVersionConfiguration } from "./release-plan.ts";
-import {
-  parseReleaseInputConfiguration,
-  replayReleaseSnapshot,
-  serializeReleaseSnapshot,
-} from "./release-snapshot.ts";
-import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
+import type { ReleaseVersionConfiguration } from "./planning/derive-release-plan.ts";
+import { parseReleaseInputConfiguration } from "./config/repository.ts";
+import { replayReleaseSnapshot } from "./release-snapshot.ts";
+import type { ReleaseInputConfiguration } from "./config/repository.ts";
 
-export interface ReleaseAutomationConfiguration {
-  readonly schemaVersion: 1;
-  readonly botUserId: number;
-}
-export function parseReleaseAutomation(value: unknown): ReleaseAutomationConfiguration {
-  const item = proposalObject(value);
-  if (
-    item.schemaVersion !== 1 ||
-    Object.keys(item).toSorted().join(",") !== "botUserId,schemaVersion" ||
-    typeof item.botUserId !== "number" ||
-    !Number.isSafeInteger(item.botUserId) ||
-    item.botUserId <= 0
-  )
-    throw new ProposalConflictError(
-      "Configure exactly schemaVersion 1 and the expected positive numeric botUserId.",
-    );
-  return { schemaVersion: 1, botUserId: item.botUserId };
-}
+import { parseReleaseAutomation } from "./config/automation.ts";
+import type { ReleaseAutomationConfiguration } from "./config/automation.ts";
+
+export { parseReleaseAutomation } from "./config/automation.ts";
+export type { ReleaseAutomationConfiguration } from "./config/automation.ts";
 
 export interface ReleaseProposalRequest {
   readonly snapshot: string;
@@ -75,13 +58,12 @@ export async function reconcileReleaseProposal(
 ): Promise<ReleaseProposalResult> {
   const config = parseReleaseInputConfiguration(request.configuration);
   const automation = parseReleaseAutomation(request.automation);
-  let snapshotJSON = request.snapshot;
   const selectedVersion = structuredClone(request.version);
   const token = request.token;
   const write = request.write === true;
   if (request.write !== undefined && typeof request.write !== "boolean")
     throw new ProposalConflictError("An explicit boolean write option is required.");
-  let snapshot = await replayReleaseSnapshot(snapshotJSON, config);
+  let snapshot = await replayReleaseSnapshot(request.snapshot, config);
   const api = new GitHubProposalRepository(
     config,
     automation.botUserId,
@@ -189,8 +171,7 @@ export async function reconcileReleaseProposal(
   ) {
     // An identical collection retry retains the first capture instead of creating
     // a proposal commit solely to advance its timestamp.
-    snapshot = prior.snapshot;
-    snapshotJSON = await serializeReleaseSnapshot(snapshot);
+    snapshot = await replayReleaseSnapshot(encodeVerifiedSnapshot(prior.snapshot), config);
   }
   const source = await api.tree(sourceSha);
   const sourceContents = await api.contents(source);
@@ -202,12 +183,8 @@ export async function reconcileReleaseProposal(
     throw new ProposalConflictError(
       "The captured caller no longer pins the active producer; rerun using the reviewed current caller.",
     );
-  const prepared = await prepareReleaseFileContents(
-    snapshotJSON,
-    config,
-    selectedVersion,
-    sourceContents,
-  );
+  validateReleaseFileContents(sourceContents);
+  const prepared = prepareVerifiedRelease(snapshot, selectedVersion, sourceContents);
   const result = (
     outcome: ReleaseProposalResult["outcome"],
     proposalId: string | null,

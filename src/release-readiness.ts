@@ -2,7 +2,7 @@ import { proposalObject } from "./github-proposals.ts";
 import type { GitHubProposalRepository } from "./github-proposals.ts";
 import { ReleaseApprovalError } from "./release-approval-record.ts";
 import type { ReleaseApprovalPolicy, ReleaseReviewTarget } from "./release-approval-record.ts";
-import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
+import type { ReleaseInputConfiguration } from "./config/repository.ts";
 
 function fail(message: string): never {
   throw new ReleaseApprovalError("readiness-failed", message);

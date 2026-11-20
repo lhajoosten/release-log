@@ -1,44 +1,25 @@
-import { updateToolPins } from "./tool-upgrade.ts";
-import { isCargoManifest, isProposalPath, proposalPaths, workflowPath } from "./proposal-paths.ts";
-import type { ProposalPath } from "./proposal-paths.ts";
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { renderChangelog, updateChangelog } from "./changelog.ts";
-import { createReleasePlan } from "./release-plan.ts";
-import type { ReleasePlan, ReleaseVersionConfiguration } from "./release-plan.ts";
-import { replayReleaseSnapshot, serializeReleaseSnapshot } from "./release-snapshot.ts";
-import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
-import { cargoMemberPaths, readCargoContents, updateCargoVersions } from "./cargo-version.ts";
-import type { CargoContents } from "./cargo-version.ts";
-import { updatePackageVersion, updatePyprojectVersion } from "./version-files.ts";
+import { isCargoManifest, isProposalPath, proposalPaths, workflowPath } from "./proposal-paths.ts";
+import { cargoMemberPaths, readCargoContents } from "./cargo-version.ts";
+import {
+  prepareVerifiedRelease,
+  validateReleaseFileContents,
+  ProposalFilesError,
+  releaseInputPaths,
+} from "./proposal/prepare.ts";
+import type { PreparedRelease, ReleaseFileContents } from "./proposal/prepare.ts";
+import type { ReleaseVersionConfiguration } from "./planning/derive-release-plan.ts";
+import { replayReleaseSnapshot } from "./release-snapshot.ts";
+import type { ReleaseInputConfiguration } from "./config/repository.ts";
 
-export class ProposalFilesError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ProposalFilesError";
-  }
-}
+export { ProposalFilesError, releaseInputPaths } from "./proposal/prepare.ts";
+export type { ProposalFile, PreparedRelease, ReleaseFileContents } from "./proposal/prepare.ts";
 export { proposalPaths } from "./proposal-paths.ts";
 export type { ProposalPath } from "./proposal-paths.ts";
 
-export interface ProposalFile {
-  readonly path: ProposalPath;
-  readonly before: string | null;
-  readonly after: string;
-}
-export interface PreparedRelease {
-  readonly plan: ReleasePlan;
-  readonly files: readonly ProposalFile[];
-}
 const allowed: ReadonlySet<string> = new Set(proposalPaths);
-const unsupportedLocks = ["package-lock.json", "npm-shrinkwrap.json", "uv.lock"] as const;
-export const releaseInputPaths = [...proposalPaths, ...unsupportedLocks] as const;
-export type ReleaseFileContents = Readonly<
-  Record<Exclude<(typeof releaseInputPaths)[number], typeof workflowPath>, string | null> &
-    Partial<Record<typeof workflowPath, string | null>> &
-    CargoContents
->;
 const readable: ReadonlySet<string> = new Set(releaseInputPaths);
 
 async function inspectPath(root: string, relative: string): Promise<string> {
@@ -109,78 +90,9 @@ export async function prepareReleaseFileContents(
   version: ReleaseVersionConfiguration,
   contents: ReleaseFileContents,
 ): Promise<PreparedRelease> {
-  for (const value of Object.values(contents)) {
-    if (
-      value != null &&
-      (typeof value !== "string" || Buffer.byteLength(value, "utf8") > 16 * 1024 * 1024)
-    )
-      throw new ProposalFilesError(
-        "Proposal input files require bounded UTF-8 text or explicit null.",
-      );
-  }
-  const plan = await createReleasePlan(snapshotJSON, expected, version);
-  for (const lock of unsupportedLocks) {
-    if (contents[lock] !== null)
-      throw new ProposalFilesError(
-        `${lock} needs a root-version mirror adapter before preparing a release; no files were written.`,
-      );
-  }
-  const packageJSON = contents["package.json"];
-  const pyprojectTOML = contents["pyproject.toml"];
-  const cargo = updateCargoVersions(contents, plan);
-  if (packageJSON === null && pyprojectTOML === null && cargo === null)
-    throw new ProposalFilesError(
-      "A root package.json, pyproject.toml, or Cargo.toml with a static release version is required.",
-    );
-  const manifests: ProposalFile[] = [];
-  const packageUpdate = packageJSON === null ? null : updatePackageVersion(packageJSON, plan);
-  const pythonUpdate = pyprojectTOML === null ? null : updatePyprojectVersion(pyprojectTOML, plan);
-  if (packageUpdate && pythonUpdate && packageUpdate.version !== pythonUpdate.version)
-    throw new ProposalFilesError(
-      "Node and Python manifest versions disagree; align them before planning.",
-    );
-  if (cargo) {
-    if ([packageUpdate, pythonUpdate].some((update) => update && update.version !== cargo.version))
-      throw new ProposalFilesError(
-        "Cargo and other manifest versions disagree; align them before planning.",
-      );
-    manifests.push(...cargo.files);
-  }
-  if (packageJSON !== null && packageUpdate)
-    manifests.push({ path: "package.json", before: packageJSON, after: packageUpdate.content });
-  if (pyprojectTOML !== null && pythonUpdate)
-    manifests.push({ path: "pyproject.toml", before: pyprojectTOML, after: pythonUpdate.content });
-  const changelog = contents["CHANGELOG.md"];
-  const rendered = await renderChangelog(snapshotJSON, expected, version);
-  const updatedChangelog = updateChangelog(
-    changelog ?? "",
-    rendered,
-    version.kind === "released" ? version.currentVersion : undefined,
-  );
-  if (!plan.release) return { plan, files: [] };
+  validateReleaseFileContents(contents);
   const snapshot = await replayReleaseSnapshot(snapshotJSON, expected);
-  const inputs = contents[".release-log/inputs.json"];
-  return {
-    plan,
-    files: [
-      ...manifests,
-      ...(expected.selfUpgrade === true
-        ? [
-            {
-              path: workflowPath,
-              before: contents[workflowPath] ?? null,
-              after: updateToolPins(contents[workflowPath] ?? null, plan.sourceCommitSha),
-            },
-          ]
-        : []),
-      { path: "CHANGELOG.md", before: changelog, after: updatedChangelog },
-      {
-        path: ".release-log/inputs.json",
-        before: inputs,
-        after: await serializeReleaseSnapshot(snapshot),
-      },
-    ],
-  };
+  return prepareVerifiedRelease(snapshot, version, contents);
 }
 
 export async function writeReleaseFiles(

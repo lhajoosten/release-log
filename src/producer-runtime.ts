@@ -5,10 +5,11 @@ import { pathToFileURL } from "node:url";
 import { describe } from "./proposal-identity.ts";
 import type { Description } from "./proposal-identity.ts";
 import { prepareReleaseFileContents } from "./proposal-files.ts";
-import type { PreparedRelease, ReleaseFileContents } from "./proposal-files.ts";
+import type { PreparedRelease, ReleaseFileContents } from "./proposal/prepare.ts";
 import { replayReleaseSnapshot } from "./release-snapshot.ts";
-import type { ReleaseInputConfiguration, ReleaseSnapshot } from "./release-snapshot.ts";
-import type { ReleaseVersionConfiguration } from "./release-plan.ts";
+import type { ReleaseInputConfiguration } from "./config/repository.ts";
+import type { ReleaseSnapshot } from "./snapshot/model.ts";
+import type { ReleaseVersionConfiguration } from "./planning/derive-release-plan.ts";
 import { ProposalConflictError, proposalObject, proposalSha } from "./github-proposals.ts";
 
 interface Producer {

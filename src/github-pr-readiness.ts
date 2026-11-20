@@ -2,8 +2,8 @@ import { GitHubReadError, readGitHubJson } from "./github.ts";
 import type { GitHubRead } from "./github.ts";
 import { validatePullRequestMetadata } from "./pr-readiness.ts";
 import type { PullRequestCommit, PullRequestReadiness } from "./pr-readiness.ts";
-import { isReleaseContextPolicy } from "./release-context.ts";
-import type { ReleaseContextPolicy } from "./release-context.ts";
+import { isReleaseContextPolicy } from "./config/repository.ts";
+import type { ReleaseContextPolicy } from "./config/repository.ts";
 
 const fullSha = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 

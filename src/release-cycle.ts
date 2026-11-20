@@ -6,14 +6,14 @@ import {
   proposalObject,
   proposalSha,
 } from "./github-proposals.ts";
-import type { ProposalPullRequest } from "./github-proposals.ts";
+import type { RepositoryEvidenceReader, ProposalPullRequest } from "./github-proposals.ts";
 import type { GitHubRead } from "./github.ts";
-import { parseReleaseAutomation } from "./release-proposal.ts";
-import type { ReleaseAutomationConfiguration } from "./release-proposal.ts";
+import { parseReleaseAutomation } from "./config/automation.ts";
+import type { ReleaseAutomationConfiguration } from "./config/automation.ts";
 import { reconcileReleaseTag } from "./release-tag.ts";
-import { parseReleaseInputConfiguration } from "./release-snapshot.ts";
-import type { ReleaseInputConfiguration } from "./release-snapshot.ts";
-import type { ReleaseVersionConfiguration } from "./release-plan.ts";
+import { parseReleaseInputConfiguration } from "./config/repository.ts";
+import type { ReleaseInputConfiguration } from "./config/repository.ts";
+import type { ReleaseVersionConfiguration } from "./planning/derive-release-plan.ts";
 
 export type ReleaseCycleErrorCode =
   | "github-release-pending"
@@ -86,7 +86,7 @@ function cycleError(code: ReleaseCycleErrorCode, message: string): never {
 }
 
 async function readComparison(
-  api: GitHubProposalRepository,
+  api: RepositoryEvidenceReader,
   baseSha: string,
   targetSha: string,
 ): Promise<Comparison> {
@@ -119,7 +119,7 @@ async function readComparison(
   return { status: comparison.status, aheadBy, behindBy, mergeBaseSha };
 }
 
-async function verifyCommit(api: GitHubProposalRepository, sha: string): Promise<void> {
+async function verifyCommit(api: RepositoryEvidenceReader, sha: string): Promise<void> {
   const commit = proposalObject((await api.request(`/git/commits/${proposalSha(sha)}`)).data);
   if (commit.sha !== sha || typeof commit.message !== "string" || !Array.isArray(commit.parents))
     return cycleError(
@@ -130,7 +130,7 @@ async function verifyCommit(api: GitHubProposalRepository, sha: string): Promise
   for (const parent of commit.parents) proposalSha(proposalObject(parent).sha);
 }
 
-function ancestry(api: GitHubProposalRepository) {
+function ancestry(api: RepositoryEvidenceReader) {
   const results = new Map<string, boolean>();
 
   return async (ancestorSha: string, descendantSha: string): Promise<boolean> => {

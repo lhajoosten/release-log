@@ -20,24 +20,25 @@ CI uses `--ignore-scripts` because it runs checks directly and does not need loc
 
 ## Commands
 
-| Command                                                     | Purpose                                                                 |
-| ----------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `pnpm build`                                                | Compile the CLI/library and copy trusted replay runtime assets.         |
-| `pnpm pack`                                                 | Build and pack a local distributable tarball without publishing.        |
-| `pnpm format`                                               | Format supported maintained files with Oxfmt.                           |
-| `pnpm format:files <paths...>`                              | Format selected maintained files, used by the pre-commit hook.          |
-| `pnpm check:format`                                         | Check formatting without changing files.                                |
-| `pnpm check:lint`                                           | Run type-aware Oxlint; warnings and unused suppression directives fail. |
-| `pnpm check:types`                                          | Run strict TypeScript checks without emitting files.                    |
-| `pnpm check`                                                | Run formatting, lint, types, tests, and the documentation build.        |
-| `pnpm test`                                                 | Run Node.js tests with coverage reporting.                              |
-| `pnpm verify`                                               | Run the same checks as `pnpm check`.                                    |
-| `pnpm docs:dev`                                             | Start the documentation development server.                             |
-| `pnpm docs:build`                                           | Build documentation and check internal page links.                      |
-| `pnpm docs:preview`                                         | Preview the built documentation site locally.                           |
-| `pnpm check:commits`                                        | Validate a single unscoped commit message from stdin.                   |
-| `pnpm check:commit-range --from <base-sha> --to <head-sha>` | Validate non-merge commits in a Git range with Commitlint.              |
-| `pnpm check:pr-title`                                       | Validate a scoped PR title from stdin.                                  |
+| Command                                                     | Purpose                                                                                  |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `pnpm build`                                                | Compile the CLI/library and copy trusted replay runtime assets.                          |
+| `pnpm pack`                                                 | Build and pack a local distributable tarball without publishing.                         |
+| `pnpm format`                                               | Format supported maintained files with Oxfmt.                                            |
+| `pnpm format:files <paths...>`                              | Format selected maintained files, used by the pre-commit hook.                           |
+| `pnpm check:format`                                         | Check formatting without changing files.                                                 |
+| `pnpm check:lint`                                           | Run type-aware Oxlint; warnings and unused suppression directives fail.                  |
+| `pnpm check:architecture`                                   | Check capability boundaries, graph coverage, and contract fixtures.                      |
+| `pnpm check:types`                                          | Run strict TypeScript checks without emitting files.                                     |
+| `pnpm check`                                                | Run formatting, lint, types, architecture contracts, tests, and the documentation build. |
+| `pnpm test`                                                 | Run Node.js tests with coverage reporting.                                               |
+| `pnpm verify`                                               | Run the same checks as `pnpm check`.                                                     |
+| `pnpm docs:dev`                                             | Start the documentation development server.                                              |
+| `pnpm docs:build`                                           | Build documentation and check internal page links.                                       |
+| `pnpm docs:preview`                                         | Preview the built documentation site locally.                                            |
+| `pnpm check:commits`                                        | Validate a single unscoped commit message from stdin.                                    |
+| `pnpm check:commit-range --from <base-sha> --to <head-sha>` | Validate non-merge commits in a Git range with Commitlint.                               |
+| `pnpm check:pr-title`                                       | Validate a scoped PR title from stdin.                                                   |
 
 `pnpm container:build --tag release-log-local:development` builds a local Linux/amd64 image from the packaged CLI. `pnpm check:container` runs real Docker smoke tests separately from `pnpm verify`; the Quality workflow also runs this integration gate. These commands need Docker and initial public base/snapshot downloads, not publishing credentials. See the [container guide](docs/container.md) for supported mounts/UIDs, cache requirements and dated scan limits. The separate [stable-tag publisher](docs/container-release.md) has verified GHCR publication, anonymous access and matching-digest retry; private-registry access remains unverified.
 
@@ -50,6 +51,14 @@ Type checks cover tooling configuration and maintained TypeScript source and tes
 Run `pnpm test` for the behavioral suite or `pnpm verify` for all checks, including the production documentation build. Coverage is reported; no completeness claim or coverage threshold is implied.
 
 The public [documentation site](https://lhajoosten.github.io/release-log/) deploys from main through the Documentation workflow. The [site guide](docs/github-pages.md) explains local previewing, navigation, observed deployment and settings required when adopting this setup. Review documentation for public access before merging; a source repository's permissions do not establish site visibility.
+
+## Architecture contracts
+
+`pnpm check:architecture` installs the independently locked development tool in `tools/architecture` with frozen dependencies and scripts disabled, then runs dependency-cruiser from the repository root. The first run needs access to the package registry or a populated pnpm cache. Its isolated TypeScript 6 compiler supports the analyzer while the application remains on TypeScript 7.0.2; the separate lockfile keeps tool dependencies out of release evidence. When adopting stable TypeScript 7.1 or newer, verify equivalent graph coverage before consolidating the compilers.
+
+Named rules include transitive and type-only capability dependencies, prohibit production imports of test support and unresolved local imports, and reject runtime cycles on a separate graph that omits type-only edges. Fixtures exercise the contracts and the graph check verifies representative NodeNext imports, including a provider resolved through pnpm. Static analysis cannot follow runtime-loaded producer paths; the installed-producer compatibility test remains necessary.
+
+New planning logic belongs in `src/planning/`, shared configuration in `src/config/`, snapshot data and identity helpers in `src/snapshot/`, changelog rendering in `src/changelog/`, proposal preparation in `src/proposal/`, and shared evidence decoding in `src/evidence/`. Existing root modules retain their public and producer-facing entry points; keep those paths and named exports compatible, and import owning implementations directly within the application. Other capability folders can be introduced as their work is refactored; update the architecture selectors and fixtures alongside moves.
 
 ## Hooks and conventional messages
 

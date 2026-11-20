@@ -1,20 +1,17 @@
 import { validateConventionalMessage } from "./conventional.ts";
 import type { ConventionalMetadata } from "./conventional.ts";
-import { isReleaseContextPolicy, parseReleaseContext } from "./release-context.ts";
-import type { ReleaseContextPolicy, ReleaseContextV1 } from "./release-context.ts";
+import { parseReleaseContext } from "./release-context.ts";
+import { isReleaseContextPolicy } from "./config/repository.ts";
+import type { ReleaseContextV1 } from "./release-context.ts";
+import type { ReleaseContextPolicy } from "./config/repository.ts";
+
+import type { ReadinessIssue } from "./evidence/readiness-issue.ts";
+export type { ReadinessIssue } from "./evidence/readiness-issue.ts";
 
 export interface PullRequestCommit {
   readonly sha: string;
   readonly message: string;
   readonly parentCount: number;
-}
-
-export interface ReadinessIssue {
-  readonly location: "title" | "context" | "commit";
-  readonly code: string;
-  readonly message: string;
-  readonly field?: string;
-  readonly sha?: string;
 }
 
 export type PullRequestReadiness =
