@@ -10,7 +10,7 @@ import { capturedVerificationConfiguration, verifyPrevious } from "./proposal/ve
 import type { ReleaseFileContents } from "./proposal/prepare.ts";
 import { capturedIdentity, verifyGeneratedTree } from "./proposal/identity.ts";
 import { validateConventionalMessage } from "./conventional.ts";
-import { selectReleaseCycle } from "./release-cycle.ts";
+import { selectReleaseCycle } from "./cycle/select.ts";
 import { requireSameReadiness, verifyReleaseReadiness } from "./release-readiness.ts";
 import { parseReleaseInputConfiguration } from "./config/repository.ts";
 import type { ReleaseInputConfiguration } from "./config/repository.ts";

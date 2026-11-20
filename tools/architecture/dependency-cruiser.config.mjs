@@ -60,6 +60,12 @@ const config = {
       to: { path: "^src/(release-proposal|proposal-files|proposal-identity)\\.ts$" },
     },
     {
+      name: "application-bypasses-cycle-and-tag-facades",
+      severity: "error",
+      from: { path: "^src/" },
+      to: { path: "^src/release-(cycle|tag)\\.ts$" },
+    },
+    {
       name: "proposal-phases-owned-by-reconciler",
       severity: "error",
       from: { path: "^src/", pathNot: "^src/proposal/reconcile\\.ts$" },

@@ -110,6 +110,23 @@ const cases = [
     },
   ],
   [
+    "rolling release imports cycle selection from its owner",
+    "application-bypasses-cycle-and-tag-facades",
+    {
+      "src/release-roll.ts": "import './release-cycle.ts';",
+      "src/release-cycle.ts": "export {};",
+    },
+  ],
+  [
+    "tag result types come from their owning module",
+    "application-bypasses-cycle-and-tag-facades",
+    {
+      "src/release-roll.ts":
+        "import type { Result } from './release-tag.ts'; export type R = Result;",
+      "src/release-tag.ts": "export type Result = string;",
+    },
+  ],
+  [
     "proposal write phase is private to the reconciler",
     "proposal-phases-owned-by-reconciler",
     {

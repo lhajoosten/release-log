@@ -11,9 +11,9 @@ import { renderChangelog } from "./changelog.ts";
 import { createReleasePlan } from "./release-plan.ts";
 import { reconcileReleaseProposal } from "./proposal/reconcile.ts";
 import { parseReleaseAutomation } from "./config/automation.ts";
-import { reconcileReleaseTag } from "./release-tag.ts";
+import { reconcileReleaseTag } from "./tagging/reconcile.ts";
 import { rollRelease } from "./release-roll.ts";
-import { selectReleaseCycle } from "./release-cycle.ts";
+import { selectReleaseCycle } from "./cycle/select.ts";
 import { ProposalConflictError } from "./github-proposals.ts";
 import type { ReleaseVersionConfiguration } from "./planning/derive-release-plan.ts";
 import {
