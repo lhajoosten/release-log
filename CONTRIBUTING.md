@@ -30,7 +30,10 @@ CI uses `--ignore-scripts` because it runs checks directly and does not need loc
 | `pnpm check:lint`                                           | Run type-aware Oxlint; warnings and unused suppression directives fail. |
 | `pnpm check:types`                                          | Run strict TypeScript checks without emitting files.                    |
 | `pnpm check`                                                | Run formatting, lint, types, tests, and the documentation build.        |
-| `pnpm test`                                                 | Run Node.js tests with coverage reporting.                              |
+| `pnpm test`                                                 | Run fast behavioral tests. Pass test files or globs to select a subset. |
+| `pnpm test:integration`                                     | Run tests that exercise Git, packages, and other subprocesses.          |
+| `pnpm test:all`                                             | Run both behavioral suites without collecting coverage.                 |
+| `pnpm test:coverage`                                        | Run the full behavioral suite with coverage reporting.                  |
 | `pnpm verify`                                               | Run the same checks as `pnpm check`.                                    |
 | `pnpm docs:dev`                                             | Start the documentation development server.                             |
 | `pnpm docs:build`                                           | Build documentation and check internal page links.                      |
@@ -47,7 +50,7 @@ Dependencies are exact-pinned and the pnpm lockfile is committed. Generated lock
 
 Type checks cover tooling configuration and maintained TypeScript source and tests. Tests run directly through Node.js 26's TypeScript support, without a transpiler or test-framework dependency. `pnpm build` compiles the distributable CLI/library; `pnpm pack` builds a local tarball. The package test installs it with only cached production dependencies in a temporary directory and exercises the executable without network access; project installation must populate the package-manager cache first. See the [CLI guide](docs/cli.md) for commands and Node/Python version-file support. The separate documentation build uses VitePress; its configuration is included in type checks.
 
-Run `pnpm test` for the behavioral suite or `pnpm verify` for all checks, including the production documentation build. Coverage is reported; no completeness claim or coverage threshold is implied.
+Run `pnpm test` for fast feedback or pass a file to select it explicitly, as in `pnpm test tests/release-plan.test.ts`. Add a Node test filter before the file to select a test by name. Put tests that start Git, a CLI, or another subprocess in `tests/*.integration.test.ts` so `pnpm test:integration` picks them up. Run `pnpm verify` for all checks, including both suites with coverage and the production documentation build. Coverage reporting has no threshold.
 
 The public [documentation site](https://lhajoosten.github.io/release-log/) deploys from main through the Documentation workflow. The [site guide](docs/github-pages.md) explains local previewing, navigation, observed deployment and settings required when adopting this setup. Review documentation for public access before merging; a source repository's permissions do not establish site visibility.
 

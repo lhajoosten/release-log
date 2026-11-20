@@ -15,7 +15,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 
 void test(
   "packed CLI installs with production dependencies and exercises offline Node/Python planning and writes",
-  { timeout: 90_000 },
+  { timeout: 120_000, concurrency: 3 },
   async (context) => {
     const path = await mkdtemp(join(tmpdir(), "release-cli-package-"));
     context.after(() => rm(path, { recursive: true, force: true }));
@@ -30,6 +30,9 @@ void test(
     assert.ok(archive);
     const consumer = join(path, "consumer");
     await mkdir(consumer);
+    // The temporary package is outside the workspace coverage report.
+    const packagedEnvironment = { ...process.env };
+    delete packagedEnvironment.NODE_V8_COVERAGE;
     await execute(
       "tar",
       ["-xzf", join(path, archive), "--strip-components=1", "--directory", consumer],
@@ -45,10 +48,13 @@ void test(
       ["install", "--offline", "--prod", "--frozen-lockfile", "--ignore-scripts"],
       {
         cwd: consumer,
+        env: packagedEnvironment,
         timeout: 30_000,
         maxBuffer: 4 * 1024 * 1024,
       },
     );
+    // Each invocation starts a fresh CLI process but can reuse the package's compiled modules.
+    packagedEnvironment.NODE_COMPILE_CACHE = join(path, "compile-cache");
     const entries = await readdir(installed);
     assert.ok(
       !entries.includes("tests") &&
@@ -85,7 +91,7 @@ void test(
         if (result.text !== 'Packaged generation.') throw new Error('Invalid packaged AI output');
       `,
       ],
-      { cwd: consumer, timeout: 10_000 },
+      { cwd: consumer, env: packagedEnvironment, timeout: 10_000 },
     );
     assert.ok(!(await readFile(cli, "utf8")).includes("./release-plan.ts"));
     assert.equal(
@@ -103,14 +109,15 @@ void test(
         timeout: 10_000,
         maxBuffer: 16 * 1024 * 1024,
         env: {
-          ...process.env,
+          ...packagedEnvironment,
           GITHUB_TOKEN: githubToken,
           GHCR_READ_TOKEN: registryToken,
           RELEASE_LOG_APP_TOKEN: "",
         },
       });
     }
-    assert.match((await run(["--help"])).stdout, /pyproject.toml/u);
+    const help = (await run(["--help"])).stdout;
+    assert.match(help, /pyproject.toml/u);
     const sourceManifest: unknown = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
     assert.ok(
       typeof sourceManifest === "object" &&
@@ -175,89 +182,100 @@ void test(
         /PR #1 .*context\/field-invalid field "audience"/u.test(error.stderr) &&
         !error.stderr.includes(privateProse),
     );
-    for (const verbosity of ["detailed", "concise", "one-liner"] as const) {
-      const configuration = { ...fixtureConfiguration, changelog: { verbosity } };
-      const capture = await captureReleaseSnapshot(
-        {
-          ...snapshot.snapshot.input,
-          pullRequests: snapshot.snapshot.input.pullRequests.map((pull) => ({
-            ...pull,
-            authorLogin: "cli-author",
-          })),
-        },
-        configuration,
-        "2026-11-16T20:34:56.789Z",
-      );
-      const configurationPath = join(path, `config-${verbosity}.json`);
-      const capturePath = join(path, `snapshot-${verbosity}.json`);
+    await Promise.all(
+      (["detailed", "concise", "one-liner"] as const).map((verbosity) =>
+        context.test(`renders and prepares ${verbosity} changelogs`, async () => {
+          const configuration = { ...fixtureConfiguration, changelog: { verbosity } };
+          const capture = await captureReleaseSnapshot(
+            {
+              ...snapshot.snapshot.input,
+              pullRequests: snapshot.snapshot.input.pullRequests.map((pull) => ({
+                ...pull,
+                authorLogin: "cli-author",
+              })),
+            },
+            configuration,
+            "2026-11-16T20:34:56.789Z",
+          );
+          const configurationPath = join(path, `config-${verbosity}.json`);
+          const capturePath = join(path, `snapshot-${verbosity}.json`);
 
-      await writeFile(configurationPath, JSON.stringify(configuration));
-      await writeFile(capturePath, await serializeReleaseSnapshot(capture));
+          await writeFile(configurationPath, JSON.stringify(configuration));
+          await writeFile(capturePath, await serializeReleaseSnapshot(capture));
 
-      const selectedArgs = [
-        "--config",
-        configurationPath,
-        "--snapshot",
-        capturePath,
-        "--current-version",
-        "1.2.3",
-      ];
-      const rendered = (await run(["render", ...selectedArgs])).stdout;
-      const repository = join(path, `verbosity-${verbosity}`);
+          const selectedArgs = [
+            "--config",
+            configurationPath,
+            "--snapshot",
+            capturePath,
+            "--current-version",
+            "1.2.3",
+          ];
+          const rendered = (await run(["render", ...selectedArgs])).stdout;
+          const repository = join(path, `verbosity-${verbosity}`);
 
-      assert.equal(rendered.includes("  - Impact:"), verbosity === "detailed");
-      assert.match(rendered, /^## v1\.2\.4/u);
-      assert.ok(!rendered.includes("Inputs captured at:"));
-      assert.ok(rendered.includes("(2026-11-16)"));
-      assert.ok(rendered.includes("### 🐛 Fixes"));
-      assert.ok(rendered.includes("https://github.com/cli-author"));
-      assert.ok(rendered.includes("/compare/v1.2.3..."));
-      assert.equal((await run(["render", ...selectedArgs])).stdout, rendered);
+          assert.equal(rendered.includes("  - Impact:"), verbosity === "detailed");
+          assert.match(rendered, /^## v1\.2\.4/u);
+          assert.ok(!rendered.includes("Inputs captured at:"));
+          assert.ok(rendered.includes("(2026-11-16)"));
+          assert.ok(rendered.includes("### 🐛 Fixes"));
+          assert.ok(rendered.includes("https://github.com/cli-author"));
+          assert.ok(rendered.includes("/compare/v1.2.3..."));
+          assert.equal((await run(["render", ...selectedArgs])).stdout, rendered);
 
-      await mkdir(repository);
-      await writeFile(join(repository, "package.json"), '{"version":"1.2.3"}\n');
-      await writeFile(join(repository, "pyproject.toml"), '[project]\nversion="1.2.3"\n');
-      await run(["prepare", ...selectedArgs, "--repository", repository, "--write"]);
+          await mkdir(repository);
+          await writeFile(join(repository, "package.json"), '{"version":"1.2.3"}\n');
+          await writeFile(join(repository, "pyproject.toml"), '[project]\nversion="1.2.3"\n');
+          await run(["prepare", ...selectedArgs, "--repository", repository, "--write"]);
 
-      assert.ok((await readFile(join(repository, "CHANGELOG.md"), "utf8")).includes(rendered));
-      assert.equal(
-        await readFile(join(repository, "package.json"), "utf8"),
-        '{"version":"1.2.4"}\n',
-      );
-      assert.equal(
-        await readFile(join(repository, "pyproject.toml"), "utf8"),
-        '[project]\nversion="1.2.4"\n',
-      );
-    }
+          assert.ok((await readFile(join(repository, "CHANGELOG.md"), "utf8")).includes(rendered));
+          assert.equal(
+            await readFile(join(repository, "package.json"), "utf8"),
+            '{"version":"1.2.4"}\n',
+          );
+          assert.equal(
+            await readFile(join(repository, "pyproject.toml"), "utf8"),
+            '[project]\nversion="1.2.4"\n',
+          );
+        }),
+      ),
+    );
 
-    for (const mode of ["node", "python", "both"]) {
-      const repository = join(path, mode);
-      await mkdir(repository);
-      if (mode !== "python")
-        await writeFile(
-          join(repository, "package.json"),
-          '{"version":"1.2.3","scripts":{"prepare":"do-not-run"}}\n',
-        );
-      if (mode !== "node")
-        await writeFile(join(repository, "pyproject.toml"), '[project]\nversion="1.2.3" # keep\n');
-      const before = await readdir(repository);
-      assert.match(
-        (await run(["prepare", ...args, "--repository", repository, "--dry-run"])).stdout,
-        /"mode": "dry-run"/u,
-      );
-      assert.deepEqual(await readdir(repository), before);
-      await run(["prepare", ...args, "--repository", repository, "--write"]);
-      if (mode !== "python")
-        assert.match(
-          await readFile(join(repository, "package.json"), "utf8"),
-          /"version":"1.2.4"/u,
-        );
-      if (mode !== "node")
-        assert.equal(
-          await readFile(join(repository, "pyproject.toml"), "utf8"),
-          '[project]\nversion="1.2.4" # keep\n',
-        );
-    }
+    await Promise.all(
+      ["node", "python", "both"].map((mode) =>
+        context.test(`prepares ${mode} version files`, async () => {
+          const repository = join(path, mode);
+          await mkdir(repository);
+          if (mode !== "python")
+            await writeFile(
+              join(repository, "package.json"),
+              '{"version":"1.2.3","scripts":{"prepare":"do-not-run"}}\n',
+            );
+          if (mode !== "node")
+            await writeFile(
+              join(repository, "pyproject.toml"),
+              '[project]\nversion="1.2.3" # keep\n',
+            );
+          const before = await readdir(repository);
+          assert.match(
+            (await run(["prepare", ...args, "--repository", repository, "--dry-run"])).stdout,
+            /"mode": "dry-run"/u,
+          );
+          assert.deepEqual(await readdir(repository), before);
+          await run(["prepare", ...args, "--repository", repository, "--write"]);
+          if (mode !== "python")
+            assert.match(
+              await readFile(join(repository, "package.json"), "utf8"),
+              /"version":"1.2.4"/u,
+            );
+          if (mode !== "node")
+            assert.equal(
+              await readFile(join(repository, "pyproject.toml"), "utf8"),
+              '[project]\nversion="1.2.4" # keep\n',
+            );
+        }),
+      ),
+    );
 
     const backfillRepository = join(path, "backfill");
     await mkdir(backfillRepository);
@@ -311,7 +329,7 @@ void test(
         {
           cwd: consumer,
           timeout: 10_000,
-          env: { ...process.env, GITHUB_TOKEN: "synthetic-token" },
+          env: { ...packagedEnvironment, GITHUB_TOKEN: "synthetic-token" },
         },
       );
     const preview = (await backfill()).stdout;
@@ -661,7 +679,7 @@ void test(
       receiptPath,
     ];
 
-    assert.match((await run(["--help"])).stdout, /inspect-publication/u);
+    assert.match(help, /inspect-publication/u);
 
     for (const flag of ["--write", "--dry-run"])
       await assert.rejects(
@@ -743,7 +761,7 @@ void test(
       }),
     );
 
-    assert.match((await run(["--help"])).stdout, /publish-github/u);
+    assert.match(help, /publish-github/u);
 
     for (const flags of [[], ["--dry-run"], ["--write"]])
       await assert.rejects(
@@ -1058,7 +1076,7 @@ void test(
         "-e",
         'import { reconcileReleaseTag } from "release-log/tags"; import { inspectReleasePublication, publishGitHubRelease, parsePublicationPolicy, parsePublicationReceipt } from "release-log/publication"; import { reconcileReleaseProposal } from "release-log/proposals"; import { verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion, parseVerifiedReleaseApproval, parseReleaseExclusionAuthorities } from "release-log/approval"; if ([reconcileReleaseTag, inspectReleasePublication, publishGitHubRelease, parsePublicationPolicy, parsePublicationReceipt, reconcileReleaseProposal, verifyReleaseApproval, parseReleaseApproval, captureReleaseReview, finalizeReleaseApproval, parseReleaseReviewTarget, parseReleaseReview, parseReleaseMergeAttestation, auditReleaseExclusion, parseVerifiedReleaseApproval, parseReleaseExclusionAuthorities].some(value => typeof value !== "function")) throw new Error("Missing packaged proposal/approval API");',
       ],
-      { cwd: consumer, timeout: 10_000 },
+      { cwd: consumer, env: packagedEnvironment, timeout: 10_000 },
     );
     await writeFile(
       snapshotPath,
