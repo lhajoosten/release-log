@@ -92,6 +92,15 @@ const cases = [
     { "src/release-proposal.ts": "import './cli.ts';", "src/cli.ts": "export const cli = 1;" },
   ],
   [
+    "capabilities cannot reference CLI command types",
+    "cli-composes-capabilities",
+    {
+      "src/planning/plan.ts":
+        "import type { Input } from '../cli/versioned-input.ts'; export type T = Input;",
+      "src/cli/versioned-input.ts": "export type Input = string;",
+    },
+  ],
+  [
     "snapshot replay cannot depend transitively on a proposal consumer",
     "snapshot-independent-of-consumers",
     {
@@ -107,6 +116,40 @@ const cases = [
     {
       "src/consumer.ts": "import type { T } from './proposal-files.ts'; export type U = T;",
       "src/proposal-files.ts": "export type T = string;",
+    },
+  ],
+  [
+    "rolling release imports cycle selection from its owner",
+    "application-bypasses-cycle-and-tag-facades",
+    {
+      "src/release-roll.ts": "import './release-cycle.ts';",
+      "src/release-cycle.ts": "export {};",
+    },
+  ],
+  [
+    "tag result types come from their owning module",
+    "application-bypasses-cycle-and-tag-facades",
+    {
+      "src/release-roll.ts":
+        "import type { Result } from './release-tag.ts'; export type R = Result;",
+      "src/release-tag.ts": "export type Result = string;",
+    },
+  ],
+  [
+    "application imports approval from the owning module",
+    "application-bypasses-approval-facades",
+    {
+      "src/consumer.ts": "import './release-approval.ts';",
+      "src/release-approval.ts": "export {};",
+    },
+  ],
+  [
+    "record decoding cannot reach verification through a shared helper",
+    "approval-records-independent-of-workflows",
+    {
+      "src/approval/record.ts": "import './helper.ts';",
+      "src/approval/helper.ts": "import type { T } from './verify.ts'; export type R = T;",
+      "src/approval/verify.ts": "export type T = string;",
     },
   ],
   [

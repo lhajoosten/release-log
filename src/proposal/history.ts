@@ -1,7 +1,7 @@
 import { ProposalConflictError } from "../github-proposals.ts";
 import type { GitHubProposalRepository, ProposalPullRequest } from "../github-proposals.ts";
 import type { GitHubRead } from "../github.ts";
-import { selectReleaseCycle } from "../release-cycle.ts";
+import { selectReleaseCycle } from "../cycle/select.ts";
 import { verifyPrevious } from "./verification.ts";
 import type { ReleaseInputConfiguration } from "../config/repository.ts";
 import type { ReleaseAutomationConfiguration } from "../config/automation.ts";

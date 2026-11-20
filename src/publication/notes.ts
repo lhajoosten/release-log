@@ -1,6 +1,6 @@
 import { renderChangelog } from "../changelog.ts";
 import { inspectGitTree, readGitBlob } from "../git.ts";
-import type { ReleaseApproval } from "../release-approval.ts";
+import type { ReleaseApproval } from "../approval/record.ts";
 import type { ReleaseInputConfiguration } from "../config/repository.ts";
 import { fail } from "./error.ts";
 

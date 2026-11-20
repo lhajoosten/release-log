@@ -2,12 +2,11 @@ import { createHash } from "node:crypto";
 import { GitHubProposalRepository, proposalObject, proposalSha } from "../github-proposals.ts";
 import { GitHubReadError } from "../github.ts";
 import type { GitHubRead } from "../github.ts";
-import {
-  parseReleaseApproval,
-  parseReleaseApprovalPolicy,
-  verifyReleaseApproval,
-} from "../release-approval.ts";
-import type { ReleaseApproval, ReleaseApprovalPolicy } from "../release-approval.ts";
+import { parseReleaseApproval } from "../approval/record.ts";
+import { parseReleaseApprovalPolicy } from "../approval/policy.ts";
+import { verifyReleaseApproval } from "../approval/verify.ts";
+import type { ReleaseApproval } from "../approval/record.ts";
+import type { ReleaseApprovalPolicy } from "../approval/policy.ts";
 import { parseReleaseInputConfiguration } from "../config/repository.ts";
 import type { ReleaseInputConfiguration } from "../config/repository.ts";
 import { fail } from "./error.ts";

@@ -3,7 +3,7 @@ import type {
   PendingReleaseInspection,
   ResolvedReleaseBaseline,
 } from "../git.ts";
-import { parseVerifiedReleaseApproval } from "../release-approval-record.ts";
+import { parseVerifiedReleaseApproval } from "../approval/record.ts";
 import type { ReleaseInputConfiguration } from "../config/repository.ts";
 import {
   ReleaseSnapshotError,

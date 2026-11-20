@@ -1,34 +1,31 @@
 #!/usr/bin/env node
 import { loadProducerRuntimes, withProducerRuntimes } from "./producer-runtime.ts";
-import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { backfillChangelog, writeBackfilledChangelog } from "./changelog-backfill.ts";
 import { inspectPendingRelease } from "./git.ts";
 import { collectMergedPullRequests } from "./github-association.ts";
 import { GitHubReadError } from "./github.ts";
-import { renderChangelog } from "./changelog.ts";
-import { createReleasePlan } from "./release-plan.ts";
+import { planningCommands } from "./cli/planning.ts";
+import { readText, required, UsageError } from "./cli/input.ts";
+import { readVersionedInput, versionOptions } from "./cli/versioned-input.ts";
 import { reconcileReleaseProposal } from "./proposal/reconcile.ts";
 import { parseReleaseAutomation } from "./config/automation.ts";
-import { reconcileReleaseTag } from "./release-tag.ts";
+import { reconcileReleaseTag } from "./tagging/reconcile.ts";
 import { rollRelease } from "./release-roll.ts";
-import { selectReleaseCycle } from "./release-cycle.ts";
+import { selectReleaseCycle } from "./cycle/select.ts";
 import { ProposalConflictError } from "./github-proposals.ts";
-import type { ReleaseVersionConfiguration } from "./planning/derive-release-plan.ts";
 import {
   parseReleaseApproval,
   parseReleaseApprovalJSON,
-  parseReleaseApprovalPolicy,
-  captureReleaseReview,
-  finalizeReleaseApproval,
   parseReleaseReviewTarget,
   parseReleaseReview,
   parseReleaseMergeAttestation,
-  verifyReleaseApproval,
-  auditReleaseExclusion,
-  parseReleaseExclusionAuthorities,
-} from "./release-approval.ts";
+} from "./approval/record.ts";
+import { parseReleaseApprovalPolicy } from "./approval/policy.ts";
+import { captureReleaseReview, finalizeReleaseApproval } from "./approval/review.ts";
+import { verifyReleaseApproval } from "./approval/verify.ts";
+import { auditReleaseExclusion, parseReleaseExclusionAuthorities } from "./approval/exclusion.ts";
 import { prepareReleaseFiles, writeReleaseFiles } from "./proposal/files.ts";
 import { inspectReleasePublication } from "./publication/inspect.ts";
 import { publishGitHubRelease } from "./publication/execute.ts";
@@ -37,12 +34,6 @@ import { captureReleaseSnapshot } from "./snapshot/capture.ts";
 import { serializeReleaseSnapshot } from "./snapshot/replay.ts";
 import { parseReleaseInputConfiguration } from "./config/repository.ts";
 
-class UsageError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "UsageError";
-  }
-}
 const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/approval verification)
 
   release-log roll --config FILE --automation FILE --repository DIR --event FILE
@@ -120,22 +111,6 @@ Trusted producer reconstruction: add --producer-runtimes FILE to verification co
 The registry contains executable authority; supply it separately from captured release data.
 `;
 
-async function readText(path: string, maximum = 16 * 1024 * 1024): Promise<string> {
-  const info = await stat(path);
-  if (!info.isFile() || info.size > maximum)
-    throw new UsageError("Input must be an ordinary file within its size limit.");
-  const result = await readFile(path, "utf8");
-  if (Buffer.byteLength(result, "utf8") > maximum)
-    throw new UsageError("Input exceeds its size limit.");
-  return result;
-}
-
-function required(options: ReadonlyMap<string, string | true>, key: string): string {
-  const value = options.get(key);
-  if (typeof value !== "string" || !value) throw new UsageError(`Missing value for --${key}.`);
-  return value;
-}
-
 async function runCLI(args: readonly string[]): Promise<string> {
   if (args.length === 1 && args[0] === "--version") {
     const manifest: unknown = JSON.parse(
@@ -152,14 +127,11 @@ async function runCLI(args: readonly string[]): Promise<string> {
   }
   if (!args.length || (args.length === 1 && args[0] === "--help")) return help;
   const command = args[0];
-  const versionOptions = ["config", "snapshot", "current-version", "initial-version"];
   const commandOptions = new Map<string, readonly string[]>([
     ["roll", ["config", "automation", "repository", "event", "dry-run", "write"]],
     ["select-cycle", ["config", "automation", "source"]],
     ["collect", ["config", "repository", "source", "baseline-tag", "bootstrap-sha", "exclusions"]],
     ["backfill", ["config", "repository", "dry-run", "write"]],
-    ["plan", versionOptions],
-    ["render", versionOptions],
     ["prepare", [...versionOptions, "repository", "dry-run", "write"]],
     ["propose", [...versionOptions, "automation", "dry-run", "write"]],
     ["tag-release", ["config", "automation", "pull-number", "landing-sha", "dry-run", "write"]],
@@ -189,7 +161,8 @@ async function runCLI(args: readonly string[]): Promise<string> {
       ["config", "approval", "policy", "repository", "source", "baseline-tag", "bootstrap-sha"],
     ],
   ]);
-  const allowed = commandOptions.get(command ?? "");
+  const planningCommand = planningCommands.get(command ?? "");
+  const allowed = planningCommand?.options ?? commandOptions.get(command ?? "");
   if (!allowed) throw new UsageError("Unknown command. Use --help for supported commands.");
   const options = new Map<string, string | true>();
   for (let index = 1; index < args.length; index++) {
@@ -208,6 +181,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
     throw new UsageError("--write and --dry-run are mutually exclusive.");
   const configJSON: unknown = JSON.parse(await readText(required(options, "config"), 1024 * 1024));
   const config = parseReleaseInputConfiguration(configJSON);
+  if (planningCommand) return planningCommand.run(options, config);
   if (command === "backfill") {
     const repository = required(options, "repository");
     const token = process.env.GITHUB_TOKEN;
@@ -476,18 +450,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
       ) + "\n"
     );
   }
-  if (options.has("current-version") === options.has("initial-version"))
-    throw new UsageError("Select exactly one --current-version or --initial-version.");
-  let version: ReleaseVersionConfiguration;
-  if (options.has("initial-version")) {
-    if (required(options, "initial-version") !== "0.1.0")
-      throw new UsageError("The approved initial version is 0.1.0.");
-    version = { kind: "bootstrap", initialVersion: "0.1.0" };
-  } else version = { kind: "released", currentVersion: required(options, "current-version") };
-  const snapshot = await readText(required(options, "snapshot"));
-  if (command === "plan")
-    return JSON.stringify(await createReleasePlan(snapshot, config, version), null, 2) + "\n";
-  if (command === "render") return (await renderChangelog(snapshot, config, version)) ?? "";
+  const { snapshot, version } = await readVersionedInput(options);
   if (command === "propose") {
     const automationJSON: unknown = JSON.parse(
       await readText(required(options, "automation"), 1024 * 1024),
