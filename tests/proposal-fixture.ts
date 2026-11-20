@@ -56,23 +56,32 @@ export async function fixture(
   ])
     delete environment[name];
   function git(args: string[], input?: string, separateIndex = false): string {
-    const result = spawnSync("git", ["--no-pager", ...args], {
-      cwd: directory,
-      encoding: "utf8",
-      timeout: 10_000,
-      maxBuffer: 16 * 1024 * 1024,
-      env: {
-        ...environment,
-        ...(separateIndex ? { GIT_INDEX_FILE: join(directory, ".git", "proposal-index") } : {}),
+    const result = spawnSync(
+      "git",
+      [
+        "--no-pager",
+        "-c",
+        "user.name=Fixture Bot",
+        "-c",
+        "user.email=fixture@example.invalid",
+        ...args,
+      ],
+      {
+        cwd: directory,
+        encoding: "utf8",
+        timeout: 10_000,
+        maxBuffer: 16 * 1024 * 1024,
+        env: {
+          ...environment,
+          ...(separateIndex ? { GIT_INDEX_FILE: join(directory, ".git", "proposal-index") } : {}),
+        },
+        ...(input === undefined ? {} : { input }),
       },
-      ...(input === undefined ? {} : { input }),
-    });
+    );
     assert.equal(result.status, 0, result.stderr);
     return result.stdout;
   }
   git(["init", "--initial-branch=main", `--object-format=${setup.objectFormat ?? "sha1"}`]);
-  git(["config", "user.name", "Fixture Bot"]);
-  git(["config", "user.email", "fixture@example.invalid"]);
   const manifestVersion = setup.bootstrap ? "0.0.0" : "1.2.3";
   if (mode === "node" || mode === "both")
     await writeFile(
@@ -252,14 +261,11 @@ export async function fixture(
   }
   function createTree(treeSha: string, entries: readonly Record<string, unknown>[]): string {
     git(["read-tree", treeSha], undefined, true);
-    for (const entry of entries) {
+    const indexEntries = entries.map((entry) => {
       const sha = git(["hash-object", "-w", "--stdin"], text(entry.content)).trim();
-      git(
-        ["update-index", "--add", "--cacheinfo", text(entry.mode), sha, text(entry.path)],
-        undefined,
-        true,
-      );
-    }
+      return `${text(entry.mode)} ${sha}\t${text(entry.path)}\0`;
+    });
+    git(["update-index", "-z", "--index-info"], indexEntries.join(""), true);
     return git(["write-tree"], undefined, true).trim();
   }
   const calls: { method: string; path: string; body: Record<string, unknown> | null }[] = [];

@@ -380,20 +380,23 @@ for (const [name, update, code] of [
     "scope-empty",
   ],
   [
-    "scoped authored commit",
-    (pull: ReturnType<typeof entry>) => {
-      const original = pull.originalCommits[0];
-      assert.ok(original);
-      original.message = "feat(api): add exports";
-    },
-    "scope-empty",
-  ],
-  [
     "breaking commit conflict",
     (pull: ReturnType<typeof entry>) => {
       const original = pull.originalCommits[0];
       assert.ok(original);
-      original.message = "feat!: remove old exports";
+      original.message = "feat(api)!: remove old exports";
+    },
+    "breaking-conflict",
+  ],
+  [
+    "breaking landed commit conflict",
+    (pull: ReturnType<typeof entry>) => {
+      const original = pull.originalCommits[0];
+      const landed = pull.landedCommits[0];
+      assert.ok(original && landed);
+      pull.headSha = second;
+      original.sha = second;
+      landed.message = "fix(api): retain exports\n\nBREAKING CHANGE: use the new command";
     },
     "breaking-conflict",
   ],
@@ -414,6 +417,9 @@ for (const [name, update, code] of [
       assert.ok(error instanceof ReleaseSnapshotError);
       assert.equal(error.code, "metadata-invalid");
       assert.ok(error.issues.some((issue) => issue.code === code));
+      if (code === "breaking-conflict") {
+        assert.ok(error.message.includes(`title/breaking-conflict commit ${first}`));
+      }
       return true;
     });
   });
@@ -428,7 +434,7 @@ void test("breaking evidence, internal context, and warnings survive normalizati
   const commit = pull.originalCommits[0];
   assert.ok(commit);
   commit.message =
-    "feat: remove old exports\nBody without a blank line.\n\nBREAKING CHANGE: use the new command";
+    "feat(exports): remove old exports\nBody without a blank line.\n\nBREAKING CHANGE: use the new command";
   const snapshot = await captureReleaseSnapshot(source, config);
   const normalized = snapshot.normalized.pullRequests[0];
   assert.ok(normalized?.context);
