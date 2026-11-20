@@ -61,6 +61,8 @@ The public [documentation site](https://lhajoosten.github.io/release-log/) deplo
 
 Named rules include transitive and type-only capability dependencies, prohibit production imports of test support and unresolved local imports, and reject runtime cycles on a separate graph that omits type-only edges. Fixtures exercise the contracts and the graph check verifies representative NodeNext imports, including a provider resolved through pnpm. Static analysis cannot follow runtime-loaded producer paths; the installed-producer compatibility test remains necessary.
 
+The CLI entry point handles tokenization, global options, process output, and exit status. Plan and render register their options and handlers together in `src/cli/planning.ts`. Their typed decoder in `src/cli/versioned-input.ts` also serves prepare and propose.
+
 Cycle selection lives in `src/cycle/`. Its history reader verifies Git ancestry and orders merged proposals. Tag reconciliation lives in `src/tagging/`, alongside its tag and landing evidence checks. Internal callers import these capabilities directly.
 
 Approval policy and record decoding live in `src/approval/`. Snapshot replay consumes the record decoder independently of GitHub access. Review capture and finalization, proposal history verification, approval verification, and exclusion auditing each have an owning module in that directory. The published `release-log/approval` entry point exposes the public API.

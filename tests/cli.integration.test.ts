@@ -142,6 +142,18 @@ void test(
     await writeFile(configPath, JSON.stringify(fixtureConfiguration));
     await writeFile(snapshotPath, snapshot.serialized);
     const args = ["--config", configPath, "--snapshot", snapshotPath, "--current-version", "1.2.3"];
+    for (const command of ["plan", "render"]) {
+      await assert.rejects(
+        run([command, "--config", configPath, "--snapshot", join(path, "missing.json")]),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          error.code === 2 &&
+          "stderr" in error &&
+          typeof error.stderr === "string" &&
+          error.stderr.includes("Select exactly one --current-version or --initial-version."),
+      );
+    }
     const plan: unknown = JSON.parse((await run(["plan", ...args])).stdout);
     assert.ok(
       typeof plan === "object" &&

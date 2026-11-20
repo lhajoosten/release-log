@@ -92,6 +92,15 @@ const cases = [
     { "src/release-proposal.ts": "import './cli.ts';", "src/cli.ts": "export const cli = 1;" },
   ],
   [
+    "capabilities cannot reference CLI command types",
+    "cli-composes-capabilities",
+    {
+      "src/planning/plan.ts":
+        "import type { Input } from '../cli/versioned-input.ts'; export type T = Input;",
+      "src/cli/versioned-input.ts": "export type Input = string;",
+    },
+  ],
+  [
     "snapshot replay cannot depend transitively on a proposal consumer",
     "snapshot-independent-of-consumers",
     {
