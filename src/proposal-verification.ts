@@ -72,6 +72,7 @@ export async function verifyPrevious(
     botUserId,
     marker.previousHeadSha,
     marker.producerSha,
+    marker.bodyFormat,
   );
   if (snapshot.normalized.sourceCommitSha !== marker.sourceSha)
     throw new ProposalConflictError(
