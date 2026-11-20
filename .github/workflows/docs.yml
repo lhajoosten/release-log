@@ -17,36 +17,61 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    outputs:
+      skip: ${{ steps.inputs.outputs.skip }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      - name: Check documentation inputs
+        id: inputs
+        if: github.event_name == 'push'
+        env:
+          PREVIOUS_SHA: ${{ github.event.before }}
+        run: |
+          if ! git diff --quiet "$PREVIOUS_SHA" "$GITHUB_SHA" -- docs .github/workflows/docs.yml .node-version pnpm-lock.yaml pnpm-workspace.yaml patches; then
+            exit 0
+          fi
+          # The site does not use the package version. Keep rebuilds for other manifest changes.
+          if ! previous_manifest="$(git show "$PREVIOUS_SHA:package.json" | jq -cSe 'del(.version)')" ||
+            ! current_manifest="$(git show "$GITHUB_SHA:package.json" | jq -cSe 'del(.version)')" ||
+            [[ "$previous_manifest" != "$current_manifest" ]]; then
+            exit 0
+          fi
+          echo 'skip=true' >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
+        if: &build-docs steps.inputs.outputs.skip != 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           package-manager-cache: false
 
       - name: Set up pnpm
+        if: *build-docs
         uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
         with:
           cache: true
 
       - name: Install locked dependencies without lifecycle scripts
+        if: *build-docs
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build documentation
+        if: *build-docs
         run: pnpm docs:build
 
       - name: Upload Pages artifact
+        if: *build-docs
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: docs/.vitepress/dist
 
   deploy:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.build.outputs.skip != 'true'
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
