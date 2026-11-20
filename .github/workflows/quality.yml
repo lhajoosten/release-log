@@ -17,6 +17,12 @@ concurrency:
 jobs:
   container:
     name: container
+    if: &needs-full-ci >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository ||
+      github.event.pull_request.head.ref != 'release-log/main' ||
+      vars.RELEASE_BOT_USER_ID == '' ||
+      format('{0}', github.event.pull_request.user.id) != vars.RELEASE_BOT_USER_ID
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -68,6 +74,7 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Verify formatting, lint, types, and tests
+        if: *needs-full-ci
         run: pnpm verify
 
       - name: Reject stale release proposals
