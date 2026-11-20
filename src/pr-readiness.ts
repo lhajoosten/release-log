@@ -142,16 +142,6 @@ export async function validatePullRequestMetadata(
       continue;
     }
 
-    if (result.commit.scope !== null) {
-      errors.push({
-        location: "commit",
-        sha: commit.sha,
-        code: "scope-empty",
-        message:
-          "Remove the commit subject scope; commits are unscoped, while PR titles are scoped.",
-      });
-    }
-
     if (result.commit.breaking && conventional.valid && !conventional.commit.breaking) {
       errors.push({
         location: "title",
