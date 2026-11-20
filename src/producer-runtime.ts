@@ -3,7 +3,7 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe } from "./proposal-identity.ts";
-import type { Description } from "./proposal-identity.ts";
+import type { Description, ProposalBodyFormat } from "./proposal-identity.ts";
 import { prepareReleaseFileContents } from "./proposal-files.ts";
 import type { PreparedRelease, ReleaseFileContents } from "./proposal-files.ts";
 import { replayReleaseSnapshot } from "./release-snapshot.ts";
@@ -102,6 +102,7 @@ export async function reconstructProposal(
   botUserId: number,
   previousHeadSha: string | null,
   producerSha?: string,
+  bodyFormat: ProposalBodyFormat = "legacy",
 ): Promise<{ snapshot: ReleaseSnapshot; prepared: PreparedRelease; description: Description }> {
   const registry = context.getStore();
   const current: Producer = {
@@ -140,6 +141,7 @@ export async function reconstructProposal(
       botUserId,
       previousHeadSha,
       producerSha,
+      bodyFormat,
     );
     return { snapshot, prepared, description };
   }

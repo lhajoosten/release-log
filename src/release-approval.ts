@@ -235,6 +235,7 @@ async function verifyProposalHistory(
       botUserId,
       marker.previousHeadSha,
       marker.producerSha,
+      marker.bodyFormat,
     );
     const capturedBaseline = snapshot.input.range.baseline;
     const range = await inspectPendingRelease(
@@ -629,6 +630,7 @@ export async function verifyReleaseApproval(
     policy.botUserId,
     marker.previousHeadSha,
     marker.producerSha,
+    marker.bodyFormat,
   );
   if (
     snapshot.snapshotId !== approval.snapshotId ||

@@ -29,6 +29,7 @@ export interface ProposalFile {
 }
 export interface PreparedRelease {
   readonly plan: ReleasePlan;
+  readonly pendingChangelog?: string;
   readonly files: readonly ProposalFile[];
 }
 const allowed: ReadonlySet<string> = new Set(proposalPaths);
@@ -158,10 +159,12 @@ export async function prepareReleaseFileContents(
     version.kind === "released" ? version.currentVersion : undefined,
   );
   if (!plan.release) return { plan, files: [] };
+  if (rendered === null) throw new ProposalFilesError("A release plan must render a changelog.");
   const snapshot = await replayReleaseSnapshot(snapshotJSON, expected);
   const inputs = contents[".release-log/inputs.json"];
   return {
     plan,
+    pendingChangelog: rendered,
     files: [
       ...manifests,
       ...(expected.selfUpgrade === true
