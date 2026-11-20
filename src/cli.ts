@@ -30,12 +30,9 @@ import {
   parseReleaseExclusionAuthorities,
 } from "./release-approval.ts";
 import { prepareReleaseFiles, writeReleaseFiles } from "./proposal-files.ts";
-import {
-  inspectReleasePublication,
-  publishGitHubRelease,
-  parsePublicationPolicy,
-  parsePublicationReceipt,
-} from "./release-publication.ts";
+import { inspectReleasePublication } from "./publication/inspect.ts";
+import { publishGitHubRelease } from "./publication/execute.ts";
+import { parsePublicationPolicy, parsePublicationReceipt } from "./publication/schema.ts";
 import { captureReleaseSnapshot, serializeReleaseSnapshot } from "./release-snapshot.ts";
 import { parseReleaseInputConfiguration } from "./config/repository.ts";
 

@@ -60,6 +60,8 @@ Named rules include transitive and type-only capability dependencies, prohibit p
 
 New planning logic belongs in `src/planning/`, shared configuration in `src/config/`, snapshot data and identity helpers in `src/snapshot/`, changelog rendering in `src/changelog/`, proposal preparation in `src/proposal/`, and shared evidence decoding in `src/evidence/`. Existing root modules retain their public and producer-facing entry points; keep those paths and named exports compatible, and import owning implementations directly within the application. Other capability folders can be introduced as their work is refactored; update the architecture selectors and fixtures alongside moves.
 
+Publication code belongs in `src/publication/`. The action planner derives ordered actions from approved intent and observed state. Its dependency contract permits publication types and Node’s crypto module for content digests. Keep filesystem reads, registry and GitHub requests, and pre-write freshness checks in the surrounding inspection and execution code.
+
 ## Hooks and conventional messages
 
 Lefthook first formats staged maintained files through `pnpm format:files` and automatically restages those fixes, then runs the same `pnpm check` command through `scripts/check-hook.ts`. The commands run sequentially and a formatter failure stops the commit. Lefthook hides and restores unstaged portions of partially staged files, so formatting selected content does not stage the remaining edits. Generated changelog/snapshot bytes and lockfile formatting remain owned by their generators.

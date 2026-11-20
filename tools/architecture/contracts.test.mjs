@@ -61,6 +61,24 @@ const cases = [
     },
   ],
   [
+    "publication planner cannot reach the filesystem through its types module",
+    "publication-planner-stays-pure",
+    {
+      "src/publication/plan.ts":
+        "import type { State } from './types.ts'; export type Input = State;",
+      "src/publication/types.ts":
+        "import type { Stats } from 'node:fs'; export type State = Stats;",
+    },
+  ],
+  [
+    "publication planner cannot import a transport adapter",
+    "publication-planner-stays-pure",
+    {
+      "src/publication/plan.ts": "import './registry.ts';",
+      "src/publication/registry.ts": "export {};",
+    },
+  ],
+  [
     "configuration violation",
     "configuration-is-foundational",
     {

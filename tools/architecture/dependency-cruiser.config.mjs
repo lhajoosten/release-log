@@ -21,6 +21,15 @@ const config = {
       },
     },
     {
+      name: "publication-planner-stays-pure",
+      severity: "error",
+      from: { path: "^src/publication/plan\\.ts$" },
+      to: {
+        pathNot: ["^src/publication/types\\.ts$", "^(node:)?crypto$"],
+        reachable: true,
+      },
+    },
+    {
       name: "configuration-is-foundational",
       severity: "error",
       from: { path: configuration },
