@@ -42,6 +42,18 @@ const config = {
       to: { path: cli, reachable: true },
     },
     {
+      name: "snapshot-independent-of-consumers",
+      severity: "error",
+      from: { path: "^src/(snapshot/|release-snapshot\\.ts$)" },
+      to: {
+        path: [
+          "^src/(planning|proposal|changelog|publication)/",
+          "^src/(changelog|proposal-files|release-(plan|proposal|publication))\\.ts$",
+        ],
+        reachable: true,
+      },
+    },
+    {
       name: "production-independent-of-tests",
       severity: "error",
       from: { path: "^src/" },

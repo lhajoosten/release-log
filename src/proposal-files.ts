@@ -11,7 +11,7 @@ import {
 } from "./proposal/prepare.ts";
 import type { PreparedRelease, ReleaseFileContents } from "./proposal/prepare.ts";
 import type { ReleaseVersionConfiguration } from "./planning/derive-release-plan.ts";
-import { replayReleaseSnapshot } from "./release-snapshot.ts";
+import { replayReleaseSnapshot } from "./snapshot/replay.ts";
 import type { ReleaseInputConfiguration } from "./config/repository.ts";
 
 export { ProposalFilesError, releaseInputPaths } from "./proposal/prepare.ts";

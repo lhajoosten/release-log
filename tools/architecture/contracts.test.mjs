@@ -92,6 +92,16 @@ const cases = [
     { "src/release-proposal.ts": "import './cli.ts';", "src/cli.ts": "export const cli = 1;" },
   ],
   [
+    "snapshot replay cannot depend transitively on a proposal consumer",
+    "snapshot-independent-of-consumers",
+    {
+      "src/snapshot/replay.ts": "import './model.ts';",
+      "src/snapshot/model.ts":
+        "import type { Proposal } from '../proposal/prepare.ts'; export type T = Proposal;",
+      "src/proposal/prepare.ts": "export type Proposal = string;",
+    },
+  ],
+  [
     "test dependency violation",
     "production-independent-of-tests",
     {

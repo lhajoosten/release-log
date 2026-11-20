@@ -33,7 +33,8 @@ import { prepareReleaseFiles, writeReleaseFiles } from "./proposal-files.ts";
 import { inspectReleasePublication } from "./publication/inspect.ts";
 import { publishGitHubRelease } from "./publication/execute.ts";
 import { parsePublicationPolicy, parsePublicationReceipt } from "./publication/schema.ts";
-import { captureReleaseSnapshot, serializeReleaseSnapshot } from "./release-snapshot.ts";
+import { captureReleaseSnapshot } from "./snapshot/capture.ts";
+import { serializeReleaseSnapshot } from "./snapshot/replay.ts";
 import { parseReleaseInputConfiguration } from "./config/repository.ts";
 
 class UsageError extends Error {

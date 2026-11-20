@@ -20,6 +20,7 @@ const edges = [
   ["src/release-plan.ts", "src/planning/derive-release-plan.ts", "import"],
   ["src/release-proposal.ts", "src/config/automation.ts", "import"],
   ["src/planning/derive-release-plan.ts", "src/snapshot/model.ts", "type-only"],
+  ["src/release-snapshot.ts", "src/snapshot/replay.ts", "export"],
 ];
 for (const [from, to, type] of edges) {
   const module = graph.modules.find((entry) => entry.source === from);

@@ -1,4 +1,4 @@
-import { replayReleaseSnapshot } from "./release-snapshot.ts";
+import { replayReleaseSnapshot } from "./snapshot/replay.ts";
 import type { ReleaseInputConfiguration } from "./config/repository.ts";
 import { deriveReleasePlan } from "./planning/derive-release-plan.ts";
 import type { ReleasePlan, ReleaseVersionConfiguration } from "./planning/derive-release-plan.ts";

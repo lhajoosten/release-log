@@ -15,7 +15,7 @@ import { encodeVerifiedSnapshot } from "./snapshot/canonical.ts";
 import { validatePullRequestMetadata } from "./pr-readiness.ts";
 import type { ReleaseVersionConfiguration } from "./planning/derive-release-plan.ts";
 import { parseReleaseInputConfiguration } from "./config/repository.ts";
-import { replayReleaseSnapshot } from "./release-snapshot.ts";
+import { replayReleaseSnapshot } from "./snapshot/replay.ts";
 import type { ReleaseInputConfiguration } from "./config/repository.ts";
 
 import { parseReleaseAutomation } from "./config/automation.ts";

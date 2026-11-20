@@ -6,7 +6,7 @@ import { describe } from "./proposal-identity.ts";
 import type { Description } from "./proposal-identity.ts";
 import { prepareReleaseFileContents } from "./proposal-files.ts";
 import type { PreparedRelease, ReleaseFileContents } from "./proposal/prepare.ts";
-import { replayReleaseSnapshot } from "./release-snapshot.ts";
+import { replayReleaseSnapshot } from "./snapshot/replay.ts";
 import type { ReleaseInputConfiguration } from "./config/repository.ts";
 import type { ReleaseSnapshot } from "./snapshot/model.ts";
 import type { ReleaseVersionConfiguration } from "./planning/derive-release-plan.ts";
