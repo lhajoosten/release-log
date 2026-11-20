@@ -143,6 +143,38 @@ void test(
         plan.nextVersion === "1.2.4",
     );
     assert.match((await run(["render", ...args])).stdout, /^## v1\.2\.4/u);
+    const invalidSnapshotPath = join(path, "invalid-metadata.json");
+    const privateProse = "Private PR body text";
+    await writeFile(
+      invalidSnapshotPath,
+      JSON.stringify({
+        ...snapshot.snapshot,
+        input: {
+          ...snapshot.snapshot.input,
+          pullRequests: snapshot.snapshot.input.pullRequests.map((pull) => ({
+            ...pull,
+            body: pull.body.replace("audience: users", "audience: everyone") + "\n" + privateProse,
+          })),
+        },
+      }),
+    );
+    await assert.rejects(
+      run([
+        "plan",
+        "--config",
+        configPath,
+        "--snapshot",
+        invalidSnapshotPath,
+        "--current-version",
+        "1.2.3",
+      ]),
+      (error: unknown) =>
+        error instanceof Error &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        /PR #1 .*context\/field-invalid field "audience"/u.test(error.stderr) &&
+        !error.stderr.includes(privateProse),
+    );
     for (const verbosity of ["detailed", "concise", "one-liner"] as const) {
       const configuration = { ...fixtureConfiguration, changelog: { verbosity } };
       const capture = await captureReleaseSnapshot(

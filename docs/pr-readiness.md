@@ -8,7 +8,7 @@ Under the default/required context policy, every ordinary PR, including draft, f
 
 - A single-line scoped conventional title, such as `feat(exports): add selected rows`.
 - Exactly one valid [version 1 release-context block](release-context.md), including for `audience: internal`.
-- Valid unscoped conventional authored commits. Actual multi-parent merges are structural and are not parsed as conventional messages; a single-parent message merely looking like a merge is still validated.
+- Valid conventional authored commits with or without a scope. Actual multi-parent merges are structural and are not parsed as conventional messages; a single-parent message merely looking like a merge is still validated.
 - A title marked `!` when any PR commit declares breaking through `!`, `BREAKING CHANGE`, or `BREAKING-CHANGE`.
 - Nonempty `required_action` for a breaking PR. The underlying context parser still accepts explicit null; the gate adds this policy rule above it.
 
@@ -18,7 +18,7 @@ With `optional`, absent context becomes a warning and a null context result, inc
 
 Failures identify the title/context field or commit SHA and the relevant rule. Warning-level conventional rules stay warnings. Internal audience does not skip checks or suppress a version bump; this gate does not calculate versions.
 
-Release-looking titles, branch names, labels, bot authors, and body markers grant no exemption. Generated release PRs must supply the same valid title/context and unscoped commits. Passing metadata checks **does not authenticate a release proposal or authorize publication**. The [controller/tag path](release-workflow.md) verifies automation identity, snapshot and generated diff independently; metadata readiness alone is never an automation exemption.
+Release-looking titles, branch names, labels, bot authors, and body markers grant no exemption. Generated release PRs supply the same valid title and context. Release approval verifies the exact generated unscoped squash subject. Passing metadata checks **does not authenticate a release proposal or authorize publication**. The [controller/tag path](release-workflow.md) verifies automation identity, snapshot and generated diff independently; metadata readiness alone is never an automation exemption.
 
 ## Current data and bounded failures
 

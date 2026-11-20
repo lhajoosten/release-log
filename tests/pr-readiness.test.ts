@@ -85,9 +85,10 @@ function expectIssue(result: PullRequestReadiness, code: string): void {
   assert.equal("context" in result, false);
 }
 
-void test("readiness validates scoped titles and v1 context with separate unscoped commits", async () => {
+void test("readiness validates scoped titles and v1 context with scoped and unscoped commits", async () => {
   const result = await validatePullRequestMetadata("feat(exports): add selected rows", body(), [
     commit(),
+    commit(base, "fix(internal): repair selection"),
   ]);
   assert.ok(result.valid);
   assert.equal(result.title.scope, "exports");
@@ -140,7 +141,7 @@ void test("readiness retains internal context without assigning a bump or exempt
 });
 
 for (const message of [
-  "feat!: require keys",
+  "feat(api)!: require keys",
   "fix: require keys\n\nBREAKING CHANGE: supply a key",
   "fix: require keys\n\nBREAKING-CHANGE: supply a key",
 ]) {
@@ -178,7 +179,6 @@ void test("readiness requires a breaking action above the unchanged v1 parser", 
 });
 
 for (const [message, code] of [
-  ["feat(api): add exports", "scope-empty"],
   ["Merge pull request #8 from contributor/feature", "type-empty"],
   ["x".repeat(1024 * 1024 + 1), "message-too-large"],
 ] as const) {
