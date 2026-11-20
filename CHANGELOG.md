@@ -1,6 +1,25 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:725253e891d62078094d6551d3f8e6b731e9572a3e6ea0b104a01ef6d36882c2 -->
+<!-- release-log:pending:v1 sha256:dfd872192886282a19e41518cbb600bad52c2b4cdb3f4dd691c38123bbe9d902 -->
+
+## v0.5.0 (2026-11-20)
+
+### ✨ Features
+
+- Preview the pending changelog in release pull requests&#46; ([#104](https://github.com/lhajoosten/release-log/pull/104)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+<details>
+<summary>🔧 Internal maintenance</summary>
+
+- Skip redundant CI builds on generated release proposals&#46; ([#105](https://github.com/lhajoosten/release-log/pull/105)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+</details>
+
+<br>
+
+Full changelog: [v0&#46;4&#46;1&#8230;15099cacd6225286a8936d6caaef9ffcca47095e](https://github.com/lhajoosten/release-log/compare/v0.4.1...15099cacd6225286a8936d6caaef9ffcca47095e) (captured source).
+
+<!-- release-log:pending:end -->
 
 ## v0.4.1 (2026-11-19)
 
@@ -24,7 +43,6 @@
 
 Full changelog: [v0&#46;4&#46;0&#8230;9e1659722e0c5e3dd1a216343ea9763ce461c5b0](https://github.com/lhajoosten/release-log/compare/v0.4.0...9e1659722e0c5e3dd1a216343ea9763ce461c5b0) (captured source).
 
-<!-- release-log:pending:end -->
 
 ## v0.4.0 (2026-11-18)
 
