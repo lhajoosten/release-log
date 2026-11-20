@@ -72,7 +72,7 @@ function runtimeIdentity(): { version: string; normalizerId: string } {
   return {
     version: manifest.version,
     normalizerId: digest({
-      normalizationVersion: 3,
+      normalizationVersion: 4,
       conventionalPolicyId,
       dependencies: manifest.dependencies,
       lockfileId: createHash("sha256")
@@ -604,12 +604,23 @@ export async function captureReleaseSnapshot(
       continue;
     }
 
-    if (!readiness.valid)
+    if (!readiness.valid) {
+      const diagnostics = readiness.errors.map(({ location, code, field, sha: commitSha }) => {
+        const fieldReference = field === undefined ? "" : ` field ${JSON.stringify(field)}`;
+        const commitReference = commitSha === undefined ? "" : ` commit ${commitSha}`;
+        return `${location}/${code}${fieldReference}${commitReference}`;
+      });
+
+      const summary = [...new Set(diagnostics)].join("; ");
+      // Keep the CLI line within the read-only rehearsal's diagnostic limit.
+      const detail = summary.length > 1800 ? `${summary.slice(0, 1800)}…` : summary;
+
       throw new ReleaseSnapshotError(
         "metadata-invalid",
-        `PR #${pull.number} release metadata must be repaired before snapshot capture.`,
+        `PR #${pull.number} release metadata must be repaired before snapshot capture: ${detail}.`,
         readiness.errors,
       );
+    }
     const context = parseReleaseContext(pull.body);
     const commits: NormalizedReleaseInputs["pullRequests"][number]["commits"][number][] = [];
     for (const entry of sourceCommits) {
