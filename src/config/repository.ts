@@ -11,6 +11,19 @@ import {
 
 export type ReleaseContextPolicy = "required" | "optional";
 
+export const RELEASE_LOG_REPOSITORY_ID = 1449550207;
+export const RELEASE_LOG_REPOSITORIES = [
+  "lhajoosten/release-log",
+  "lhajoosten/rolling-release",
+] as const;
+
+function isReleaseLogRepository(repository: string, repositoryId: unknown): boolean {
+  return (
+    RELEASE_LOG_REPOSITORIES.includes(repository as (typeof RELEASE_LOG_REPOSITORIES)[number]) &&
+    repositoryId === RELEASE_LOG_REPOSITORY_ID
+  );
+}
+
 export function isReleaseContextPolicy(value: unknown): value is ReleaseContextPolicy {
   return value === "required" || value === "optional";
 }
@@ -127,9 +140,7 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
 
   if (
     Object.hasOwn(item, "selfUpgrade") &&
-    (item.selfUpgrade !== true ||
-      repository !== "lhajoosten/release-log" ||
-      item.repositoryId !== 1449550207)
+    (item.selfUpgrade !== true || !isReleaseLogRepository(repository, item.repositoryId))
   )
     return invalid("Self-upgrades require explicit trusted release-log repository identity.");
 
@@ -253,8 +264,7 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
   if (
     Object.hasOwn(item, "internalPublication") &&
     (item.internalPublication !== true ||
-      repository !== "lhajoosten/release-log" ||
-      item.repositoryId !== 1449550207 ||
+      !isReleaseLogRepository(repository, item.repositoryId) ||
       releaseBranch !== "main" ||
       item.selfUpgrade !== true ||
       item.githubRelease !== true ||

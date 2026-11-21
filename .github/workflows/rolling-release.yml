@@ -112,7 +112,9 @@ jobs:
           const { parseReleaseInputConfiguration } = await import(`${process.env.RUNNER_TEMP}/release-cli/dist/src/release-snapshot.js`);
           const { parseReleaseAutomation } = await import(`${process.env.RUNNER_TEMP}/release-cli/dist/src/release-proposal.js`);
           const config = parseReleaseInputConfiguration(JSON.parse(process.env.CONFIGURATION));
-          if (config.repository !== process.env.GITHUB_REPOSITORY || config.repositoryId !== Number(process.env.GITHUB_REPOSITORY_ID) || config.releaseBranch !== process.env.RELEASE_BRANCH) throw new Error('Caller repository/branch mismatch');
+          const providerAliases = ['lhajoosten/release-log', 'lhajoosten/rolling-release'];
+          const providerIdentityMatches = providerAliases.includes(config.repository) && providerAliases.includes(process.env.GITHUB_REPOSITORY) && config.repositoryId === 1449550207 && config.repositoryId === Number(process.env.GITHUB_REPOSITORY_ID);
+          if ((!providerIdentityMatches && config.repository !== process.env.GITHUB_REPOSITORY) || config.repositoryId !== Number(process.env.GITHUB_REPOSITORY_ID) || config.releaseBranch !== process.env.RELEASE_BRANCH) throw new Error('Caller repository/branch mismatch');
           await appendFile(process.env.GITHUB_OUTPUT, `self-upgrade=${config.selfUpgrade === true}\n`);
           await writeFile(`${process.env.RUNNER_TEMP}/release-config.json`, JSON.stringify(config));
           if (process.env.GITHUB_EVENT_NAME === 'workflow_dispatch') {

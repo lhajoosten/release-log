@@ -3,7 +3,11 @@ import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { parseDocument } from "yaml";
-import { parseReleaseInputConfiguration } from "../src/config/repository.ts";
+import {
+  parseReleaseInputConfiguration,
+  RELEASE_LOG_REPOSITORIES,
+  RELEASE_LOG_REPOSITORY_ID,
+} from "../src/config/repository.ts";
 import { GitHubProposalRepository, ProposalConflictError } from "../src/github-proposals.ts";
 import { pullRequestFromEvent } from "../src/github-pr-readiness.ts";
 import { loadProducerRuntimes, withProducerRuntimes } from "../src/producer-runtime.ts";
@@ -11,11 +15,23 @@ import { verifyPrevious } from "../src/proposal/verification.ts";
 import { updateToolPins, workflowPath } from "../src/tool-upgrade.ts";
 
 const execute = promisify(execFile);
-const { GITHUB_EVENT_PATH, GITHUB_EVENT_NAME, GITHUB_REPOSITORY, GITHUB_TOKEN, RUNNER_TEMP } =
-  process.env;
+const {
+  GITHUB_EVENT_PATH,
+  GITHUB_EVENT_NAME,
+  GITHUB_REPOSITORY,
+  GITHUB_REPOSITORY_ID,
+  GITHUB_TOKEN,
+  RUNNER_TEMP,
+} = process.env;
+const repositoryId = Number(GITHUB_REPOSITORY_ID);
+const providerRepository = RELEASE_LOG_REPOSITORIES.includes(
+  GITHUB_REPOSITORY as (typeof RELEASE_LOG_REPOSITORIES)[number],
+);
 if (
   GITHUB_EVENT_NAME !== "pull_request_target" ||
-  GITHUB_REPOSITORY !== "lhajoosten/release-log" ||
+  !GITHUB_REPOSITORY ||
+  !providerRepository ||
+  repositoryId !== RELEASE_LOG_REPOSITORY_ID ||
   !GITHUB_EVENT_PATH ||
   !GITHUB_TOKEN ||
   !RUNNER_TEMP ||
@@ -34,7 +50,10 @@ if (document.errors.length || typeof configurationJSON !== "string" || typeof pi
   throw new Error("Expected reviewed self-release configuration and verification runtime pins.");
 const configuration = parseReleaseInputConfiguration(JSON.parse(configurationJSON));
 if (
-  configuration.repository !== GITHUB_REPOSITORY ||
+  !RELEASE_LOG_REPOSITORIES.includes(
+    configuration.repository as (typeof RELEASE_LOG_REPOSITORIES)[number],
+  ) ||
+  configuration.repositoryId !== repositoryId ||
   configuration.releaseBranch !== "main" ||
   !configuration.selfUpgrade ||
   !configuration.internalPublication
