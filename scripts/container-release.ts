@@ -4,6 +4,7 @@ import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { readArchiveConfigDigest } from "./scan-container.ts";
 
 const execute = promisify(execFile);
 export const repository = "ghcr.io/lhajoosten/release-log";
@@ -126,12 +127,25 @@ export async function publicationDecision(
 type Publication = Awaited<ReturnType<typeof readPublication>>;
 type Run = (file: string, args: string[], authenticated?: boolean) => Promise<string>;
 
+export async function inspectSmokeTestedImage(imageId: string, run: Run) {
+  const directory = await mkdtemp(join(tmpdir(), "release-candidate-config-"));
+  try {
+    const archive = join(directory, "image.tar");
+    await run("docker", ["image", "save", "--output", archive, imageId]);
+    return { imageId, configDigest: await readArchiveConfigDigest(archive) };
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
 export async function reconcilePublication(
   tag: string,
   sha: string,
   current: () => Promise<Publication>,
   run: Run,
-  scanEvidence: () => Promise<unknown>,
+  scanEvidence:
+    | (() => Promise<unknown>)
+    | { readonly smokeTestedImage: { imageId: string; configDigest: string } | null },
   beforePush?: (configDigest: string) => Promise<void>,
   reusedScan = "reports/container-release/reused-scan",
 ) {
@@ -144,26 +158,36 @@ export async function reconcilePublication(
     await run("docker", ["pull", "--platform", "linux/amd64", pinned], true);
     // The retained image, rather than a fresh non-reproducible rebuild, must pass today's gates.
     await run("pnpm", ["check:container", "--image", pinned]);
-    await run("pnpm", [
-      "container:scan",
-      "--image",
-      pinned,
-      "--output",
-      reusedScan,
-      "--allow-openssl-backport",
-    ]);
+    if (typeof scanEvidence === "function")
+      await run("pnpm", [
+        "container:scan",
+        "--image",
+        pinned,
+        "--output",
+        reusedScan,
+        "--allow-openssl-backport",
+      ]);
   } else {
     const local = "release-log-candidate:release";
     const id = await run("docker", ["image", "inspect", "--format", "{{.Id}}", local]);
     if (!digestPattern.test(id)) throw new Error("Invalid candidate image ID.");
-    const scan = record(await scanEvidence());
-    if (
-      scan.imageId !== id ||
-      scan.blocked !== false ||
-      typeof scan.configDigest !== "string" ||
-      !digestPattern.test(scan.configDigest)
-    )
-      throw new Error("Candidate lacks passing vulnerability evidence for its exact image ID.");
+    let configDigest: string;
+    if (typeof scanEvidence === "function") {
+      const scan = record(await scanEvidence());
+      if (
+        scan.imageId !== id ||
+        scan.blocked !== false ||
+        typeof scan.configDigest !== "string" ||
+        !digestPattern.test(scan.configDigest)
+      )
+        throw new Error("Candidate lacks passing vulnerability evidence for its exact image ID.");
+      configDigest = scan.configDigest;
+    } else {
+      const tested = scanEvidence.smokeTestedImage;
+      if (tested?.imageId !== id || !digestPattern.test(tested.configDigest))
+        throw new Error("Candidate lacks passing smoke tests for its exact image ID.");
+      configDigest = tested.configDigest;
+    }
     // Verify candidate metadata before its first write; prior workflow steps gate this exact ID.
     const inspected = record(
       JSON.parse(await run("docker", ["image", "inspect", "--format", "{{json .}}", id])),
@@ -177,12 +201,12 @@ export async function reconcilePublication(
     // Recheck immediately before writing; workflow concurrency serializes all approved writers.
     const raced = await current();
     if (raced) throw new Error("Release appeared during preparation; rerun to reconcile.");
-    await beforePush?.(scan.configDigest);
+    await beforePush?.(configDigest);
     await run("docker", ["push", "--platform", "linux/amd64", image], true);
     result = await current();
     if (result) checkImage(result.image, tag, sha);
     if (!result) throw new Error("Registry has not confirmed the version image.");
-    if (result.configDigest !== scan.configDigest)
+    if (result.configDigest !== configDigest)
       throw new ContainerPublicationConflict("Published config differs from verified candidate.");
   }
   if (!result) throw new Error("Missing publication result.");

@@ -76,6 +76,14 @@ jobs:
           pnpm install --frozen-lockfile --ignore-scripts
           node scripts/install-producer-runtimes.ts
 
+      # Keep the pinned producer code for replay when its controller predates the flag.
+      - name: Load scan flag support for older release controllers
+        run: |
+          controller=$(cat tool/scripts/self-release.ts)
+          if [[ "$controller" != *'process.env.RELEASE_CONTAINER_SCAN'* ]]; then
+            cp source/scripts/{self-release,container-release,scan-container}.ts tool/scripts/
+          fi
+
       - name: Mint a short-lived release App token for this repository
         id: app
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
@@ -89,6 +97,7 @@ jobs:
 
       - name: Reconcile the reviewed candidate and stable outputs
         env:
+          RELEASE_CONTAINER_SCAN: ${{ vars.RELEASE_CONTAINER_SCAN == 'false' && 'false' || 'true' }}
           BOT_USER_ID: ${{ vars.RELEASE_BOT_USER_ID }}
           RELEASE_LOG_APP_TOKEN: ${{ steps.app.outputs.token }}
           GHCR_ACTOR: ${{ github.actor }}
