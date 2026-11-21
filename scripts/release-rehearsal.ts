@@ -21,6 +21,7 @@ export interface RehearsalOptions {
 export type RehearsalCommand = (
   args: readonly string[],
   phase: "collect" | "offline",
+  scratchDirectory: string,
 ) => Promise<string>;
 
 function digest(value: string): string {
@@ -69,6 +70,7 @@ export async function rehearseRelease(
           : ["--baseline-tag", baseline.tag]),
       ],
       "collect",
+      temporary,
     );
     await writeFile(snapshotPath, snapshot, { mode: 0o600 });
     const args = [
@@ -80,7 +82,7 @@ export async function rehearseRelease(
         ? ["--initial-version", "0.1.0"]
         : ["--current-version", baseline.currentVersion]),
     ];
-    const planJSON = await execute(["plan", ...args], "offline");
+    const planJSON = await execute(["plan", ...args], "offline", temporary);
     const plan = parsedObject(planJSON);
     if (
       plan.sourceCommitSha !== options.sourceSha ||
@@ -89,11 +91,12 @@ export async function rehearseRelease(
       typeof plan.release !== "boolean"
     )
       throw new Error("Rehearsal plan does not match the captured source/snapshot identity.");
-    const changelog = await execute(["render", ...args], "offline");
+    const changelog = await execute(["render", ...args], "offline", temporary);
     const preparation = parsedObject(
       await execute(
         ["prepare", ...args, "--repository", options.repositoryDirectory, "--dry-run"],
         "offline",
+        temporary,
       ),
     );
     if (
@@ -116,8 +119,8 @@ export async function rehearseRelease(
       return { path: file.path, sha256: digest(file.after) };
     });
     if (
-      (await execute(["plan", ...args], "offline")) !== planJSON ||
-      (await execute(["render", ...args], "offline")) !== changelog
+      (await execute(["plan", ...args], "offline", temporary)) !== planJSON ||
+      (await execute(["render", ...args], "offline", temporary)) !== changelog
     )
       throw new Error("Offline replay changed the plan or changelog; rehearsal failed.");
     await mkdir(options.outputDirectory);
@@ -169,13 +172,17 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     const mode = environment("REHEARSAL_MODE");
     if (mode !== "bootstrap" && mode !== "released")
       throw new Error("Unsupported rehearsal baseline mode.");
-    const cli = environment("RELEASE_LOG_CLI");
+    const image = environment("RELEASE_LOG_IMAGE_ID");
+    if (!/^sha256:[a-f0-9]{64}$/u.test(image))
+      throw new Error("Rehearsal requires the local ID of the pulled Release Log image.");
+    const repository = environment("GITHUB_WORKSPACE");
+    const uid = process.getuid?.();
+    const gid = process.getgid?.();
+    if (uid === undefined || gid === undefined)
+      throw new Error("Rehearsal requires a Linux runner with a host UID and GID.");
     const token = environment("GITHUB_TOKEN");
     const execute = promisify(execFile);
-    const configJSON = await readFile(
-      join(environment("GITHUB_WORKSPACE"), "release-log.config.json"),
-      "utf8",
-    );
+    const configJSON = await readFile(join(repository, "release-log.config.json"), "utf8");
 
     if (Buffer.byteLength(configJSON, "utf8") > 1024 * 1024)
       throw new Error("Rehearsal configuration exceeds 1 MiB.");
@@ -212,7 +219,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       {
         configuration,
         sourceSha: environment("GITHUB_SHA"),
-        repositoryDirectory: environment("GITHUB_WORKSPACE"),
+        repositoryDirectory: repository,
         outputDirectory: environment("REHEARSAL_OUTPUT"),
         baseline:
           mode === "bootstrap"
@@ -223,17 +230,45 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
                 currentVersion: environment("REHEARSAL_CURRENT_VERSION"),
               },
       },
-      async (args, phase) => {
+      async (args, phase, scratch) => {
+        const online = phase === "collect";
         try {
-          const result = await execute(process.execPath, [cli, ...args], {
-            timeout: 360_000,
-            maxBuffer: 128 * 1024 * 1024,
-            env: {
-              PATH: process.env.PATH,
-              SystemRoot: process.env.SystemRoot,
-              ...(phase === "collect" ? { GITHUB_TOKEN: token } : {}),
+          const result = await execute(
+            "docker",
+            [
+              "run",
+              "--rm",
+              "--pull=never",
+              "--platform",
+              "linux/amd64",
+              "--read-only",
+              "--cap-drop",
+              "ALL",
+              "--security-opt",
+              "no-new-privileges",
+              "--user",
+              `${uid}:${gid}`,
+              "--tmpfs",
+              "/tmp:rw,nosuid,nodev,noexec,size=64m",
+              "--mount",
+              `type=bind,src=${repository},dst=${repository},readonly`,
+              "--mount",
+              `type=bind,src=${scratch},dst=/inputs,readonly`,
+              ...(online ? ["-e", "GITHUB_TOKEN"] : ["--network", "none"]),
+              image,
+              ...args.map((arg) =>
+                arg.startsWith(`${scratch}/`) ? arg.replace(scratch, "/inputs") : arg,
+              ),
+            ],
+            {
+              timeout: 360_000,
+              maxBuffer: 128 * 1024 * 1024,
+              env: {
+                PATH: process.env.PATH,
+                ...(online ? { GITHUB_TOKEN: token } : {}),
+              },
             },
-          });
+          );
           return result.stdout;
         } catch (error) {
           const stderr =
@@ -247,7 +282,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
                 line.startsWith("release-log: ") && line.length <= 2048 && !line.includes(token),
             );
           throw new Error(
-            `Packaged CLI ${args[0] ?? "operation"} failed; no release was attempted. ${diagnostic?.replace(/\p{Cc}/gu, "") ?? "Check the explicit baseline, historical metadata, permissions, and supported version files."}`,
+            `Published CLI ${args[0] ?? "operation"} failed; no release was attempted. ${diagnostic?.replace(/\p{Cc}/gu, "") ?? "Check the explicit baseline, historical metadata, permissions, and supported version files."}`,
             { cause: error },
           );
         }

@@ -199,10 +199,21 @@ void test("invalid baselines, changed replay results, and CLI failures fail with
 void test("manual entry point surfaces safe CLI failures without leaking tokens or raw subprocess output", async (context) => {
   const directory = await mkdtemp(join(tmpdir(), "rehearsal-entry-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
-  const fake = join(directory, "fake-cli.mjs");
+  const fake = join(directory, "docker");
   await writeFile(
     fake,
-    'console.error("private subprocess output"); console.error("release-log: synthetic-rehearsal-secret"); console.error("release-log: PR #9 release metadata must be repaired."); process.exitCode = 1;\n',
+    `#!/bin/sh
+case " $* " in
+  *" -e GITHUB_TOKEN sha256:${"a".repeat(64)} collect --config /inputs/configuration.json "*) ;;
+  *) exit 99 ;;
+esac
+test "$GITHUB_TOKEN" = synthetic-rehearsal-secret || exit 99
+echo "private subprocess output" >&2
+echo "release-log: synthetic-rehearsal-secret" >&2
+echo "release-log: PR #9 release metadata must be repaired." >&2
+exit 1
+`,
+    { mode: 0o700 },
   );
   await writeFile(
     join(directory, "release-log.config.json"),
@@ -214,14 +225,14 @@ void test("manual entry point surfaces safe CLI failures without leaking tokens 
   );
 
   const environment = {
-    PATH: process.env.PATH,
+    PATH: `${directory}:${process.env.PATH}`,
     GITHUB_REF: "refs/heads/main",
     GITHUB_REPOSITORY: "example/project",
     GITHUB_REPOSITORY_ID: "17",
     GITHUB_SHA: "a".repeat(40),
     GITHUB_WORKSPACE: directory,
     GITHUB_TOKEN: "synthetic-rehearsal-secret",
-    RELEASE_LOG_CLI: fake,
+    RELEASE_LOG_IMAGE_ID: `sha256:${"a".repeat(64)}`,
     REHEARSAL_OUTPUT: join(directory, "preview"),
     REHEARSAL_MODE: "bootstrap",
     REHEARSAL_BASELINE: "0".repeat(40),
@@ -275,10 +286,7 @@ void test("manual entry point surfaces safe CLI failures without leaking tokens 
       !error.stderr.includes("synthetic-rehearsal-secret"),
   );
 
-  assert.deepEqual((await readdir(directory)).toSorted(), [
-    "fake-cli.mjs",
-    "release-log.config.json",
-  ]);
+  assert.deepEqual((await readdir(directory)).toSorted(), ["docker", "release-log.config.json"]);
 });
 
 function record(value: unknown): Record<string, unknown> {
@@ -306,12 +314,16 @@ void test("rehearsal workflow is manual, read-only, trusted-main-only, and pins 
   assert.ok(checkout);
   assert.equal(record(checkout.with).ref, "${{ github.sha }}");
   assert.equal(record(checkout.with)["persist-credentials"], false);
-  const installation = steps
+  assert.deepEqual(job.env, { RELEASE_LOG_IMAGE: "ghcr.io/lhajoosten/release-log:latest" });
+  const pull = steps
     .map(record)
-    .find((step) => typeof step.run === "string" && step.run.includes('release-consumer" install'));
-  assert.ok(installation && typeof installation.run === "string");
-  assert.ok(installation.run.includes("--offline --prod --frozen-lockfile --ignore-scripts"));
-  assert.ok(installation.run.includes("dist/dependency-lock.txt"));
+    .find((step) => typeof step.run === "string" && step.run.includes("docker pull"));
+  assert.ok(pull && typeof pull.run === "string");
+  assert.ok(pull.run.includes('docker pull --platform linux/amd64 "$RELEASE_LOG_IMAGE"'));
+  assert.ok(pull.run.includes("RELEASE_LOG_IMAGE_ID="));
+  assert.ok(
+    steps.map(record).every((step) => typeof step.run !== "string" || !step.run.includes("pnpm")),
+  );
   const upload = steps
     .map(record)
     .find((step) => String(step.uses).startsWith("actions/upload-artifact@"));

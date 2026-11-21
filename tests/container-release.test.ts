@@ -499,6 +499,7 @@ void test("the self-release workflow reconciles only trusted main and keeps cred
   assert.ok("concurrency" in job);
   assert.deepEqual(job.concurrency, { group: "container-release", "cancel-in-progress": false });
   assert.match(String(job.if), /github.ref == 'refs\/heads\/main'/u);
+  assert.match(String(job.if), /vars\.RELEASE_LOG_WRITE_ENABLED != 'false'/u);
   let credentialSteps = 0;
   for (const step of job.steps) {
     assert.ok(typeof step === "object" && step !== null);
