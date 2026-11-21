@@ -3,10 +3,13 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import type { TestContext } from "node:test";
 import { parse } from "yaml";
-import { inspectCommit } from "../src/git.ts";
+import { inspectCommit, inspectPendingRelease } from "../src/git.ts";
 import type { GitHubRead } from "../src/github.ts";
+import { collectMergedPullRequests } from "../src/github-association.ts";
+import { createReleasePlan } from "../src/release-plan.ts";
 import { rollRelease } from "../src/release-roll.ts";
 import type { ReleaseRollRequest } from "../src/release-roll.ts";
+import { replayReleaseSnapshot } from "../src/release-snapshot.ts";
 import { fixture, json, object, text } from "./proposal-fixture.ts";
 
 async function lifecycle(context: TestContext) {
@@ -35,17 +38,37 @@ async function lifecycle(context: TestContext) {
       merge_commit_sha: change.sha,
       commits: 1,
       head: { ref: "feature", sha: change.sha, repo: { id: 17 } },
-      base: { ref: "main", repo: { id: 17, full_name: "example/project" } },
+      base: { ref: "main", sha: change.sha, repo: { id: 17, full_name: "example/project" } },
       user: { id: 7, type: "User" },
     };
   }
+  const stackedPulls = new Map<number, ReturnType<typeof ordinary>>();
+  const stackedOriginals = new Map<number, string[]>();
+  const stackedLinks = new Map<string, number[]>();
+  const stackedBases = new Map<string, number[]>();
+  async function commits(shas: readonly string[]) {
+    return Promise.all(
+      shas.map(async (sha) => {
+        const commit = await inspectCommit(f.directory, sha);
+        return {
+          sha,
+          commit: { message: commit.message },
+          parents: commit.parentShas.map((parent) => ({ sha: parent })),
+        };
+      }),
+    );
+  }
+
   const transport: GitHubRead = async (url, options) => {
     assert.equal(new Headers(options.headers).get("authorization"), `Bearer ${token}`);
-    const path = decodeURIComponent(new URL(url).pathname.slice("/repos/example/project".length));
+    const requestUrl = new URL(url);
+    const path = decodeURIComponent(requestUrl.pathname.slice("/repos/example/project".length));
     const method = options.method ?? "GET";
     const association = /^\/commits\/([a-f0-9]+)\/pulls$/u.exec(path);
     if (association) {
       collectionCalls.push(path);
+      const stack = stackedLinks.get(association[1] ?? "");
+      if (stack) return json(stack.map((number) => stackedPulls.get(number)));
       return json(
         f.changes.flatMap((change, index) =>
           change.sha === association[1] ? [ordinary(index)] : [],
@@ -53,19 +76,22 @@ async function lifecycle(context: TestContext) {
       );
     }
     const detail = /^\/pulls\/(\d+)(\/commits)?$/u.exec(path);
+    const stacked = stackedPulls.get(Number(detail?.[1]));
+    if (detail && stacked) {
+      collectionCalls.push(path);
+      return json(detail[2] ? await commits(stackedOriginals.get(stacked.number) ?? []) : stacked);
+    }
+    const base = requestUrl.searchParams.get("base");
+    if (path === "/pulls" && base !== null && base !== "main") {
+      collectionCalls.push(path);
+      return json((stackedBases.get(base) ?? []).map((number) => stackedPulls.get(number)));
+    }
     if (detail && Number(detail[1]) >= 101) {
       collectionCalls.push(path);
       const index = Number(detail[1]) - 101;
       const pull = ordinary(index);
       if (!detail[2]) return json(pull);
-      const commit = await inspectCommit(f.directory, pull.merge_commit_sha);
-      return json([
-        {
-          sha: commit.sha,
-          commit: { message: commit.message },
-          parents: commit.parentShas.map((sha) => ({ sha })),
-        },
-      ]);
+      return json(await commits([pull.merge_commit_sha]));
     }
     if (method === "GET" && path.startsWith("/git/tags/")) {
       const sha = path.slice("/git/tags/".length);
@@ -161,8 +187,303 @@ async function lifecycle(context: TestContext) {
     f.git(["read-tree", "--reset", "-u", "HEAD"]);
     return { landing, event: mergedEvent, head };
   }
-  return { f, inputs, ordinary, event, request, transport, collectionCalls, merge };
+  async function landStack(titles: readonly [string, string, string], breakingCommit = false) {
+    await rollRelease(request(), transport);
+    const released = await merge("merge");
+    await rollRelease({ ...request(), event: released.event }, transport);
+
+    const tree = f.git(["rev-parse", "HEAD^{tree}"]).trim();
+    const commit = (parents: readonly string[], message: string) =>
+      f.git(["commit-tree", tree, ...parents.flatMap((parent) => ["-p", parent])], message).trim();
+    const root = commit([released.landing], "refactor: reorganize modules");
+    const middle = commit([root], "fix: preserve selected rows");
+    const topChange = commit(
+      [middle],
+      breakingCommit
+        ? "feat!: allow exports\n\nBREAKING CHANGE: the export flag changed"
+        : "refactor: share export layout",
+    );
+    const top = commit([topChange, root], "Merge the parent branch");
+    const landing = commit([released.landing, top], "Merge the stacked changes");
+    f.git(["update-ref", "refs/heads/main", landing, released.landing]);
+    const refs = ["main", "stack/base", "stack/middle", "stack/top"];
+    const heads = [released.landing, root, middle, top];
+    for (const [index, originals] of [[root], [middle], [topChange, top]].entries()) {
+      const ref = refs[index];
+      const headRef = refs[index + 1];
+      const baseSha = heads[index];
+      const headSha = heads[index + 1];
+      const title = titles[index];
+      assert.ok(ref && headRef && baseSha && headSha && title);
+      const number = 201 + index;
+      stackedPulls.set(number, {
+        ...ordinary(0),
+        number,
+        id: 2001 + index,
+        title,
+        body: [
+          "~~~release-log",
+          "version: 1",
+          "audience: users",
+          `summary: Stack change ${number}`,
+          "impact: Preserve rows.",
+          `required_action: ${index === 2 && breakingCommit ? "Use the new export flag." : "null"}`,
+          "~~~",
+        ].join("\n"),
+        merge_commit_sha: landing,
+        commits: originals.length,
+        base: { ref, sha: baseSha, repo: { id: 17, full_name: "example/project" } },
+        head: { sha: headSha, ref: headRef, repo: { id: 17 } },
+      });
+      stackedOriginals.set(number, originals);
+      stackedBases.set(ref, [number]);
+      for (const sha of originals) stackedLinks.set(sha, [201]);
+    }
+    stackedLinks.set(landing, [201]);
+    const rootPull = stackedPulls.get(201);
+    assert.ok(rootPull);
+    return { event: event(rootPull), released, landing, root, middle, topChange, top };
+  }
+  return {
+    f,
+    inputs,
+    ordinary,
+    event,
+    request,
+    transport,
+    collectionCalls,
+    merge,
+    landStack,
+    stackedPulls,
+    stackedOriginals,
+    stackedLinks,
+    stackedBases,
+  };
 }
+
+void test("a tagged refactor stack makes no release and survives into the next proposal", async (context) => {
+  const s = await lifecycle(context);
+  const stack = await s.landStack([
+    "refactor(stack): organize modules",
+    "refactor(stack): organize selections",
+    "refactor(stack): organize exports",
+  ]);
+  const request = { ...s.request(), event: stack.event };
+  const before = s.f.calls.length;
+  const noRelease = await rollRelease(request, s.transport);
+  assert.equal(noRelease.route, "proposal");
+  assert.equal(noRelease.result.outcome, "no-release");
+  assert.equal(noRelease.result.baselineSha, stack.released.landing);
+  assert.equal(noRelease.result.sourceSha, stack.landing);
+  const retry = await rollRelease(request, s.transport);
+  assert.equal(retry.route, "proposal");
+  assert.equal(retry.result.outcome, "no-release");
+  assert.equal(retry.result.baselineSha, noRelease.result.baselineSha);
+  assert.equal(retry.result.sourceSha, noRelease.result.sourceSha);
+  assert.ok(s.f.calls.slice(before).every((call) => call.method === "GET"));
+  assert.equal(s.f.ref("tags/v0.1.0"), stack.released.landing);
+  assert.equal(s.f.pulls.length, 1);
+
+  await s.f.advance("fix(api): keep future rows");
+  const proposal = await rollRelease(s.request(), s.transport);
+  assert.equal(proposal.route, "proposal");
+  assert.equal(proposal.result.outcome, "created");
+  const { headSha } = proposal.result;
+  const captured = await replayReleaseSnapshot(
+    s.f.git(["show", `${headSha}:.release-log/inputs.json`]),
+    s.inputs.configuration,
+  );
+  const latest = s.f.changes.at(-1)?.sha;
+  assert.ok(latest);
+  const expected = [
+    latest,
+    stack.root,
+    stack.middle,
+    stack.topChange,
+    stack.top,
+    stack.landing,
+  ].toSorted();
+  assert.deepEqual(captured.input.range.commitShas, expected);
+  assert.deepEqual(
+    captured.input.pullRequests
+      .flatMap((pull) => pull.landedCommits.map((commit) => commit.sha))
+      .toSorted(),
+    expected,
+  );
+  assert.deepEqual(
+    captured.input.pullRequests
+      .filter((pull) => pull.stackBase)
+      .map((pull) => ({
+        number: pull.number,
+        base: pull.stackBase,
+        originals: pull.originalCommits.map((commit) => commit.sha),
+        owned: pull.landedCommits.map((commit) => commit.sha),
+      })),
+    [
+      {
+        number: 201,
+        base: { ref: "main", sha: stack.released.landing },
+        originals: [stack.root],
+        owned: [stack.landing, stack.root].toSorted(),
+      },
+      {
+        number: 202,
+        base: { ref: "stack/base", sha: stack.root },
+        originals: [stack.middle],
+        owned: [stack.middle],
+      },
+      {
+        number: 203,
+        base: { ref: "stack/middle", sha: stack.middle },
+        originals: [stack.topChange, stack.top],
+        owned: [stack.top, stack.topChange].toSorted(),
+      },
+    ],
+  );
+  const changelog = s.f.git(["show", `${headSha}:CHANGELOG.md`]);
+  assert.match(changelog, /## v0\.1\.1/u);
+  for (const number of [201, 202, 203]) {
+    assert.match(changelog, new RegExp(`Stack change ${number}`, "u"));
+    assert.match(changelog, new RegExp(`/pull/${number}\\)`, "u"));
+  }
+});
+
+void test("stack PR titles contribute independently and breaking commits require their own metadata", async (context) => {
+  const s = await lifecycle(context);
+  const stack = await s.landStack(
+    [
+      "refactor(stack): organize modules",
+      "fix(stack): preserve selections",
+      "feat(stack): improve exports",
+    ],
+    true,
+  );
+  const request = { ...s.request(), event: stack.event };
+  const before = s.f.calls.length;
+  await assert.rejects(rollRelease(request, s.transport), (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /PR #203 shared landing.*breaking/u);
+    assert.ok(error.message.includes(stack.landing));
+    return true;
+  });
+  assert.ok(s.f.calls.slice(before).every((call) => call.method === "GET"));
+  const top = s.stackedPulls.get(203);
+  assert.ok(top);
+  top.title = "feat(stack)!: improve exports";
+  const required = top.body;
+  top.body = top.body.replace("Use the new export flag.", "null");
+  await assert.rejects(
+    rollRelease(request, s.transport),
+    /PR #203 shared landing.*breaking-action-required/u,
+  );
+  top.body = required;
+
+  const proposal = await rollRelease(request, s.transport);
+  assert.equal(proposal.route, "proposal");
+  assert.equal(proposal.result.outcome, "created");
+  const { headSha } = proposal.result;
+  const snapshotText = s.f.git(["show", `${headSha}:.release-log/inputs.json`]);
+  const captured = await replayReleaseSnapshot(snapshotText, s.inputs.configuration);
+  const plan = await createReleasePlan(snapshotText, s.inputs.configuration, {
+    kind: "released",
+    currentVersion: "0.1.0",
+  });
+  assert.equal(plan.nextVersion, "0.2.0");
+  assert.deepEqual(
+    plan.contributions.map(({ number, bump, breaking }) => ({ number, bump, breaking })),
+    [
+      { number: 201, bump: "none", breaking: false },
+      { number: 202, bump: "patch", breaking: false },
+      { number: 203, bump: "minor", breaking: true },
+    ],
+  );
+  const changelog = s.f.git(["show", `${headSha}:CHANGELOG.md`]);
+  assert.match(changelog, /Stack change 202/u);
+  assert.match(changelog, /Stack change 203/u);
+  assert.match(changelog, /Use the new export flag/u);
+
+  const wrongOwner = structuredClone(captured.input);
+  const [root, middle] = wrongOwner.pullRequests;
+  assert.ok(root && middle);
+  const reassigned = {
+    ...wrongOwner,
+    pullRequests: [
+      { ...root, landedCommits: middle.landedCommits },
+      { ...middle, landedCommits: root.landedCommits },
+      ...wrongOwner.pullRequests.slice(2),
+    ],
+  };
+  const serialized = JSON.stringify({ ...captured, input: reassigned });
+  await assert.rejects(
+    replayReleaseSnapshot(serialized, s.inputs.configuration),
+    /incorrect landed commit ownership/u,
+  );
+});
+
+void test("stack collection rejects missing, unrelated, overlapping, and partial evidence", async (context) => {
+  const s = await lifecycle(context);
+  const stack = await s.landStack([
+    "refactor(stack): organize modules",
+    "refactor(stack): organize selections",
+    "refactor(stack): organize exports",
+  ]);
+  const request = { ...s.request(), event: stack.event };
+  const before = s.f.calls.length;
+  const diagnostic = (message: RegExp) => (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.ok(error.message.includes(`PR #201 shared landing ${stack.landing}`));
+    assert.match(error.message, message);
+    return true;
+  };
+  s.stackedBases.delete("stack/middle");
+  await assert.rejects(
+    rollRelease(request, s.transport),
+    diagnostic(/PR #202 has no corroborating continuation/u),
+  );
+  s.stackedBases.set("stack/middle", [203]);
+
+  const inner = s.stackedPulls.get(202);
+  assert.ok(inner);
+  s.stackedPulls.set(204, { ...inner, number: 204, base: { ...inner.base, ref: "unrelated" } });
+  s.stackedLinks.set(stack.middle, [201, 204]);
+  await assert.rejects(
+    rollRelease(request, s.transport),
+    diagnostic(/PR #204 has an unrelated association/u),
+  );
+  s.stackedLinks.set(stack.middle, [201, 202]);
+
+  inner.commits = 2;
+  s.stackedOriginals.set(202, [stack.root, stack.middle]);
+  await assert.rejects(
+    rollRelease(request, s.transport),
+    diagnostic(/PR #202 makes a competing claim/u),
+  );
+  inner.commits = 1;
+  s.stackedOriginals.set(202, [stack.middle]);
+  assert.equal((await rollRelease(request, s.transport)).route, "proposal");
+
+  s.f.git(["tag", "v0.1.1", stack.root]);
+  const range = await inspectPendingRelease(
+    s.f.directory,
+    { kind: "tag", name: "v0.1.1" },
+    stack.landing,
+  );
+  await assert.rejects(
+    collectMergedPullRequests(
+      {
+        repository: s.inputs.configuration.repository,
+        releaseBranch: s.inputs.configuration.releaseBranch,
+        localRepository: s.f.directory,
+        token: request.token,
+        range,
+      },
+      s.transport,
+    ),
+    diagnostic(/Git footprint crosses the tagged baseline/u),
+  );
+  assert.ok(s.f.calls.slice(before).every((call) => call.method === "GET"));
+  assert.equal(s.f.pulls.length, 1);
+});
 
 void test("ordinary delayed events refresh one complete proposal and identical retries write nothing", async (context) => {
   const s = await lifecycle(context);
