@@ -249,7 +249,7 @@ void test("a mixed cycle is allowed while a parallel runtime cycle fails", async
   }
 });
 
-void test("planning cannot import a pnpm-resolved provider", async () => {
+void test("only text-generation can directly depend on the pnpm-resolved AI SDK", async () => {
   const root = mkdtempSync(resolve(tmpdir(), "release-log-architecture-"));
   try {
     write(
@@ -257,17 +257,53 @@ void test("planning cannot import a pnpm-resolved provider", async () => {
       "tsconfig.json",
       JSON.stringify({ compilerOptions: { module: "NodeNext", moduleResolution: "NodeNext" } }),
     );
-    mkdirSync(resolve(root, "node_modules/@ai-sdk"), { recursive: true });
-    symlinkSync(
-      resolve(process.cwd(), "node_modules/@ai-sdk/openai"),
-      resolve(root, "node_modules/@ai-sdk/openai"),
-      "dir",
+    for (const name of ["ai", "@ai-sdk/openai"]) {
+      const link = resolve(root, "node_modules", name);
+      mkdirSync(dirname(link), { recursive: true });
+      symlinkSync(resolve(process.cwd(), "node_modules", name), link, "dir");
+    }
+    write(
+      root,
+      "src/text-generation.ts",
+      "import { generateText } from 'ai'; import { openai } from '@ai-sdk/openai'; export const generate = () => generateText({ model: openai('test'), prompt: 'test' });",
     );
-    write(root, "src/planning/plan.ts", "import '@ai-sdk/openai';");
-    const failed = await cruise(root);
-    assert.notEqual(failed.status, 0);
-    assert.ok(failed.names.includes("planning-stays-offline"));
-    write(root, "src/planning/plan.ts", "export {};");
+    const wrapperImport = "import { generate } from './text-generation.ts'; export { generate };";
+    write(root, "src/consumer.ts", wrapperImport);
+    assert.deepEqual(await cruise(root), { status: 0, names: [] });
+
+    for (const dependency of [
+      "import 'ai';",
+      "import '@ai-sdk/openai';",
+      "import type { LanguageModel } from 'ai'; export type Model = LanguageModel;",
+      "export { MockLanguageModelV3 } from 'ai/test';",
+      "export * from '@ai-sdk/openai/internal';",
+    ]) {
+      write(root, "src/consumer.ts", dependency);
+      const failed = await cruise(root);
+      assert.notEqual(failed.status, 0, dependency);
+      assert.deepEqual(failed.names, ["text-generation-owns-ai-sdk"], dependency);
+      write(root, "src/consumer.ts", wrapperImport);
+      assert.deepEqual(await cruise(root), { status: 0, names: [] });
+    }
+
+    const planner = "src/planning/plan.ts";
+    write(root, planner, "import '@ai-sdk/openai';");
+    const direct = await cruise(root);
+    assert.notEqual(direct.status, 0);
+    assert.ok(direct.names.includes("planning-stays-offline"));
+    assert.ok(direct.names.includes("text-generation-owns-ai-sdk"));
+    write(root, planner, "import '../consumer.ts';");
+    const transitive = await cruise(root);
+    assert.notEqual(transitive.status, 0);
+    assert.ok(transitive.names.includes("planning-stays-offline"));
+    assert.ok(!transitive.names.includes("text-generation-owns-ai-sdk"));
+
+    write(root, planner, "export {};");
+    write(root, "src/release-notes.ts", "import './consumer.ts';");
+    const releaseNotes = await cruise(root);
+    assert.notEqual(releaseNotes.status, 0);
+    assert.ok(releaseNotes.names.includes("planning-stays-offline"));
+    write(root, "src/release-notes.ts", "export {};");
     assert.deepEqual(await cruise(root), { status: 0, names: [] });
   } finally {
     rmSync(root, { recursive: true, force: true });
