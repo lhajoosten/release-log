@@ -23,6 +23,7 @@ import {
   readPublication,
   reconcileLatestAlias,
   reconcilePublication,
+  scanReleaseImage,
   withReleaseRegistry,
 } from "./container-release.ts";
 import { publishInternalCandidate } from "./self-release-publication.ts";
@@ -347,14 +348,13 @@ async function main() {
                 if (!/^sha256:[a-f0-9]{64}$/u.test(imageId))
                   throw new Error("Invalid built image ID.");
                 await run("pnpm", ["check:container", "--image", imageId]);
-                await run("pnpm", [
-                  "container:scan",
-                  "--image",
+                await scanReleaseImage(
+                  active.tag,
+                  active.landingSha,
                   imageId,
-                  "--output",
                   join(reports, "candidate-scan"),
-                  "--allow-openssl-backport",
-                ]);
+                  run,
+                );
               },
               publishImage: async (beforePush) => {
                 const { result } = await reconcilePublication(

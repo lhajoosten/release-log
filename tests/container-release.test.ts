@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { archiveConfigPath } from "../scripts/scan-container.ts";
 import {
@@ -9,6 +10,7 @@ import {
   publicationDecision,
   readPublication,
   reconcilePublication,
+  scanReleaseImage,
   source,
   validateRelease,
 } from "../scripts/container-release.ts";
@@ -18,6 +20,29 @@ function requestUrl(input: string | URL | Request) {
 }
 
 const sha = "a".repeat(40);
+
+void test("only the approved tag and landing use the release controller's exception scanner", async (t) => {
+  const landing = "21662200936919c1df83f9d3ce8fccee42fa3dc4";
+  const common = ["--image", "local:trial", "--output", "report", "--allow-openssl-backport"];
+  const run = t.mock.fn(async (_file: string, _args: string[]) => "");
+  await scanReleaseImage("v0.6.0", landing, "local:trial", "report", run);
+  assert.deepEqual(run.mock.calls.at(-1)?.arguments, [
+    process.execPath,
+    [
+      fileURLToPath(new URL("../scripts/scan-container.ts", import.meta.url)),
+      ...common,
+      "--allow-v0.6.0-openssl-exception",
+    ],
+  ]);
+  for (const [tag, revision] of [
+    ["v0.6.1", landing],
+    ["v0.6.0", sha],
+  ] as const) {
+    await scanReleaseImage(tag, revision, "local:trial", "report", run);
+    assert.deepEqual(run.mock.calls.at(-1)?.arguments, ["pnpm", ["container:scan", ...common]]);
+  }
+});
+
 const image = {
   os: "linux",
   architecture: "amd64",

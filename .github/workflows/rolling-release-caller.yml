@@ -76,6 +76,13 @@ jobs:
           pnpm install --frozen-lockfile --ignore-scripts
           node scripts/install-producer-runtimes.ts
 
+      # The candidate and producer predate the v0.6.0 exception. Keep the pinned
+      # producer's src/ and dependency tree for proposal replay and verification.
+      - name: Load the temporary v0.6.0 publication policy from reviewed main
+        if: steps.producer.outputs.tool-sha == 'fd2d2f1d4d7bfea7640152c5594122f0a1b348ee'
+        run: |
+          cp source/scripts/{self-release,container-release,scan-container}.ts tool/scripts/
+
       - name: Mint a short-lived release App token for this repository
         id: app
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
