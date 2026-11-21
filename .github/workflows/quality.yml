@@ -60,9 +60,9 @@ jobs:
           persist-credentials: false
 
       # The rollout PR lands the policy. Later PRs use their base copy.
-      - name: Check for trusted complexity policy
+      - name: Check for trusted lint-action policy
         if: github.event_name == 'pull_request'
-        id: complexity-policy
+        id: lint-action-policy
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
@@ -71,9 +71,9 @@ jobs:
             echo 'available=true' >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Report TypeScript complexity
-        if: github.event_name != 'pull_request' || steps.complexity-policy.outputs.available == 'true'
-        uses: lhajoosten/lint-action@c8719d5d0b2951311f3c6a883cefa1214dffaa29
+      - name: Report source quality
+        if: github.event_name != 'pull_request' || steps.lint-action-policy.outputs.available == 'true'
+        uses: lhajoosten/lint-action@cd328f5ec8fa196bac2139afe69daf53c8417548
 
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
