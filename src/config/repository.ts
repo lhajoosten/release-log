@@ -12,16 +12,17 @@ import {
 export type ReleaseContextPolicy = "required" | "optional";
 
 export const RELEASE_LOG_REPOSITORY_ID = 1449550207;
-export const RELEASE_LOG_REPOSITORIES = [
+const releaseLogRepositories: ReadonlySet<string> = new Set([
   "lhajoosten/release-log",
   "lhajoosten/rolling-release",
-] as const;
+]);
+
+export function isReleaseLogRepositoryName(repository: string): boolean {
+  return releaseLogRepositories.has(repository);
+}
 
 function isReleaseLogRepository(repository: string, repositoryId: unknown): boolean {
-  return (
-    RELEASE_LOG_REPOSITORIES.includes(repository as (typeof RELEASE_LOG_REPOSITORIES)[number]) &&
-    repositoryId === RELEASE_LOG_REPOSITORY_ID
-  );
+  return isReleaseLogRepositoryName(repository) && repositoryId === RELEASE_LOG_REPOSITORY_ID;
 }
 
 export function isReleaseContextPolicy(value: unknown): value is ReleaseContextPolicy {

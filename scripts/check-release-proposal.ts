@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { parseDocument } from "yaml";
 import {
+  isReleaseLogRepositoryName,
   parseReleaseInputConfiguration,
-  RELEASE_LOG_REPOSITORIES,
   RELEASE_LOG_REPOSITORY_ID,
 } from "../src/config/repository.ts";
 import { GitHubProposalRepository, ProposalConflictError } from "../src/github-proposals.ts";
@@ -24,9 +24,8 @@ const {
   RUNNER_TEMP,
 } = process.env;
 const repositoryId = Number(GITHUB_REPOSITORY_ID);
-const providerRepository = RELEASE_LOG_REPOSITORIES.includes(
-  GITHUB_REPOSITORY as (typeof RELEASE_LOG_REPOSITORIES)[number],
-);
+const providerRepository =
+  GITHUB_REPOSITORY !== undefined && isReleaseLogRepositoryName(GITHUB_REPOSITORY);
 if (
   GITHUB_EVENT_NAME !== "pull_request_target" ||
   !GITHUB_REPOSITORY ||
@@ -50,9 +49,7 @@ if (document.errors.length || typeof configurationJSON !== "string" || typeof pi
   throw new Error("Expected reviewed self-release configuration and verification runtime pins.");
 const configuration = parseReleaseInputConfiguration(JSON.parse(configurationJSON));
 if (
-  !RELEASE_LOG_REPOSITORIES.includes(
-    configuration.repository as (typeof RELEASE_LOG_REPOSITORIES)[number],
-  ) ||
+  !isReleaseLogRepositoryName(configuration.repository) ||
   configuration.repositoryId !== repositoryId ||
   configuration.releaseBranch !== "main" ||
   !configuration.selfUpgrade ||
