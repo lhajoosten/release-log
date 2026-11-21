@@ -22,6 +22,16 @@ type CommitMessageRepair = { readonly pullNumber: number; readonly commitSha: st
   | { readonly wrapBody: true }
 );
 
+export interface CandidateLandingPin {
+  readonly pullNumber: number;
+  readonly botUserId: number;
+  readonly headSha: string;
+  readonly landingSha: string;
+  readonly proposalId: string;
+  readonly version: string;
+  readonly changelogDigest: string;
+}
+
 interface ReleaseRepositoryConfiguration {
   readonly repository: string;
   readonly repositoryId: number;
@@ -30,6 +40,9 @@ interface ReleaseRepositoryConfiguration {
   readonly contextPolicy?: ReleaseContextPolicy;
   readonly selfUpgrade?: true;
   readonly githubRelease?: true;
+  readonly internalPublication?: true;
+  readonly candidateLandings?: readonly CandidateLandingPin[];
+  readonly candidateStableNotes?: string;
   readonly adoptedRelease?: {
     readonly pullNumber: number;
     readonly headSha: string;
@@ -74,6 +87,15 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
       ...(isObject(value) && Object.hasOwn(value, "selfUpgrade") ? ["selfUpgrade"] : []),
       ...(isObject(value) && Object.hasOwn(value, "adoptedRelease") ? ["adoptedRelease"] : []),
       ...(isObject(value) && Object.hasOwn(value, "githubRelease") ? ["githubRelease"] : []),
+      ...(isObject(value) && Object.hasOwn(value, "internalPublication")
+        ? ["internalPublication"]
+        : []),
+      ...(isObject(value) && Object.hasOwn(value, "candidateLandings")
+        ? ["candidateLandings"]
+        : []),
+      ...(isObject(value) && Object.hasOwn(value, "candidateStableNotes")
+        ? ["candidateStableNotes"]
+        : []),
       ...(isObject(value) && Object.hasOwn(value, "changelog") ? ["changelog"] : []),
       ...(isObject(value) && Object.hasOwn(value, "commitMessageRepairs")
         ? ["commitMessageRepairs"]
@@ -228,6 +250,76 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
     };
   }
 
+  if (
+    Object.hasOwn(item, "internalPublication") &&
+    (item.internalPublication !== true ||
+      repository !== "lhajoosten/release-log" ||
+      item.repositoryId !== 1449550207 ||
+      releaseBranch !== "main" ||
+      item.selfUpgrade !== true ||
+      item.githubRelease !== true ||
+      automationExclusions !== undefined)
+  )
+    return invalid(
+      "Internal publication requires the trusted Release Log self-release configuration.",
+    );
+
+  let candidateLandings: readonly CandidateLandingPin[] | undefined;
+  if (Object.hasOwn(item, "candidateLandings")) {
+    if (item.internalPublication !== true)
+      return invalid("Candidate landings require internal publication.");
+    candidateLandings = array(item.candidateLandings, 30, "verified candidate landings").map(
+      (entry) => {
+        const pin = object(
+          entry,
+          [
+            "pullNumber",
+            "botUserId",
+            "headSha",
+            "landingSha",
+            "proposalId",
+            "version",
+            "changelogDigest",
+          ],
+          "candidate landing",
+        );
+        const proposalId = text(pin.proposalId, "candidate proposal ID", 64);
+        const changelogDigest = text(pin.changelogDigest, "candidate changelog digest", 64);
+        const version = text(pin.version, "candidate version", 128);
+        if (
+          !/^[a-f0-9]{64}$/u.test(proposalId) ||
+          !/^[a-f0-9]{64}$/u.test(changelogDigest) ||
+          !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(version)
+        )
+          return invalid("Invalid candidate proposal, version, or changelog identity.");
+        return {
+          pullNumber: positive(pin.pullNumber, "candidate PR number"),
+          botUserId: positive(pin.botUserId, "candidate bot user ID"),
+          headSha: sha(pin.headSha),
+          landingSha: sha(pin.landingSha),
+          proposalId,
+          version,
+          changelogDigest,
+        };
+      },
+    );
+    if (!candidateLandings.length) return invalid("Omit an empty candidate landing list.");
+    unique(
+      candidateLandings.map(({ pullNumber }) => pullNumber),
+      "candidate PR numbers",
+    );
+    unique(
+      candidateLandings.map(({ landingSha }) => landingSha),
+      "candidate landing commits",
+    );
+  }
+
+  let candidateStableNotes: string | undefined;
+  if (Object.hasOwn(item, "candidateStableNotes")) {
+    if (!candidateLandings) return invalid("Stable notes recovery requires a candidate landing.");
+    candidateStableNotes = text(item.candidateStableNotes, "verified stable notes", 60 * 1024);
+  }
+
   const common: ReleaseRepositoryConfiguration = {
     repository,
     repositoryId: positive(item.repositoryId, "repository ID"),
@@ -236,6 +328,9 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
     ...(contextPolicy === undefined ? {} : { contextPolicy }),
     ...(item.selfUpgrade === true ? { selfUpgrade: true } : {}),
     ...(item.githubRelease === true ? { githubRelease: true } : {}),
+    ...(item.internalPublication === true ? { internalPublication: true } : {}),
+    ...(candidateLandings === undefined ? {} : { candidateLandings }),
+    ...(candidateStableNotes === undefined ? {} : { candidateStableNotes }),
     ...(adoptedRelease === undefined ? {} : { adoptedRelease }),
     ...(changelog === undefined ? {} : { changelog }),
     ...(commitMessageRepairs === undefined ? {} : { commitMessageRepairs }),

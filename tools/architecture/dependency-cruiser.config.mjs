@@ -2,7 +2,7 @@ const planning = "^src/(planning/|release-plan\\.ts$)";
 const configuration = "^src/config/";
 const cli = "^src/(cli\\.ts$|cli/)";
 const workflows =
-  "^src/(release-(cycle|proposal|tag|approval|publication|roll|readiness|plan|snapshot)|changelog\\.ts$|(?:cycle|proposal|tagging|approval|publication|planning|snapshot|changelog)/)";
+  "^src/(release-(cycle|proposal|tag|approval|publication|roll|readiness|plan|snapshot|notes)|changelog\\.ts$|(?:cycle|proposal|tagging|approval|publication|planning|snapshot|changelog)/)";
 
 /** @satisfies {import("dependency-cruiser").IConfiguration} */
 const config = {
@@ -10,7 +10,7 @@ const config = {
     {
       name: "planning-stays-offline",
       severity: "error",
-      from: { path: planning },
+      from: { path: [planning, "^src/release-notes\\.ts$"] },
       to: {
         path: [
           "^src/(github(?:/|[-.]|\\.ts$)|publication/|release-publication\\.ts$|text-generation\\.ts$|ai-configuration\\.ts$)",
@@ -48,7 +48,7 @@ const config = {
       to: {
         path: [
           "^src/(planning|proposal|changelog|publication)/",
-          "^src/(changelog|proposal-files|release-(plan|proposal|publication))\\.ts$",
+          "^src/(changelog|proposal-files|release-(plan|proposal|publication|notes))\\.ts$",
         ],
         reachable: true,
       },

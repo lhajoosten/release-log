@@ -1,6 +1,6 @@
 # Container runtime and local builds
 
-The image wraps the actual [packaged CLI](cli.md), Node.js and Git. `container/Dockerfile`, `scripts/build-container.ts`, `scripts/check-container.ts` and `scripts/scan-container.ts` implement local builds, smoke tests and the vulnerability gate. The separate [stable-tag publication workflow](container-release.md) publishes to GHCR under the [accepted distribution contract](adr/0001-container-distribution.md). The `v0.2.1` publication and anonymous pull/run checks passed; see the [recorded digest and installation commands](container-release.md#pull-and-run). Historical version and scan results below describe those specific local runs, not the current release or a registry verdict.
+The image wraps the actual [packaged CLI](cli.md), Node.js and Git. `container/Dockerfile`, `scripts/build-container.ts`, `scripts/check-container.ts` and `scripts/scan-container.ts` implement local builds, smoke tests and the vulnerability gate. The [stable publication workflow](container-release.md) publishes to GHCR under the [accepted distribution contract](adr/0001-container-distribution.md). The `v0.2.1` publication and anonymous pull/run checks passed; see the [recorded digest and installation commands](container-release.md#pull-and-run). Historical version and scan results below describe those specific local runs, not the current release or a registry verdict.
 
 ## Build from locked inputs
 

@@ -501,8 +501,16 @@ void test("automation metadata changing during the final fresh verification cann
 
 void test("schema-4 CLI replay is offline and refuses a changed exclusion authority", async (context) => {
   const state = await released(context);
+  const associated = await collectMergedPullRequests(state.request, state.transport);
   const snapshot = await captureReleaseSnapshot(
-    await collectMergedPullRequests(state.request, state.transport),
+    {
+      ...associated,
+      pullRequests: associated.pullRequests.map((pull) =>
+        pull.number === state.authority.approval.pullNumber
+          ? pull
+          : { ...pull, body: pull.body.replace("audience: internal", "audience: users") },
+      ),
+    },
     state.config,
   );
   const directory = await mkdtemp(join(tmpdir(), "exclusion-cli-"));
@@ -539,6 +547,19 @@ void test("schema-4 CLI replay is offline and refuses a changed exclusion author
 
   assert.ok(typeof plan === "object" && plan !== null && "schemaVersion" in plan);
   assert.equal(plan.schemaVersion, 4);
+
+  const notes = await execute(
+    process.execPath,
+    args.map((arg) => (arg === "plan" ? "notes" : arg)),
+    {
+      env: { PATH: process.env.PATH },
+      timeout: 10_000,
+    },
+  );
+  assert.match(notes.stdout, /^# Release notes for v1\.3\.0/u);
+  assert.match(notes.stdout, /\/pull\/101\)/u);
+  assert.match(notes.stdout, /\/pull\/102\)/u);
+  assert.doesNotMatch(notes.stdout, /\/pull\/1\)/u);
 
   await writeFile(
     configPath,

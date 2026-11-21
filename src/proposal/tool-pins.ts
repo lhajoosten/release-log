@@ -11,6 +11,26 @@ export function updateToolPins(content: string | null, sourceSha: string): strin
   const document = parseDocument(content, { uniqueKeys: true });
   if (document.errors.length)
     throw new ProposalConflictError("The self-upgrade caller must be valid unambiguous YAML.");
+  const internal = document.getIn(["env", "RELEASE_PRODUCER_SHA"], true);
+  if (internal !== undefined) {
+    const environment = document.get("env", true);
+    if (
+      !isMap(environment) ||
+      environment.anchor ||
+      (isMap(document.contents) && document.contents.anchor) ||
+      !isScalar(internal) ||
+      internal.anchor ||
+      typeof internal.value !== "string" ||
+      !/^[a-f0-9]{40}$/u.test(internal.value) ||
+      !internal.range
+    )
+      throw new ProposalConflictError("Self-publication requires an immutable producer pin.");
+    const [start, end] = internal.range;
+    const scalar = content.slice(start, end);
+    if (![internal.value, `'${internal.value}'`, `"${internal.value}"`].includes(scalar))
+      throw new ProposalConflictError("Self-publication requires a simple scalar producer pin.");
+    return content.slice(0, start) + scalar.replace(internal.value, sourceSha) + content.slice(end);
+  }
   const jobs = document.getIn(["jobs"], true);
   const job = document.getIn(["jobs", "release"], true);
   const inputs = document.getIn(["jobs", "release", "with"], true);
@@ -58,7 +78,9 @@ export function updateToolPins(content: string | null, sourceSha: string): strin
 export function readToolPin(content: string): string {
   updateToolPins(content, "0".repeat(40));
   const document = parseDocument(content);
-  const value: unknown = document.getIn(["jobs", "release", "with", "tool-sha"]);
+  const value: unknown =
+    document.getIn(["env", "RELEASE_PRODUCER_SHA"]) ??
+    document.getIn(["jobs", "release", "with", "tool-sha"]);
   if (typeof value !== "string") throw new ProposalConflictError("Missing trusted caller pin.");
   return value;
 }
