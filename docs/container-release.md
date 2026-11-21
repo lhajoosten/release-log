@@ -8,6 +8,8 @@ The [self-release workflow](adr/0005-internal-release-publication.md) runs on ma
 
 While a candidate is blocked, a new source or pinned-input fix goes through the ordinary PR path. A newly reviewed release landing may supersede the pending candidate until public writes begin. Main advancing does not change the current candidate. The previous stable tag remains the planning baseline until the image, tag and GitHub Release are verified.
 
+The **Release proposal replay** check replays open generated release PRs from the trusted main checkout, using the runtime registry that the proposed self-upgrade would use after merge. It does not execute PR code or write release state. If a producer SHA is missing, review that revision and retain it in the caller’s explicitly trusted verification runtimes rather than trusting the PR marker. Refresh the proposal if its captured source is no longer current. To enforce this check as a merge gate, add `release-proposal-replay` to the required checks on `main` after confirming GitHub reports it on release PRs.
+
 ## Gates, credentials and evidence
 
 The workflow installs locked dependencies with `pnpm install --frozen-lockfile --ignore-scripts` before running any pnpm script, including candidate validation. pnpm 12 can implicitly install dependencies before a script, so validating first could attempt dependency lifecycle builds and leave an ignored-build failure for the subsequent explicit install. Keep the explicit scripts-disabled install first; no dependency build approvals or relaxed build policy are needed.
