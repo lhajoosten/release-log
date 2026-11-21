@@ -24,7 +24,7 @@ env:
 jobs:
   reconcile:
     if: >-
-      github.repository == 'lhajoosten/release-log' &&
+      github.repository_id == '1449550207' &&
       github.ref == 'refs/heads/main' &&
       vars.RELEASE_LOG_WRITE_ENABLED != 'false'
     runs-on: ubuntu-24.04
