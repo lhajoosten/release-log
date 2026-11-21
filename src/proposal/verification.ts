@@ -21,7 +21,12 @@ export interface VerifiedProposal extends Description {
 }
 
 function withoutTransitionOptions(config: ReleaseInputConfiguration) {
-  const { selfUpgrade: _selfUpgrade, githubRelease: _githubRelease, ...rest } = config;
+  const {
+    selfUpgrade: _selfUpgrade,
+    githubRelease: _githubRelease,
+    commitMessageRepairs: _commitMessageRepairs,
+    ...rest
+  } = config;
   return { ...rest, changelog: { verbosity: config.changelog?.verbosity ?? "detailed" } };
 }
 
@@ -30,7 +35,12 @@ export function capturedVerificationConfiguration(
   expected: ReleaseInputConfiguration,
 ): ReleaseInputConfiguration {
   const current = parseReleaseInputConfiguration(expected);
-  if (current.changelog?.format === undefined && !current.selfUpgrade && !current.githubRelease)
+  if (
+    current.changelog?.format === undefined &&
+    !current.selfUpgrade &&
+    !current.githubRelease &&
+    !current.commitMessageRepairs
+  )
     return current;
 
   let value: unknown;
@@ -42,11 +52,14 @@ export function capturedVerificationConfiguration(
   const captured = parseReleaseInputConfiguration(proposalObject(value).configuration);
   if (
     (captured.selfUpgrade && !current.selfUpgrade) ||
-    (captured.githubRelease && !current.githubRelease)
+    (captured.githubRelease && !current.githubRelease) ||
+    captured.commitMessageRepairs?.some(
+      (repair) => !current.commitMessageRepairs?.some((pin) => isDeepStrictEqual(pin, repair)),
+    )
   )
     return current;
   // Trusted output/presentation opt-ins retain the original proposal rules.
-  // Membership and normalization policies must still match.
+  // A captured repair must still have matching trusted authority.
   return isDeepStrictEqual(withoutTransitionOptions(captured), withoutTransitionOptions(current))
     ? captured
     : current;

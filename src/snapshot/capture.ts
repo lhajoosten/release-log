@@ -1,6 +1,8 @@
+import { isDeepStrictEqual } from "node:util";
 import { readHistoricalBreakingChanges, validateConventionalMessage } from "../conventional.ts";
 import { parseReleaseInputConfiguration } from "../config/repository.ts";
 import type { ReleaseInputConfiguration } from "../config/repository.ts";
+import type { ReadinessIssue } from "../evidence/readiness-issue.ts";
 import { ReleaseSnapshotError, invalid } from "../evidence/schema.ts";
 import { validatePullRequestMetadata } from "../pr-readiness.ts";
 import { parseReleaseContext } from "../release-context.ts";
@@ -15,6 +17,23 @@ import type {
   ReleaseSnapshot,
 } from "./model.ts";
 import { digest, snapshotTool } from "./runtime-identity.ts";
+
+function wrapCommitBody(message: string): string {
+  const [subject, ...body] = message.split(/\r?\n/u);
+  return [
+    subject,
+    ...body.map((line) => {
+      const wrapped: string[] = [];
+      while (line.length > 100) {
+        const space = line.lastIndexOf(" ", 100);
+        if (space <= 0) break;
+        wrapped.push(line.slice(0, space));
+        line = line.slice(space + 1);
+      }
+      return [...wrapped, line].join("\n");
+    }),
+  ].join("\n");
+}
 
 export async function captureReleaseSnapshot(
   input: PullRequestAssociation,
@@ -38,6 +57,9 @@ export async function captureReleaseSnapshot(
     NormalizedReleaseInputs["excludedPullRequests"]
   >[number][] = [];
   const historical = onboardingCommits(captured, selected);
+  const repairs = new Map(
+    selected.commitMessageRepairs?.map((repair) => [repair.commitSha, repair]),
+  );
 
   for (const pull of captured.pullRequests) {
     const proof = captured.verifiedAutomation?.find((entry) => entry.pullNumber === pull.number);
@@ -58,6 +80,48 @@ export async function captureReleaseSnapshot(
         : pull.originalCommits.map((entry) => ({ source: "original" as const, ...entry }))),
       ...pull.landedCommits.map((entry) => ({ source: "landed" as const, ...entry })),
     ];
+    const repairWarnings = new Map<string, ReadinessIssue>();
+    for (const commit of sourceCommits) {
+      const repair = repairs.get(commit.sha);
+      if (repair?.pullNumber !== pull.number) continue;
+      const original = await validateConventionalMessage(commit.message);
+      const rules =
+        "subject" in repair ? ["type-empty", "subject-empty"] : ["body-max-line-length"];
+      const reject = () =>
+        new ReleaseSnapshotError(
+          "metadata-invalid",
+          `PR #${pull.number} commit ${commit.sha} does not qualify for its pinned message repair.`,
+        );
+      if (
+        commit.parentShas.length !== 1 ||
+        original.valid ||
+        !original.errors.some(({ rule }) => rule === rules[0]) ||
+        original.errors.some(({ rule }) => !rules.includes(rule))
+      )
+        throw reject();
+
+      // The captured evidence retains the original message. The ordinary metadata
+      // validator checks the normalized message, including any breaking trailers.
+      const corrected =
+        "subject" in repair
+          ? commit.message.replace(/^[^\r\n]*/u, () => repair.subject)
+          : wrapCommitBody(commit.message);
+      if (
+        !isDeepStrictEqual(
+          await readHistoricalBreakingChanges(commit.message),
+          await readHistoricalBreakingChanges(corrected),
+        )
+      )
+        throw reject();
+      commit.message = corrected;
+      repairWarnings.set(commit.sha, {
+        location: "commit",
+        sha: commit.sha,
+        code: "message-repaired",
+        message:
+          "Applied a trusted commit message repair. The original Git message remains in the snapshot.",
+      });
+    }
     // Historical adoption keeps its own warning-bearing normalization contract.
     const historicalPull = pull.landedCommits.every((entry) => historical.has(entry.sha));
     const readiness = await validatePullRequestMetadata(
@@ -132,7 +196,7 @@ export async function captureReleaseSnapshot(
         ]),
       ].toSorted(),
       commits,
-      validation: { valid: true, warnings: readiness.warnings },
+      validation: { valid: true, warnings: [...readiness.warnings, ...repairWarnings.values()] },
     });
   }
 
