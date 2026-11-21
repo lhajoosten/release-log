@@ -6,19 +6,18 @@ import {
   isProposalPath,
   isRootLockPath,
   proposalPaths,
-  workflowPath,
 } from "../proposal-paths.ts";
-import { cargoMemberPaths, readCargoContents } from "../cargo-version.ts";
-import { prepareReleaseFileContents, ProposalFilesError, releaseInputPaths } from "./prepare.ts";
+import { cargoMemberPaths } from "../cargo-version.ts";
+import { prepareReleaseFileContents, ProposalFilesError } from "./prepare.ts";
+import { readReleaseContents } from "../version-file-inputs.ts";
 import type { PreparedRelease } from "./prepare.ts";
 import type { ReleaseVersionConfiguration } from "../planning/derive-release-plan.ts";
 import type { ReleaseInputConfiguration } from "../config/repository.ts";
 
 const allowed: ReadonlySet<string> = new Set(proposalPaths);
-const readable: ReadonlySet<string> = new Set(releaseInputPaths);
 
 async function inspectPath(root: string, relative: string): Promise<string> {
-  if (!readable.has(relative) && !isProposalPath(relative))
+  if (!isProposalPath(relative))
     throw new ProposalFilesError("Only supported proposal paths are permitted.");
   let target = root;
   const parts = relative.split("/");
@@ -73,17 +72,12 @@ export async function prepareReleaseFiles(
   version: ReleaseVersionConfiguration,
 ): Promise<PreparedRelease> {
   const root = await rootPath(repository);
-  return prepareReleaseFileContents(snapshotJSON, expected, version, {
-    ...(await readCargoContents((path) => currentFile(root, path))),
-    [workflowPath]: expected.selfUpgrade ? await currentFile(root, workflowPath) : null,
-    "package.json": await currentFile(root, "package.json"),
-    "pyproject.toml": await currentFile(root, "pyproject.toml"),
-    "CHANGELOG.md": await currentFile(root, "CHANGELOG.md"),
-    ".release-log/inputs.json": await currentFile(root, ".release-log/inputs.json"),
-    "package-lock.json": await currentFile(root, "package-lock.json"),
-    "npm-shrinkwrap.json": await currentFile(root, "npm-shrinkwrap.json"),
-    "uv.lock": await currentFile(root, "uv.lock"),
-  });
+  return prepareReleaseFileContents(
+    snapshotJSON,
+    expected,
+    version,
+    await readReleaseContents((path) => currentFile(root, path), expected.selfUpgrade),
+  );
 }
 
 export async function writeReleaseFiles(

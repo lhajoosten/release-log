@@ -96,6 +96,14 @@ void test("verifies GitHub Actions enforcement on a non-main release branch", as
   assert.ok(visited.includes(protectionPath));
 });
 
+void test("accepts an installed rolling caller without manual dispatch", async () => {
+  const legacy = rolling
+    .replace("  workflow_dispatch:\n", "")
+    .replace("github.event_name == 'workflow_dispatch' || ", "");
+  const { read } = fixture({ [contentsPath(rollingPath)]: file(rollingPath, legacy) });
+  assert.equal((await verifyMetadataOnboarding(config, "synthetic", read)).status, "verified");
+});
+
 for (const [name, overrides, status, message] of [
   [
     "missing caller",
@@ -130,6 +138,17 @@ for (const [name, overrides, status, message] of [
     "rolling caller branch drift",
     {
       [contentsPath(rollingPath)]: file(rollingPath, rolling.replace(`[${branch}]`, "[main]")),
+    },
+    "incomplete",
+    /Align the pinned rolling-release caller/u,
+  ],
+  [
+    "unexpected rolling caller trigger",
+    {
+      [contentsPath(rollingPath)]: file(
+        rollingPath,
+        rolling.replace("  workflow_dispatch:", "  push:"),
+      ),
     },
     "incomplete",
     /Align the pinned rolling-release caller/u,

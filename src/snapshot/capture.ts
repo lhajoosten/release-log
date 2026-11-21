@@ -177,7 +177,7 @@ export async function captureReleaseSnapshot(
 
       throw new ReleaseSnapshotError(
         "metadata-invalid",
-        `PR #${pull.number}${pull.stackBase ? ` shared landing ${pull.mergeCommitSha}` : ""} release metadata must be repaired before snapshot capture: ${detail}.`,
+        `PR #${pull.number}${pull.stackBase ? ` shared landing ${pull.mergeCommitSha}` : ` at landing ${pull.mergeCommitSha}`} release metadata must be repaired before snapshot capture: ${detail}.`,
         readiness.errors,
       );
     }

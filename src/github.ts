@@ -43,6 +43,46 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+export async function readGitHubBot(
+  slug: string,
+  token: string,
+  read: GitHubRead = fetch,
+): Promise<number> {
+  if (!/^[a-z0-9][a-z0-9-]{0,99}$/u.test(slug))
+    throw new GitHubReadError("GitHub App slug is unavailable.");
+  const login = `${slug}[bot]`;
+  const response = await read(`https://api.github.com/users/${encodeURIComponent(login)}`, {
+    method: "GET",
+    redirect: "error",
+    signal: AbortSignal.timeout(10_000),
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "release-log-preflight",
+    },
+  });
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new GitHubReadError("GitHub bot account lookup failed.", response.status);
+  }
+  const bot = await readJson(response);
+  if (
+    typeof bot !== "object" ||
+    bot === null ||
+    !("login" in bot) ||
+    bot.login !== login ||
+    !("type" in bot) ||
+    bot.type !== "Bot" ||
+    !("id" in bot) ||
+    typeof bot.id !== "number" ||
+    !Number.isSafeInteger(bot.id) ||
+    bot.id <= 0
+  )
+    throw new GitHubReadError("GitHub did not confirm the expected bot account.");
+  return bot.id;
+}
+
 export function readGitHubJson(
   url: string,
   token: string,

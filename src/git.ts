@@ -407,6 +407,97 @@ export async function inspectPendingRelease(
   };
 }
 
+export async function inspectOnboardingRange(
+  repository: string,
+  range: PendingReleaseInspection,
+  onboardingSha: string,
+): Promise<PendingReleaseInspection> {
+  const legacy = await inspectPendingRelease(repository, range.baseline, onboardingSha);
+  await inspectPendingRelease(
+    repository,
+    { kind: "bootstrap", commitSha: onboardingSha },
+    range.sourceCommitSha,
+  );
+  return legacy;
+}
+
+export async function inspectBranchSource(repository: string, ref: string): Promise<string> {
+  if (ref !== "HEAD" && (await runGit(repository, ["check-ref-format", ref])).exitCode !== 0)
+    throw new GitInspectionError(
+      "git-command-failed",
+      "The selected release branch is not a valid Git ref.",
+    );
+  return requireObjectSha(
+    requireSuccess(
+      await runGit(repository, ["rev-parse", "--verify", "--end-of-options", ref]),
+      "The selected Git ref is unavailable. Fetch the release branch and tags, or supply its full source SHA.",
+    ),
+  );
+}
+
+export async function inspectRootBaseline(repository: string, sourceSha: string): Promise<string> {
+  await requireCompleteHistory(repository);
+  const source = await resolveCommit(repository, sourceSha);
+  return requireObjectSha(
+    requireSuccess(
+      await runGit(repository, ["rev-list", "--first-parent", "--max-parents=0", source, "--"]),
+      "Could not find the first commit on the captured branch.",
+    ),
+  );
+}
+
+export async function inspectStableTags(repository: string): Promise<readonly string[]> {
+  const refs = requireSuccess(
+    await runGit(repository, ["for-each-ref", "--format=%(refname:strip=2)", "refs/tags/v*"]),
+    "Could not inspect local release tags.",
+  );
+  return refs
+    .split("\n")
+    .filter((tag) => /^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(tag));
+}
+
+export async function recommendOnboardingCutoff(
+  repository: string,
+  range: PendingReleaseInspection,
+  legacyShas: readonly string[],
+): Promise<string> {
+  if (legacyShas.length === 0) return range.baseline.commitSha;
+  const commits = requireSuccess(
+    await runGit(repository, [
+      "rev-list",
+      "--first-parent",
+      "--reverse",
+      range.sourceCommitSha,
+      "--not",
+      range.baseline.commitSha,
+      "--",
+    ]),
+    "Could not enumerate candidate onboarding cutoffs.",
+  )
+    .trim()
+    .split("\n")
+    .map(requireObjectSha);
+  const required = new Set(legacyShas);
+  let low = 0;
+  let high = commits.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    const candidate = commits[middle] ?? range.sourceCommitSha;
+    const covers =
+      (await isAncestor(repository, range.baseline.commitSha, candidate)) &&
+      (
+        await inspectPendingRelease(
+          repository,
+          { kind: "bootstrap", commitSha: range.baseline.commitSha },
+          candidate,
+        )
+      ).commitShas.filter((sha) => required.has(sha)).length === required.size;
+    if (covers) high = middle;
+    else low = middle + 1;
+  }
+  return commits[low] ?? range.sourceCommitSha;
+}
+
 export interface GitTreeInspection {
   readonly commitSha: string;
   readonly treeSha: string;
@@ -476,10 +567,7 @@ export async function readGitBlob(repository: string, blobSha: string): Promise<
     ).trim(),
   );
   if (!Number.isSafeInteger(size) || size < 0 || size > 2 * 1024 * 1024)
-    throw new GitInspectionError(
-      "git-command-failed",
-      "Approval input blobs must not exceed 2 MiB.",
-    );
+    throw new GitInspectionError("git-command-failed", "Git input blobs must not exceed 2 MiB.");
   const text = requireSuccess(
     await runGit(repository, ["cat-file", "blob", sha]),
     "Could not read the complete Git blob contents.",
@@ -492,7 +580,7 @@ export async function readGitBlob(repository: string, blobSha: string): Promise<
   if (bytes.length !== size || actual !== sha)
     throw new GitInspectionError(
       "git-command-failed",
-      "Approval input blobs must be complete, hash-matching UTF-8 text.",
+      "Git input blobs must be complete, hash-matching UTF-8 text.",
     );
   return text;
 }

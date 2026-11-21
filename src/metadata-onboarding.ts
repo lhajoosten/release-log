@@ -110,10 +110,10 @@ async function verifyCallers(get: Read, config: ReleaseInputConfiguration, sha: 
   );
   // GitHub treats these characters as glob syntax even in quoted YAML.
   const filter = config.releaseBranch.replace(/[+*?[\]!\\]/gu, "\\$&");
+  const mergedPull = { pull_request_target: { types: ["closed"], branches: [filter] } };
   if (
-    !isDeepStrictEqual(rolling.on, {
-      pull_request_target: { types: ["closed"], branches: [filter] },
-    }) ||
+    (!isDeepStrictEqual(rolling.on, mergedPull) &&
+      !isDeepStrictEqual(rolling.on, { ...mergedPull, workflow_dispatch: null })) ||
     release?.["release-branch"] !== config.releaseBranch ||
     !samePolicy(release.configuration, config)
   )
