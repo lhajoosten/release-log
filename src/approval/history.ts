@@ -1,5 +1,5 @@
 import { readCargoContents } from "../cargo-version.ts";
-import { inspectCommit, inspectGitTree, inspectPendingRelease, readGitBlob } from "../git.ts";
+import { inspectGitTreeWithCommit, inspectPendingRelease, readGitBlob } from "../git.ts";
 import type { ResolvedReleaseBaseline } from "../git.ts";
 import type { ProposalTree } from "../github-proposals.ts";
 import { reconstructProposal } from "../producer-runtime.ts";
@@ -13,8 +13,7 @@ export async function readLocalProposalTree(
   repository: string,
   commitSha: string,
 ): Promise<ProposalTree> {
-  const tree = await inspectGitTree(repository, commitSha);
-  const commit = await inspectCommit(repository, commitSha);
+  const { tree, commit } = await inspectGitTreeWithCommit(repository, commitSha);
   return { ...tree, message: commit.message, parents: commit.parentShas };
 }
 export async function readProposalContents(
