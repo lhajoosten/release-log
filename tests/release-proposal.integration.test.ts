@@ -14,13 +14,17 @@ import { capturedIdentity, describe } from "../src/proposal-identity.ts";
 import { requestGitHubJson, GitHubReadError } from "../src/github.ts";
 import { fixture, json, object, text, botId } from "./proposal-fixture.ts";
 
-for (const mode of ["node", "python", "both", "cargo", "cargo-workspace"] as const) {
+for (const mode of ["node", "python", "python-uv", "both", "cargo", "cargo-workspace"] as const) {
   void test(`${mode}: real Git branch creation, stable rolling PR refresh, and retries preserve the complete generated diff`, async (context) => {
     const f = await fixture(context, mode);
     const dry = await reconcileReleaseProposal(await f.request(), f.transport);
     assert.equal(dry.outcome, "would-create");
     assert.equal(f.ref("heads/release-log/main"), null);
     assert.ok(f.calls.every(({ method }) => method === "GET"));
+    if (mode === "python-uv") {
+      assert.ok(dry.changedPaths.includes("pyproject.toml"));
+      assert.ok(dry.changedPaths.includes("uv.lock"));
+    }
     const created = await reconcileReleaseProposal(await f.request(true), f.transport);
     assert.equal(created.outcome, "created");
     assert.match(created.proposalId, /^[a-f0-9]{64}$/u);
@@ -44,6 +48,13 @@ for (const mode of ["node", "python", "both", "cargo", "cargo-workspace"] as con
         f.git(["show", `${head}:pyproject.toml`]),
         '# preserve\n[project]\nversion = "1.3.0" # preserve\n',
       );
+    if (mode === "python-uv") {
+      for (const path of ["pyproject.toml", "uv.lock"])
+        assert.equal(
+          f.git(["show", `${head}:${path}`]),
+          f.git(["show", `${dry.sourceSha}:${path}`]).replace("1.2.3", "1.3.0"),
+        );
+    }
     if (mode === "cargo") {
       assert.equal(
         f.git(["show", `${head}:Cargo.toml`]),
@@ -84,6 +95,13 @@ for (const mode of ["node", "python", "both", "cargo", "cargo-workspace"] as con
     const refreshed = await reconcileReleaseProposal(request, f.transport);
     assert.equal(refreshed.outcome, "refreshed");
     assert.equal(refreshed.pullNumber, 1);
+    if (mode === "python-uv") {
+      assert.ok(preview.changedPaths.includes("uv.lock"));
+      assert.equal(
+        f.git(["show", `${refreshed.headSha}:uv.lock`]),
+        f.git(["show", `${head}:uv.lock`]),
+      );
+    }
     assert.equal(f.pulls.length, 1);
     assert.notEqual(refreshed.headSha, head);
     assert.ok(refreshed.headSha);
@@ -269,6 +287,49 @@ for (const path of ["CHANGELOG.md", "unrelated.txt"] as const) {
       path === "unrelated.txt" ? /unrelated file/u : /content was edited/u,
     );
     assert.equal(f.ref("heads/release-log/main"), forged);
+  });
+}
+
+for (const edit of ["stale source", "missing bump", "tampered lock"] as const) {
+  void test(`uv proposal rejects a ${edit} without changing GitHub refs or local files`, async (context) => {
+    const f = await fixture(context, "python-uv");
+    const lock = await readFile(join(f.directory, "uv.lock"), "utf8");
+    if (edit === "stale source") {
+      await writeFile(join(f.directory, "uv.lock"), lock.replace("1.2.3", "1.2.2"));
+    } else {
+      const proposal = await reconcileReleaseProposal(await f.request(true), f.transport);
+      assert.ok(proposal.headSha);
+      const original = await inspectCommit(f.directory, proposal.headSha);
+      const tree = f.createTree(f.git(["rev-parse", `${proposal.headSha}^{tree}`]).trim(), [
+        {
+          path: "uv.lock",
+          mode: "100644",
+          content: edit === "missing bump" ? lock : lock + "# tampered\n",
+        },
+      ]);
+      const forged = f
+        .git(["commit-tree", tree, "-p", proposal.sourceSha], original.message)
+        .trim();
+      f.git(["update-ref", "refs/heads/release-log/main", forged, proposal.headSha]);
+      const pull = f.pulls[0];
+      assert.ok(pull);
+      pull.head = { ...object(pull.head), sha: forged };
+    }
+
+    await f.advance();
+    const head = f.ref("heads/release-log/main");
+    const main = f.ref("heads/main");
+    const before = f.calls.length;
+    const current = await readFile(join(f.directory, "uv.lock"), "utf8");
+    await assert.rejects(
+      reconcileReleaseProposal(await f.request(true), f.transport),
+      edit === "stale source" ? /root version disagrees/u : /content was edited/u,
+    );
+    assert.ok(f.calls.slice(before).every(({ method }) => method === "GET"));
+    assert.equal(f.ref("heads/release-log/main"), head);
+    assert.equal(f.ref("heads/main"), main);
+    assert.equal(await readFile(join(f.directory, "uv.lock"), "utf8"), current);
+    assert.equal(f.git(["status", "--porcelain"]), "");
   });
 }
 

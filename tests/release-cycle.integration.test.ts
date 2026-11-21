@@ -16,7 +16,7 @@ import { fixture, json, object, text } from "./proposal-fixture.ts";
 async function mergedProposal(
   context: TestContext,
   kind: "merge" | "squash" = "merge",
-  mode: "node" | "python" | "both" = "node",
+  mode: "node" | "python" | "python-uv" | "both" = "node",
 ) {
   const f = await fixture(context, mode);
   const proposalRequest = await f.request(true);
@@ -393,7 +393,11 @@ for (const [kind, retained] of [
   ["squash", false],
 ] as const) {
   void test(`a ${kind}-landed tagged release starts a new cycle with the prior branch ${retained ? "retained" : "deleted"}`, async (context) => {
-    const state = await mergedProposal(context, kind);
+    const state = await mergedProposal(
+      context,
+      kind,
+      retained && kind === "merge" ? "python-uv" : "node",
+    );
     const priorHead = text(object(state.pull.head).sha);
     state.f.git(["tag", "v1.3.0", state.landingSha]);
     if (!retained) state.f.git(["update-ref", "-d", "refs/heads/release-log/main"]);
@@ -433,6 +437,13 @@ for (const [kind, retained] of [
     const parents = state.f.git(["show", "-s", "--format=%P", next.headSha]).trim().split(" ");
     assert.equal(parents[1], priorHead);
     assert.equal(state.f.ref("heads/release-log/main"), next.headSha);
+    if (retained && kind === "merge") {
+      for (const path of ["pyproject.toml", "uv.lock"])
+        assert.equal(
+          state.f.git(["show", `${next.headSha}:${path}`]),
+          state.f.git(["show", `${priorHead}:${path}`]).replace("1.3.0", "1.3.1"),
+        );
+    }
     const changelog = state.f.git(["show", `${next.headSha}:CHANGELOG.md`]);
     assert.match(changelog, /1\.3\.0/u);
     assert.match(changelog, /1\.3\.1/u);

@@ -28,7 +28,7 @@ export const version = { kind: "released", currentVersion: "1.2.3" } as const;
 
 export async function fixture(
   context: TestContext,
-  mode: "node" | "python" | "both" | "cargo" | "cargo-workspace" = "node",
+  mode: "node" | "python" | "python-uv" | "both" | "cargo" | "cargo-workspace" = "node",
   title = "feat(api): export rows",
   setup: {
     selfUse?: boolean;
@@ -93,6 +93,16 @@ export async function fixture(
       join(directory, "pyproject.toml"),
       `# preserve\n[project]\nversion = "${manifestVersion}" # preserve\n`,
     );
+  if (mode === "python-uv") {
+    await writeFile(
+      join(directory, "pyproject.toml"),
+      `[project]\nname = "fixture_project"\nversion = "${manifestVersion}"\nrequires-python = ">=3.11"\n`,
+    );
+    await writeFile(
+      join(directory, "uv.lock"),
+      `version = 1\nrevision = 5\nrequires-python = ">=3.11"\n\n[[package]]\nname = "fixture-project"\nversion = "${manifestVersion}"\nsource = { virtual = "." }\n`,
+    );
+  }
   if (mode === "cargo")
     await writeFile(
       join(directory, "Cargo.toml"),

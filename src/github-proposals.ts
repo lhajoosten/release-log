@@ -332,7 +332,9 @@ export class GitHubProposalRepository implements RepositoryEvidenceReader {
           tree: files.map((file) => {
             if (
               !isProposalPath(file.path) ||
-              ((file.path === "Cargo.lock" || isCargoManifest(file.path)) &&
+              ((file.path === "uv.lock" ||
+                file.path === "Cargo.lock" ||
+                isCargoManifest(file.path)) &&
                 !source.entries.has(file.path))
             )
               throw new ProposalConflictError("Unexpected proposal output path.");

@@ -11,6 +11,7 @@ import { replayReleaseSnapshot } from "../snapshot/replay.ts";
 import type { ReleaseInputConfiguration } from "../config/repository.ts";
 import { updateCargoVersions } from "../cargo-version.ts";
 import type { CargoContents } from "../cargo-version.ts";
+import { updateUvLockVersion } from "../uv-version.ts";
 import { updatePackageVersion, updatePyprojectVersion } from "../version-files.ts";
 
 export class ProposalFilesError extends Error {
@@ -30,7 +31,7 @@ export interface PreparedRelease {
   readonly pendingChangelog?: string;
   readonly files: readonly ProposalFile[];
 }
-const unsupportedLocks = ["package-lock.json", "npm-shrinkwrap.json", "uv.lock"] as const;
+const unsupportedLocks = ["package-lock.json", "npm-shrinkwrap.json"] as const;
 export const releaseInputPaths = [...proposalPaths, ...unsupportedLocks] as const;
 export type ReleaseFileContents = Readonly<
   Record<Exclude<(typeof releaseInputPaths)[number], typeof workflowPath>, string | null> &
@@ -64,6 +65,11 @@ export function prepareVerifiedRelease(
   }
   const packageJSON = contents["package.json"];
   const pyprojectTOML = contents["pyproject.toml"];
+  const uvLock = contents["uv.lock"];
+  if (uvLock !== null && pyprojectTOML === null)
+    throw new ProposalFilesError(
+      "uv.lock requires a root pyproject.toml; restore and commit the manifest before retrying.",
+    );
   const cargo = updateCargoVersions(contents, plan);
   if (packageJSON === null && pyprojectTOML === null && cargo === null)
     throw new ProposalFilesError(
@@ -87,6 +93,12 @@ export function prepareVerifiedRelease(
     manifests.push({ path: "package.json", before: packageJSON, after: packageUpdate.content });
   if (pyprojectTOML !== null && pythonUpdate)
     manifests.push({ path: "pyproject.toml", before: pyprojectTOML, after: pythonUpdate.content });
+  if (uvLock !== null && pyprojectTOML !== null && pythonUpdate)
+    manifests.push({
+      path: "uv.lock",
+      before: uvLock,
+      after: updateUvLockVersion(pyprojectTOML, uvLock, pythonUpdate, plan),
+    });
   const changelog = contents["CHANGELOG.md"];
   const rendered = renderPlannedChangelog(snapshot, plan);
   const updatedChangelog = updateChangelog(

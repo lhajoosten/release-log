@@ -42,7 +42,7 @@ type ExistingProposalResult = {
     readonly proposalId: string;
     readonly pullNumber: number;
     readonly headSha: string;
-  };
+  } & (K extends "would-refresh" ? { readonly changedPaths: readonly string[] } : object);
 }[ExistingProposalOutcome];
 export type ReleaseProposalResult = ProposalResultBase &
   (
@@ -54,6 +54,7 @@ export type ReleaseProposalResult = ProposalResultBase &
       }
     | {
         readonly outcome: "would-create";
+        readonly changedPaths: readonly string[];
         readonly proposalId: string;
         readonly pullNumber: null;
         readonly headSha: string | null;
@@ -198,9 +199,13 @@ export async function reconcileReleaseProposal(
       `Generated proposal metadata does not satisfy contribution/readiness policy: ${readiness.errors.map((issue) => issue.code).join(", ")}.`,
     );
   if (!write) {
+    const changedPaths = prepared.files
+      .filter((file) => file.before !== file.after)
+      .map((file) => file.path);
     if (previous)
       return {
         outcome: "would-refresh",
+        changedPaths,
         ...base,
         proposalId: description.id,
         branch: api.headRef,
@@ -209,6 +214,7 @@ export async function reconcileReleaseProposal(
       };
     return {
       outcome: "would-create",
+      changedPaths,
       ...base,
       proposalId: description.id,
       branch: api.headRef,

@@ -180,7 +180,7 @@ void test("bootstrap requires matching Node/Python and matching Python mirror va
 });
 
 void test("unimplemented root-version lockfile mirrors block preparation without writes", async (context) => {
-  for (const lock of ["package-lock.json", "npm-shrinkwrap.json", "uv.lock"]) {
+  for (const lock of ["package-lock.json", "npm-shrinkwrap.json"]) {
     const path = await directory(context);
     await writeFile(join(path, "pyproject.toml"), '[project]\nversion="1.2.3"\n');
     await writeFile(join(path, lock), "unmanaged lockfile\n");
@@ -238,3 +238,117 @@ void test("symlinked manifests and out-of-allowlist writes are rejected", async 
     '[project]\nversion="1.2.3"\n',
   );
 });
+
+const uvManifest = '[project]\nname = "Example_Project"\nversion = "1.2.3"\n';
+const uvHeader = 'version = 1\nrevision = 5\nrequires-python = ">=3.11"\n';
+const uvRoot =
+  '[[package]]\nname = "example-project"\nversion = \'1.2.3\' # root\nsource = { virtual = "." }\n';
+const uvDependency =
+  '[[package]]\nname = "other"\nversion = "1.2.3"\nsource = { registry = "https://pypi.org/simple" }\n';
+
+for (const sourceKind of ["virtual", "editable"]) {
+  void test(`uv.lock preserves dependency bytes for a ${sourceKind} root`, async (context) => {
+    const path = await directory(context);
+    const lock = (uvHeader + uvDependency + uvRoot.replace("virtual", sourceKind)).replaceAll(
+      "\n",
+      "\r\n",
+    );
+    await writeFile(join(path, "pyproject.toml"), uvManifest);
+    await writeFile(join(path, "uv.lock"), lock);
+    const prepared = await prepareReleaseFiles(
+      path,
+      fixture.serialized,
+      fixtureConfiguration,
+      version,
+    );
+    const expected = lock.replace("'1.2.3' # root", "'1.2.4' # root");
+    assert.deepEqual(
+      prepared.files.find((file) => file.path === "uv.lock"),
+      {
+        path: "uv.lock",
+        before: lock,
+        after: expected,
+      },
+    );
+    assert.equal(await readFile(join(path, "uv.lock"), "utf8"), lock);
+    assert.equal(await readFile(join(path, "pyproject.toml"), "utf8"), uvManifest);
+    await writeReleaseFiles(path, prepared);
+    assert.equal(await readFile(join(path, "uv.lock"), "utf8"), expected);
+    assert.equal(
+      await readFile(join(path, "pyproject.toml"), "utf8"),
+      uvManifest.replace("1.2.3", "1.2.4"),
+    );
+  });
+}
+
+for (const { lock, manifest = uvManifest, expected } of [
+  {
+    lock: uvHeader + uvRoot.replace("1.2.3", "1.2.2"),
+    expected: /disagrees.*Regenerate and commit/u,
+  },
+  { lock: uvHeader + uvDependency, expected: /exactly one matching root/u },
+  { lock: uvHeader + uvRoot + uvRoot, expected: /exactly one matching root/u },
+  {
+    lock: uvHeader + uvRoot.replace('virtual = "."', 'directory = "."'),
+    expected: /local or unsupported package source/u,
+  },
+  {
+    lock:
+      uvHeader +
+      uvRoot +
+      uvDependency.replace('registry = "https://pypi.org/simple"', 'editable = "components/other"'),
+    expected: /local or unsupported package source/u,
+  },
+  {
+    lock: uvHeader + uvRoot,
+    manifest: uvManifest + '[tool.uv.workspace]\nmembers = ["components/*"]\n',
+    expected: /without uv workspaces/u,
+  },
+  {
+    lock: uvHeader + '[manifest]\nmembers = ["example-project"]\n' + uvRoot,
+    expected: /workspace members are unsupported/u,
+  },
+  {
+    lock: uvHeader + uvRoot,
+    manifest: uvManifest + '[tool.uv.sources]\nother = [{ path = "other" }]\n',
+    expected: /local path dependencies/u,
+  },
+  {
+    lock: uvHeader + uvRoot,
+    manifest: uvManifest + 'dependencies = ["other @ file:///tmp/other"]\n',
+    expected: /local path dependencies/u,
+  },
+  {
+    lock: (uvHeader + uvRoot).replace("version = 1", "version = 2"),
+    expected: /Unsupported uv.lock format/u,
+  },
+  {
+    lock: (uvHeader + uvRoot).replace("revision = 5", "revision = 99"),
+    expected: /Unsupported uv.lock format/u,
+  },
+  { lock: uvHeader + "[[package]\n", expected: /valid TOML/u },
+  {
+    lock: uvHeader + uvRoot.replace("version = '1.2.3' # root\n", ""),
+    expected: /malformed package entries/u,
+  },
+  { lock: uvHeader + uvRoot, manifest: null, expected: /requires a root pyproject.toml/u },
+  {
+    lock: uvHeader + uvRoot,
+    manifest: '[tool.poetry]\nname = "Example_Project"\nversion = "1.2.3"\n',
+    expected: /static \[project\] name and version/u,
+  },
+]) {
+  void test(`uv.lock rejects ${expected} without writing files`, async (context) => {
+    const path = await directory(context);
+    const before = new Map([["uv.lock", lock]]);
+    if (manifest !== null) before.set("pyproject.toml", manifest);
+    for (const [name, value] of before) await writeFile(join(path, name), value);
+    await assert.rejects(
+      prepareReleaseFiles(path, fixture.serialized, fixtureConfiguration, version),
+      expected,
+    );
+    assert.deepEqual((await readdir(path)).toSorted(), [...before.keys()].toSorted());
+    for (const [name, value] of before)
+      assert.equal(await readFile(join(path, name), "utf8"), value);
+  });
+}

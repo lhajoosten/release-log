@@ -10,6 +10,7 @@ export function isCargoManifest(path: string): path is Exclude<CargoPath, "Cargo
 export const proposalPaths = [
   "package.json",
   "pyproject.toml",
+  "uv.lock",
   "CHANGELOG.md",
   ".release-log/inputs.json",
   workflowPath,
