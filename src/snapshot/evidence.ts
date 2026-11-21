@@ -90,6 +90,7 @@ function pullEvidence(value: unknown, presentation: boolean): AssociatedPullRequ
         : []),
       "url",
       "landingKind",
+      ...(isObject(value) && Object.hasOwn(value, "stackBase") ? ["stackBase"] : []),
       "originalCommits",
       "landedCommits",
     ],
@@ -119,6 +120,9 @@ function pullEvidence(value: unknown, presentation: boolean): AssociatedPullRequ
     return invalid("PR commit counts or original head evidence are incomplete.");
   if (item.landingKind !== "merge" && item.landingKind !== "linear")
     return invalid("Unknown PR landing kind.");
+  const stackBase = Object.hasOwn(item, "stackBase")
+    ? object(item.stackBase, ["ref", "sha"], "stack base")
+    : undefined;
   return {
     number: positive(item.number, "PR number"),
     id: positive(item.id, "PR ID"),
@@ -143,6 +147,9 @@ function pullEvidence(value: unknown, presentation: boolean): AssociatedPullRequ
     authorType: text(item.authorType, "author type", 64),
     url: text(item.url, "PR URL", 1024),
     landingKind: item.landingKind,
+    ...(stackBase
+      ? { stackBase: { ref: text(stackBase.ref, "stack base ref", 1024), sha: sha(stackBase.sha) } }
+      : {}),
     originalCommits,
     landedCommits,
   };

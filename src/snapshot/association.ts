@@ -25,9 +25,15 @@ export interface CapturedPullRequest {
   readonly authorLogin?: string | null;
 }
 
+export interface StackBase {
+  readonly ref: string;
+  readonly sha: string;
+}
+
 export interface AssociatedPullRequest extends CapturedPullRequest {
   readonly url: string;
   readonly landingKind: "merge" | "linear";
+  readonly stackBase?: StackBase;
   readonly originalCommits: readonly PullRequestCommitEvidence[];
   readonly landedCommits: readonly GitCommitEvidence[];
 }

@@ -1,6 +1,8 @@
 import type { ReleaseInputConfiguration } from "../config/repository.ts";
 import { invalid, limit } from "../evidence/schema.ts";
 import type { GitCommitEvidence } from "../git.ts";
+import type { AssociatedPullRequest, StackBase } from "./association.ts";
+import { isFirstParentLanding, stackedFootprint, stackedLandingOwners } from "./stacked-landing.ts";
 import { canonical } from "./canonical.ts";
 import type { ReleaseSnapshot } from "./model.ts";
 
@@ -13,6 +15,7 @@ export function validateCommitGraph(
   const { range, pullRequests, bootstrapCommits, verifiedAutomation } = input;
   const graph = new Map<string, GitCommitEvidence>();
   const parentsByCommit = new Map<string, readonly string[]>();
+  const stacks = new Map<string, (AssociatedPullRequest & { stackBase: StackBase })[]>();
   let evidenceCount = 0;
   for (const pull of pullRequests) {
     evidenceCount += pull.originalCommits.length + pull.landedCommits.length;
@@ -47,32 +50,42 @@ export function validateCommitGraph(
       pull.headRef === `release-log/${config.releaseBranch}`
     )
       return invalid("Unverified release automation cannot enter a usable snapshot.");
-    const landed = new Map(pull.landedCommits.map((entry) => [entry.sha, entry]));
-    const landing = landed.get(pull.mergeCommitSha);
-    if (!landing) return invalid("PR landing evidence is absent from its footprint.");
-    if (pull.landingKind === "merge") {
-      if (
-        landing.parentShas.length !== 2 ||
-        landing.parentShas[1] !== pull.headSha ||
-        canonical(
-          pull.landedCommits
-            .filter((entry) => entry.sha !== landing.sha)
-            .map((entry) => entry.sha)
-            .toSorted(),
-        ) !== canonical(pull.originalCommits.map((entry) => entry.sha).toSorted())
-      )
-        return invalid("Merge footprint does not account for the original PR head/commits.");
+    if (pull.stackBase) {
+      if (range.baseline.kind !== "tag" || pull.landingKind !== "merge" || proof)
+        return invalid(
+          `PR #${pull.number} shared landing ${pull.mergeCommitSha} requires tagged ordinary merge evidence.`,
+        );
+      const members = stacks.get(pull.mergeCommitSha) ?? [];
+      members.push({ ...pull, stackBase: pull.stackBase });
+      stacks.set(pull.mergeCommitSha, members);
     } else {
-      const seen = new Set<string>();
-      let current: GitCommitEvidence | undefined = landing;
-      while (current) {
-        if (seen.has(current.sha) || current.parentShas.length !== 1)
-          return invalid("Linear PR footprint is cyclic or contains a merge.");
-        seen.add(current.sha);
-        current = landed.get(current.parentShas[0] ?? "");
+      const landed = new Map(pull.landedCommits.map((entry) => [entry.sha, entry]));
+      const landing = landed.get(pull.mergeCommitSha);
+      if (!landing) return invalid("PR landing evidence is absent from its footprint.");
+      if (pull.landingKind === "merge") {
+        if (
+          landing.parentShas.length !== 2 ||
+          landing.parentShas[1] !== pull.headSha ||
+          canonical(
+            pull.landedCommits
+              .filter((entry) => entry.sha !== landing.sha)
+              .map((entry) => entry.sha)
+              .toSorted(),
+          ) !== canonical(pull.originalCommits.map((entry) => entry.sha).toSorted())
+        )
+          return invalid("Merge footprint does not account for the original PR head/commits.");
+      } else {
+        const seen = new Set<string>();
+        let current: GitCommitEvidence | undefined = landing;
+        while (current) {
+          if (seen.has(current.sha) || current.parentShas.length !== 1)
+            return invalid("Linear PR footprint is cyclic or contains a merge.");
+          seen.add(current.sha);
+          current = landed.get(current.parentShas[0] ?? "");
+        }
+        if (seen.size !== landed.size || (seen.size !== 1 && seen.size !== pull.commitCount))
+          return invalid("Linear footprint does not account for the complete landed sequence.");
       }
-      if (seen.size !== landed.size || (seen.size !== 1 && seen.size !== pull.commitCount))
-        return invalid("Linear footprint does not account for the complete landed sequence.");
     }
     for (const entry of pull.landedCommits) {
       if (graph.has(entry.sha)) return invalid("A landed commit has competing PR owners.");
@@ -145,6 +158,29 @@ export function validateCommitGraph(
     return invalid(
       "Captured graph does not reach the baseline or contains commits outside the source history.",
     );
+
+  for (const [sha, members] of stacks) {
+    const landing = graph.get(sha);
+    const fail = (message: string): never =>
+      invalid(
+        `PRs ${members.map((pull) => `#${pull.number}`).join(", ")} shared landing ${sha}: ${message}.`,
+      );
+    if (!landing || !isFirstParentLanding(range.sourceCommitSha, sha, graph))
+      return fail("landing is missing from the captured release branch's first-parent history");
+    const owners = stackedLandingOwners(
+      landing,
+      config.releaseBranch,
+      members,
+      stackedFootprint(landing, graph),
+      fail,
+    );
+    const count = members.reduce((total, pull) => total + pull.landedCommits.length, 0);
+    if (count !== owners.size) return fail("recorded PRs do not own the complete Git footprint");
+    for (const pull of members) {
+      if (pull.landedCommits.some(({ sha: commit }) => owners.get(commit) !== pull.number))
+        return fail(`PR #${pull.number} has incorrect landed commit ownership`);
+    }
+  }
 }
 
 export function onboardingCommits(

@@ -53,7 +53,9 @@ export async function captureReleaseSnapshot(
     }
 
     const sourceCommits = [
-      ...pull.originalCommits.map((entry) => ({ source: "original" as const, ...entry })),
+      ...(pull.stackBase
+        ? []
+        : pull.originalCommits.map((entry) => ({ source: "original" as const, ...entry }))),
       ...pull.landedCommits.map((entry) => ({ source: "landed" as const, ...entry })),
     ];
     // Historical adoption keeps its own warning-bearing normalization contract.
@@ -101,7 +103,7 @@ export async function captureReleaseSnapshot(
 
       throw new ReleaseSnapshotError(
         "metadata-invalid",
-        `PR #${pull.number} release metadata must be repaired before snapshot capture: ${detail}.`,
+        `PR #${pull.number}${pull.stackBase ? ` shared landing ${pull.mergeCommitSha}` : ""} release metadata must be repaired before snapshot capture: ${detail}.`,
         readiness.errors,
       );
     }

@@ -19,6 +19,9 @@ export type {
   PullRequestCommitEvidence,
 } from "./snapshot/association.ts";
 
+import type { StackBase } from "./snapshot/association.ts";
+import { stackedLandingOwners } from "./snapshot/stacked-landing.ts";
+
 export type AssociationErrorCode =
   | "invalid-input"
   | "invalid-response"
@@ -58,6 +61,10 @@ function isSha(value: unknown): value is string {
 
 function invalid(message: string): never {
   throw new PullRequestAssociationError("invalid-response", message);
+}
+
+function incomplete(message: string): never {
+  throw new PullRequestAssociationError("incomplete-evidence", message);
 }
 
 function summary(value: unknown): {
@@ -163,6 +170,12 @@ function capturePull(
   };
 }
 
+function captureStackBase(value: unknown, ref: string): StackBase {
+  if (!record(value) || !record(value.base) || value.base.ref !== ref || !isSha(value.base.sha))
+    return invalid("GitHub did not return the captured stack base ref and SHA.");
+  return { ref, sha: value.base.sha };
+}
+
 function captureCommit(value: unknown): PullRequestCommitEvidence {
   if (
     !record(value) ||
@@ -213,13 +226,19 @@ export async function collectMergedPullRequests(
       : parseReleaseExclusionAuthorities({ schemaVersion: 1, approvals: request.automation });
   const verified = await inspectPendingRelease(
     request.localRepository,
-    { kind: "bootstrap", commitSha: request.range.baseline.commitSha },
+    request.range.baseline,
     request.range.sourceCommitSha,
   );
-  if (JSON.stringify(verified.commitShas) !== JSON.stringify(request.range.commitShas.toSorted())) {
+  if (
+    verified.baseline.commitSha !== request.range.baseline.commitSha ||
+    (verified.baseline.kind === "tag" &&
+      request.range.baseline.kind === "tag" &&
+      verified.baseline.objectSha !== request.range.baseline.objectSha) ||
+    JSON.stringify(verified.commitShas) !== JSON.stringify(request.range.commitShas.toSorted())
+  ) {
     throw new PullRequestAssociationError(
       "invalid-input",
-      "The supplied commit set does not match the captured local range; inspect it again before collection.",
+      "The supplied baseline or commit set does not match the captured local range; inspect it again before collection.",
     );
   }
   if (verified.commitShas.length > 1000)
@@ -322,6 +341,9 @@ export async function collectMergedPullRequests(
   }
   const pulls = new Map<number, CapturedPullRequest>();
   const associations = new Map<string, readonly number[]>();
+  type StackLink = { number: number; branch: string; landing: string };
+  const stackLinks = new Map<string, readonly StackLink[]>();
+  const releasePullBases = new Map<number, StackBase>();
   const commits = new Map<string, GitCommitEvidence>();
   async function local(sha: string): Promise<GitCommitEvidence> {
     const cached = commits.get(sha);
@@ -335,6 +357,7 @@ export async function collectMergedPullRequests(
     if (cached) return cached;
     const found = new Set<number>();
     const seen = new Set<number>();
+    const shared: StackLink[] = [];
     for (let page = 1; ; page += 1) {
       const response = await get(`/commits/${commitSha}/pulls?per_page=100&page=${page}`);
       if (
@@ -352,19 +375,19 @@ export async function collectMergedPullRequests(
           !item.mergedAt ||
           !item.mergeCommitSha ||
           item.repository.toLowerCase() !== request.repository.toLowerCase() ||
-          item.branch !== request.releaseBranch ||
           !inRange.has(item.mergeCommitSha)
         )
           continue;
+        if (request.range.baseline.kind === "tag")
+          shared.push({ number: item.number, branch: item.branch, landing: item.mergeCommitSha });
+        if (item.branch !== request.releaseBranch) continue;
         let pull = pulls.get(item.number);
         if (!pull) {
-          pull = capturePull(
-            (await get(`/pulls/${item.number}`)).data,
-            request.repository,
-            request.releaseBranch,
-            item.number,
-          );
+          const detail = (await get(`/pulls/${item.number}`)).data;
+          pull = capturePull(detail, request.repository, request.releaseBranch, item.number);
           pulls.set(item.number, pull);
+          if (record(detail) && record(detail.base) && isSha(detail.base.sha))
+            releasePullBases.set(item.number, { ref: item.branch, sha: detail.base.sha });
         }
         if (pull.mergeCommitSha !== item.mergeCommitSha)
           throw new PullRequestAssociationError(
@@ -417,6 +440,7 @@ export async function collectMergedPullRequests(
         `Commit ${commitSha} has multiple qualifying merged PRs: ${result.join(", ")}. Resolve the association before planning.`,
       );
     associations.set(commitSha, result);
+    if (shared.length > 0) stackLinks.set(commitSha, shared);
     return result;
   }
   for (const commitSha of verified.commitShas) await candidates(commitSha);
@@ -451,13 +475,186 @@ export async function collectMergedPullRequests(
     return result;
   }
 
+  async function stack(
+    root: CapturedPullRequest,
+    landing: GitCommitEvidence,
+  ): Promise<readonly AssociatedPullRequest[]> {
+    const label = `PR #${root.number} shared landing ${landing.sha}`;
+    try {
+      const [parent, finalHead] = landing.parentShas;
+      if (!parent || !finalHead) return incomplete("Missing merge parents.");
+      let current = verified.sourceCommitSha;
+      while (inRange.has(current) && current !== landing.sha) {
+        current = (await local(current)).parentShas[0] ?? "";
+      }
+      if (current !== landing.sha)
+        return incomplete("Landing is outside the captured release branch's first-parent history.");
+
+      const footprint = await inspectPendingRelease(
+        request.localRepository,
+        { kind: "bootstrap", commitSha: parent },
+        landing.sha,
+      );
+      const graph = new Map<string, GitCommitEvidence>();
+      for (const sha of footprint.commitShas) {
+        if (!inRange.has(sha))
+          throw new PullRequestAssociationError(
+            "partial-membership",
+            `Git footprint crosses the tagged baseline at commit ${sha}.`,
+          );
+        graph.set(sha, await local(sha));
+      }
+
+      const rootBase = releasePullBases.get(root.number);
+      if (!rootBase)
+        return incomplete("GitHub did not return the release-branch PR's captured base SHA.");
+      const members = [
+        {
+          ...root,
+          stackBase: rootBase,
+          originalCommits: await originalCommits(root),
+        },
+      ];
+      const seen = new Set([root.number]);
+      let preceding = members[0];
+      while (preceding && preceding.headSha !== finalHead) {
+        const branch = preceding.headRef;
+        let nextNumber: number | undefined;
+        for (let page = 1; ; page += 1) {
+          const response = await get(
+            `/pulls?state=closed&base=${encodeURIComponent(branch)}&per_page=100&page=${page}`,
+          );
+          if (
+            !Array.isArray(response.data) ||
+            response.data.length > 100 ||
+            (response.next && response.data.length !== 100)
+          )
+            return incomplete(`Incomplete stacked PR listing after PR #${preceding.number}.`);
+          for (const value of response.data) {
+            const item = summary(value);
+            if (!item.mergedAt || item.mergeCommitSha !== landing.sha) continue;
+            if (
+              item.branch !== branch ||
+              item.repository.toLowerCase() !== request.repository.toLowerCase() ||
+              nextNumber !== undefined ||
+              seen.has(item.number)
+            )
+              throw new PullRequestAssociationError(
+                "ambiguous-association",
+                `Conflicting stack continuation PR #${item.number} after PR #${preceding.number}.`,
+              );
+            nextNumber = item.number;
+          }
+          if (!response.next) break;
+          if (page === 10)
+            throw new PullRequestAssociationError(
+              "collection-limit",
+              `Stacked PR listing after PR #${preceding.number} exceeds ten pages.`,
+            );
+        }
+        if (nextNumber === undefined)
+          return incomplete(
+            `PR #${preceding.number} has no corroborating continuation to Git head ${finalHead}.`,
+          );
+        const value = (await get(`/pulls/${nextNumber}`)).data;
+        const pull = capturePull(value, request.repository, branch, nextNumber);
+        const stackBase = captureStackBase(value, branch);
+        if (
+          pull.mergeCommitSha !== landing.sha ||
+          stackBase.sha !== preceding.headSha ||
+          !graph.has(pull.headSha) ||
+          pull.headSha === landing.sha ||
+          members.some((member) => member.headSha === pull.headSha)
+        )
+          return incomplete(`PR #${nextNumber} has contradictory landing, base or head evidence.`);
+        seen.add(nextNumber);
+        preceding = { ...pull, stackBase, originalCommits: await originalCommits(pull) };
+        members.push(preceding);
+      }
+
+      const assigned = stackedLandingOwners(
+        landing,
+        request.releaseBranch,
+        members,
+        graph,
+        incomplete,
+      );
+      const memberBases = new Map(members.map((pull) => [pull.number, pull.stackBase.ref]));
+      const landed = new Map<number, GitCommitEvidence[]>(members.map((pull) => [pull.number, []]));
+      for (const commit of graph.values()) {
+        const owner = assigned.get(commit.sha);
+        const ownedCommits = owner === undefined ? undefined : landed.get(owner);
+        if (!ownedCommits) return incomplete(`Commit ${commit.sha} has no owner.`);
+
+        const linked = stackLinks.get(commit.sha) ?? [];
+        const competing = linked.find(({ number, branch, landing: reportedLanding }) => {
+          const base = memberBases.get(number);
+          return reportedLanding === landing.sha
+            ? base !== branch
+            : base !== undefined || branch === request.releaseBranch;
+        });
+        if (competing)
+          throw new PullRequestAssociationError(
+            "ambiguous-association",
+            `PR #${competing.number} has an unrelated association for commit ${commit.sha}.`,
+          );
+        if (
+          commit.parentShas.length < 2 &&
+          !linked.some(({ number }) => number === root.number || number === owner)
+        )
+          return incomplete(
+            `PR #${owner} lacks GitHub association evidence for commit ${commit.sha}.`,
+          );
+        ownedCommits.push(commit);
+      }
+
+      return members.map((pull) => ({
+        ...pull,
+        url: `https://github.com/${request.repository}/pull/${pull.number}`,
+        landingKind: "merge",
+        landedCommits: landed.get(pull.number) ?? [],
+      }));
+    } catch (error) {
+      if (error instanceof PullRequestAssociationError)
+        throw new PullRequestAssociationError(error.code, `${label}: ${error.message}`);
+      throw error;
+    }
+  }
+
   const result: AssociatedPullRequest[] = [];
   const owners = new Map<string, number>();
   for (const pull of [...pulls.values()].toSorted((a, b) => a.number - b.number)) {
-    const original = await originalCommits(pull);
     const landing = await local(pull.mergeCommitSha);
     let landed: readonly GitCommitEvidence[];
     let landingKind: "merge" | "linear";
+    if (
+      request.range.baseline.kind === "tag" &&
+      landing.parentShas.length === 2 &&
+      landing.parentShas[1] !== pull.headSha &&
+      !verifiedAutomation.some((proof) => proof.pullNumber === pull.number)
+    ) {
+      for (const member of await stack(pull, landing)) {
+        if (
+          member.authorType === "Bot" &&
+          member.headRef === `release-log/${request.releaseBranch}`
+        )
+          throw new PullRequestAssociationError(
+            "automation-unverified",
+            `PR #${member.number} shared landing ${landing.sha} includes the reserved automation branch.`,
+          );
+        for (const commit of member.landedCommits) {
+          if (owners.has(commit.sha))
+            throw new PullRequestAssociationError(
+              "ambiguous-association",
+              `PR #${member.number} shared landing ${landing.sha} overlaps an existing owner at ${commit.sha}.`,
+            );
+          owners.set(commit.sha, member.number);
+        }
+        result.push(member);
+      }
+      continue;
+    }
+    const original = await originalCommits(pull);
     if (landing.parentShas.length === 2) {
       const [parent, head] = landing.parentShas;
       if (!parent || head !== pull.headSha)
@@ -548,7 +745,10 @@ export async function collectMergedPullRequests(
       landedCommits: landed,
     });
   }
-  if (result.length !== pulls.size)
+  if (
+    result.filter((pull) => !pull.stackBase || pull.stackBase.ref === request.releaseBranch)
+      .length !== pulls.size
+  )
     throw new PullRequestAssociationError(
       "incomplete-evidence",
       "Landing boundary discovery introduced additional PR candidates; resolve the overlapping evidence before planning.",
@@ -585,7 +785,30 @@ export async function collectMergedPullRequests(
       );
   }
 
+  for (const member of result) {
+    if (!member.stackBase) continue;
+    const {
+      stackBase,
+      url: _url,
+      landingKind: _landingKind,
+      originalCommits: _original,
+      landedCommits: _landed,
+      ...pull
+    } = member;
+    const value = (await get(`/pulls/${pull.number}`)).data;
+    const final = capturePull(value, request.repository, stackBase.ref, pull.number);
+    if (
+      JSON.stringify(final) !== JSON.stringify(pull) ||
+      JSON.stringify(captureStackBase(value, stackBase.ref)) !== JSON.stringify(stackBase)
+    )
+      throw new PullRequestAssociationError(
+        "metadata-changed",
+        `PR #${pull.number} shared landing ${pull.mergeCommitSha}: stack metadata changed during collection.`,
+      );
+  }
+
   for (const pull of pulls.values()) {
+    if (result.some((member) => member.number === pull.number && member.stackBase)) continue;
     const final = capturePull(
       (await get(`/pulls/${pull.number}`)).data,
       request.repository,
@@ -616,7 +839,7 @@ export async function collectMergedPullRequests(
     repository: request.repository,
     releaseBranch: request.releaseBranch,
     range: request.range,
-    pullRequests: result,
+    pullRequests: result.toSorted((a, b) => a.number - b.number),
     bootstrapCommits,
     ...(request.automation === undefined ? {} : { verifiedAutomation }),
   };
