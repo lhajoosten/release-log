@@ -1,5 +1,6 @@
 import { renderChangelog } from "../changelog.ts";
 import { createReleasePlan } from "../release-plan.ts";
+import { renderReleaseNotes } from "../release-notes.ts";
 import type { ReleaseInputConfiguration } from "../config/repository.ts";
 import { readVersionedInput, versionOptions } from "./versioned-input.ts";
 import type { VersionedInput, VersionOptions } from "./versioned-input.ts";
@@ -30,6 +31,13 @@ export const planningCommands = new Map([
     planningCommand(
       async ({ snapshot, configuration, version }) =>
         (await renderChangelog(snapshot, configuration, version)) ?? "",
+    ),
+  ],
+  [
+    "notes",
+    planningCommand(
+      async ({ snapshot, configuration, version }) =>
+        (await renderReleaseNotes(snapshot, configuration, version)) ?? "",
     ),
   ],
 ]);

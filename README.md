@@ -64,11 +64,11 @@ PRs use conventional titles and the [version 1 release-context block](docs/relea
 
 The App maintains proposals and tags; a human reviews and merges release PRs. Matching-tag retries reuse the existing tag. Conflicting tags and unexpected edits stop for review rather than being overwritten. Downstream publishing permissions belong to downstream jobs. Custom approval receipts and the separate publication executor are not prerequisites for this flow.
 
-## Optional AI notes
+## User-facing release notes
 
-AI-written user-facing release notes are planned and remain unimplemented. A separate [optional text-generation API](docs/text-generation.md) now supports explicit OpenAI, Anthropic, Azure and OpenAI-compatible connections through AI SDK Core; no provider or model is enabled by default. Ordinary changelog generation works without AI credentials or an available provider. The [architecture decision](docs/adr/0002-ai-sdk-provider-integration.md) records the provider integration choice.
+`release-log notes` renders a separate Markdown draft from captured release evidence for manual review. It preserves recorded impact, breaking warnings, required actions, and source references. See the [CLI usage and review procedure](docs/cli.md#draft-user-facing-release-notes).
 
-AI will not determine release membership, classification or breaking status. Any future notes must preserve supported impact, warnings, required actions and source references, omit explicitly internal changes, and avoid invented claims. AI output is a separate artifact from the deterministic changelog.
+Notes and changelog generation work offline without AI credentials. The separate [optional text-generation API and development preview](docs/text-generation.md) support explicit OpenAI, Anthropic, Azure, and OpenAI-compatible connections through AI SDK Core. The [architecture decision](docs/adr/0002-ai-sdk-provider-integration.md) records the provider integration choice.
 
 ## Documentation and development
 
