@@ -121,7 +121,7 @@ export async function reconstructProposal(
         : (registry?.producers.filter((p) => p.sha === producerSha) ?? []);
   if (candidates.length === 0)
     throw new ProposalConflictError(
-      "The recorded producer SHA has no explicitly trusted verification runtime.",
+      `The recorded producer SHA ${producerSha} has no explicitly trusted verification runtime. Review the caller verification runtime pins.`,
     );
   for (const [index, producer] of candidates.entries()) {
     let snapshot: ReleaseSnapshot;
