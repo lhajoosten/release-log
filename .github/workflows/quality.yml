@@ -140,7 +140,7 @@ jobs:
       - name: Run Node coverage and record file timings
         env:
           TEST_SHARD: ${{ matrix.shard }}
-        run: node scripts/test-shards.ts run "$TEST_SHARD" 4 tests/file-timings.tsv "$RUNNER_TEMP/shard-$TEST_SHARD.tsv"
+        run: pnpm test:shards run "$TEST_SHARD" 4 tests/file-timings.tsv "$RUNNER_TEMP/shard-$TEST_SHARD.tsv"
 
       - name: Save timing and test count evidence
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -180,6 +180,10 @@ jobs:
           node-version-file: .node-version
           package-manager-cache: false
 
+      - name: Set up pnpm
+        if: *needs-full-ci
+        uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
+
       - name: Download this run's timing reports
         if: *needs-full-ci
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -190,4 +194,4 @@ jobs:
 
       - name: Verify complete test file coverage
         if: *needs-full-ci
-        run: node scripts/test-shards.ts verify tests/file-timings.tsv "$RUNNER_TEMP/quality-test-shards"/shard-{1,2,3,4}.tsv
+        run: pnpm test:shards verify tests/file-timings.tsv "$RUNNER_TEMP/quality-test-shards"/shard-{1,2,3,4}.tsv
