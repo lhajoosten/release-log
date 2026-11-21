@@ -55,7 +55,7 @@ export class GitHubProposalRepository implements RepositoryEvidenceReader {
     botUserId: number,
     token: string,
     transport: GitHubRead = fetch,
-    timeoutMs = 300_000,
+    deadline: number | AbortSignal = 300_000,
   ) {
     if (!Number.isSafeInteger(botUserId) || botUserId <= 0 || !token.trim())
       throw new ProposalConflictError(
@@ -65,7 +65,7 @@ export class GitHubProposalRepository implements RepositoryEvidenceReader {
     this.botUserId = botUserId;
     this.token = token;
     this.transport = transport;
-    this.signal = AbortSignal.timeout(timeoutMs);
+    this.signal = typeof deadline === "number" ? AbortSignal.timeout(deadline) : deadline;
     this.headRef = `release-log/${config.releaseBranch}`;
     this.prefix = `https://api.github.com/repos/${config.repository}`;
   }

@@ -139,6 +139,7 @@ export async function checkGitHubPullRequest(
     readonly headSha: string;
     readonly token: string;
     readonly contextPolicy?: ReleaseContextPolicy;
+    readonly releaseTarget?: { readonly branch: string; readonly repositoryId: number };
   },
   read: GitHubRead = fetch,
 ): Promise<{
@@ -173,6 +174,16 @@ export async function checkGitHubPullRequest(
   if (initial.head.sha !== request.headSha) {
     throw new PullRequestCheckError(
       "The event head SHA is outdated. Run the metadata check for the current PR head.",
+    );
+  }
+
+  if (
+    request.releaseTarget &&
+    (initial.base.ref !== request.releaseTarget.branch ||
+      initial.base.repositoryId !== request.releaseTarget.repositoryId)
+  ) {
+    throw new PullRequestCheckError(
+      "The current PR base does not match the trusted release branch and repository ID.",
     );
   }
 

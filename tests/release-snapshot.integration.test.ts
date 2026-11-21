@@ -14,6 +14,7 @@ import {
 import type { ReleaseInputConfiguration } from "../src/release-snapshot.ts";
 import { createReleasePlan } from "../src/release-plan.ts";
 import { renderChangelog } from "../src/changelog.ts";
+import { checkGitHubPullRequest } from "../src/github-pr-readiness.ts";
 import { capturedVerificationConfiguration } from "../src/proposal/verification.ts";
 
 const execute = promisify(execFile);
@@ -111,6 +112,58 @@ function firstPull(value: Record<string, unknown>): Record<string, unknown> {
 function hasCode(code: ReleaseSnapshotError["code"]) {
   return (error: unknown) => error instanceof ReleaseSnapshotError && error.code === code;
 }
+
+void test("metadata readiness and snapshot capture share policy and revalidate later edits", async () => {
+  const source = input();
+  const selected = { ...config, contextPolicy: "optional" } as const;
+  const pull = { ...entry(), body: "" };
+  const request = {
+    repository: selected.repository,
+    number: pull.number,
+    headSha: pull.headSha,
+    token: "synthetic-token",
+    contextPolicy: selected.contextPolicy,
+    releaseTarget: { branch: selected.releaseBranch, repositoryId: selected.repositoryId },
+  };
+  async function check(body: string) {
+    return checkGitHubPullRequest(request, (url) =>
+      Promise.resolve(
+        Response.json(
+          url.includes("/commits?")
+            ? [{ sha: first, parents: [{ sha: base }], commit: { message: "feat: add exports" } }]
+            : {
+                number: pull.number,
+                state: "open",
+                merged: false,
+                title: pull.title,
+                body,
+                updated_at: pull.updatedAt,
+                commits: 1,
+                user: { id: pull.authorId },
+                base: {
+                  sha: base,
+                  ref: selected.releaseBranch,
+                  repo: { id: selected.repositoryId, full_name: selected.repository },
+                },
+                head: { sha: first, ref: pull.headRef, repo: { id: pull.headRepositoryId } },
+              },
+        ),
+      ),
+    );
+  }
+
+  const passing = await check(pull.body);
+  assert.ok(passing.result.valid);
+  assert.ok(passing.result.warnings.some((issue) => issue.code === "block-missing"));
+  await captureReleaseSnapshot({ ...source, pullRequests: [pull] }, selected);
+
+  const edited = { ...pull, body: context().replace("version: 1", "version: 2") };
+  assert.equal((await check(edited.body)).result.valid, false);
+  await assert.rejects(
+    captureReleaseSnapshot({ ...source, pullRequests: [edited] }, selected),
+    hasCode("metadata-invalid"),
+  );
+});
 
 void test("capture matches a hand-written normalized golden and retains raw association evidence", async () => {
   const source = input();

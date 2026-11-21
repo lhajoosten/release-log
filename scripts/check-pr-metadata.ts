@@ -5,7 +5,22 @@ import {
   pullRequestFromEvent,
   PullRequestCheckError,
 } from "../src/github-pr-readiness.ts";
-import { isReleaseContextPolicy } from "../src/release-context.ts";
+import {
+  isReleaseContextPolicy,
+  parseReleaseInputConfiguration,
+} from "../src/config/repository.ts";
+
+function readConfiguration(value: string | undefined) {
+  try {
+    if (!value || Buffer.byteLength(value, "utf8") > 1024 * 1024)
+      throw new Error("Missing or oversized configuration.");
+    return parseReleaseInputConfiguration(JSON.parse(value));
+  } catch {
+    throw new PullRequestCheckError(
+      "Supply the rolling-release caller's valid configuration JSON to the pinned metadata workflow.",
+    );
+  }
+}
 
 try {
   if (
@@ -38,12 +53,30 @@ try {
     );
   }
 
-  const contextPolicy = process.env.RELEASE_LOG_CONTEXT_POLICY ?? "required";
+  const config = process.argv.includes("--configuration")
+    ? readConfiguration(process.env.RELEASE_LOG_CONFIGURATION)
+    : undefined;
+  if (config && config.repository !== repository)
+    throw new PullRequestCheckError(
+      "The trusted configuration names a different GitHub repository.",
+    );
+
+  const contextPolicy = config
+    ? (config.contextPolicy ?? "required")
+    : (process.env.RELEASE_LOG_CONTEXT_POLICY ?? "required");
   if (!isReleaseContextPolicy(contextPolicy))
     throw new PullRequestCheckError("RELEASE_LOG_CONTEXT_POLICY must be required or optional.");
 
   const pull = pullRequestFromEvent(event, repository);
-  const check = await checkGitHubPullRequest({ repository, ...pull, token, contextPolicy });
+  const check = await checkGitHubPullRequest({
+    repository,
+    ...pull,
+    token,
+    contextPolicy,
+    ...(config && {
+      releaseTarget: { branch: config.releaseBranch, repositoryId: config.repositoryId },
+    }),
+  });
   for (const issue of check.result.warnings) {
     console.log(JSON.stringify({ level: "warning", ...issue }));
   }
