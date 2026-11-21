@@ -51,7 +51,9 @@ Git/PR capture, snapshots, version calculation, Node, Python, and Cargo version 
 
 ## Reusable workflow and callers
 
-`examples/rolling-release.yml` remains an inactive consumer template with `write: false`; it is distinct from this repository's live caller. For a new consumer, obtain setup/execution authorization, replace both `REVIEWED_FULL_COMMIT_SHA` placeholders with the same reviewed immutable tool/workflow revision containing `roll`, supply the consumer's agreed configuration and App setup, then copy the caller into `.github/workflows/`. This repository retains its fixed bootstrap and onboarding SHAs exactly; other consumers must supply their own agreed boundaries and repository identity.
+Use the inactive `examples/rolling-release.yml` template with `write: false` during setup. Replace both `REVIEWED_FULL_COMMIT_SHA` placeholders with the same reviewed immutable revision containing `roll`, supply the agreed configuration and App setup, and install the caller as `.github/workflows/rolling-release-caller.yml`. New consumers supply their own agreed boundaries and repository identity. Existing consumers retain their recorded boundaries.
+
+Install and exercise the [pre-merge metadata gate](pr-readiness.md#consumer-setup-and-migration) on the same release branch. Require the observed check in GitHub before relying on automation, then run [read-only onboarding verification](pr-readiness.md#read-only-onboarding-verification). Existing consumers can add the gate without changing the release controller's permissions.
 
 The reusable workflow requires a full tool SHA, trusted configuration JSON, release branch, expected numeric bot user ID, App ID and private-key secret. It checks out `lhajoosten/release-log` at that SHA, installs frozen tool dependencies without lifecycle scripts, builds/packs locally, and installs the tarball with only offline frozen production dependencies. This is a source-pinned packaged distribution, independent of registry publication of the private package. Review the tool revision, workflow and dependency lock together; use the same immutable SHA for the workflow and tool in the caller.
 
