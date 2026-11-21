@@ -1,0 +1,6 @@
+{
+  "mode": "report-only",
+  "limits": { "typescript": 20 },
+  "include": ["src/**/*.ts"],
+  "exclude": ["**/node_modules/**", "**/.worktrees/**", "**/.pnpm-store/**"]
+}
