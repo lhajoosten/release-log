@@ -1,6 +1,25 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:6102bceeb9b9e2dc71c95e35f5e9ffdbd8538f7b7a7ffcd7109230abd0033029 -->
+<!-- release-log:pending:v1 sha256:86c8fa33577907764acbfccf7229bbf859ec89be714eebd008c9dee2333b3280 -->
+
+## v0.6.0 (2026-11-21)
+
+### ✨ Features
+
+- Add a pinned pre&#45;merge metadata check and read&#45;only onboarding verification for rolling&#45;release consumers&#46; ([#138](https://github.com/lhajoosten/release-log/pull/138)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+<details>
+<summary>🔧 Internal maintenance</summary>
+
+- Queue reviewed internal release candidates and publish them after the container gate passes&#46; ([#139](https://github.com/lhajoosten/release-log/pull/139)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+</details>
+
+<br>
+
+Full changelog: [v0&#46;5&#46;2&#8230;2104ce2fff85b3493f7d3ffd174e01dd7cae8512](https://github.com/lhajoosten/release-log/compare/v0.5.2...2104ce2fff85b3493f7d3ffd174e01dd7cae8512) (captured source).
+
+<!-- release-log:pending:end -->
 
 ## v0.5.2 (2026-11-21)
 
@@ -10,7 +29,6 @@
 
 Full changelog: [v0&#46;5&#46;1&#8230;cc0161772f51b637cad637a6d4f4a0447c1e3a5e](https://github.com/lhajoosten/release-log/compare/v0.5.1...cc0161772f51b637cad637a6d4f4a0447c1e3a5e) (captured source).
 
-<!-- release-log:pending:end -->
 
 ## v0.5.1 (2026-11-21)
 
