@@ -8,7 +8,11 @@ import type {
   ProposalPullRequest,
   ProposalTree,
 } from "../github-proposals.ts";
-import { parseReleaseInputConfiguration } from "../config/repository.ts";
+import {
+  isReleaseLogRepositoryName,
+  parseReleaseInputConfiguration,
+  RELEASE_LOG_REPOSITORY_ID,
+} from "../config/repository.ts";
 import type { ReleaseInputConfiguration } from "../config/repository.ts";
 import type { ReleaseSnapshot } from "../snapshot/model.ts";
 
@@ -64,7 +68,13 @@ export function capturedVerificationConfiguration(
     return current;
   // Trusted output/presentation opt-ins retain the original proposal rules.
   // A captured repair must still have matching trusted authority.
-  return isDeepStrictEqual(withoutTransitionOptions(captured), withoutTransitionOptions(current))
+  const sameProvider =
+    captured.repositoryId === RELEASE_LOG_REPOSITORY_ID &&
+    current.repositoryId === RELEASE_LOG_REPOSITORY_ID &&
+    isReleaseLogRepositoryName(captured.repository) &&
+    isReleaseLogRepositoryName(current.repository);
+  const comparable = sameProvider ? { ...captured, repository: current.repository } : captured;
+  return isDeepStrictEqual(withoutTransitionOptions(comparable), withoutTransitionOptions(current))
     ? captured
     : current;
 }

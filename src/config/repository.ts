@@ -25,6 +25,21 @@ function isReleaseLogRepository(repository: string, repositoryId: unknown): bool
   return isReleaseLogRepositoryName(repository) && repositoryId === RELEASE_LOG_REPOSITORY_ID;
 }
 
+// Resolve the checked-in self-release config against GitHub’s current slug.
+export function resolveProviderConfiguration(
+  configuration: ReleaseInputConfiguration,
+  repository: string | undefined,
+  repositoryId: unknown,
+): ReleaseInputConfiguration {
+  if (
+    repository === undefined ||
+    !isReleaseLogRepository(repository, repositoryId) ||
+    !isReleaseLogRepository(configuration.repository, configuration.repositoryId)
+  )
+    return invalid("Self-release requires the trusted provider repository identity.");
+  return { ...configuration, repository };
+}
+
 export function isReleaseContextPolicy(value: unknown): value is ReleaseContextPolicy {
   return value === "required" || value === "optional";
 }

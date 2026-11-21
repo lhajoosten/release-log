@@ -1,7 +1,8 @@
 import { isMap, isScalar, parseDocument } from "yaml";
 import { ProposalConflictError } from "../evidence/proposal.ts";
+import { isReleaseLogRepositoryName } from "../config/repository.ts";
 
-const workflow = "lhajoosten/release-log/.github/workflows/rolling-release.yml@";
+const workflow = "/.github/workflows/rolling-release.yml@";
 
 export function updateToolPins(content: string | null, sourceSha: string): string {
   if (content === null || !/^[a-f0-9]{40}$/u.test(sourceSha))
@@ -56,7 +57,8 @@ export function updateToolPins(content: string | null, sourceSha: string): strin
     !uses.range ||
     !tool.range ||
     !/^[a-f0-9]{40}$/u.test(tool.value) ||
-    uses.value !== workflow + tool.value
+    !uses.value.endsWith(workflow + tool.value) ||
+    !isReleaseLogRepositoryName(uses.value.slice(0, -(workflow.length + tool.value.length)))
   )
     throw new ProposalConflictError(
       "Self-upgrades require matching immutable pins in jobs.release.",
@@ -66,7 +68,7 @@ export function updateToolPins(content: string | null, sourceSha: string): strin
     if (!node.range) throw new ProposalConflictError("Missing caller scalar range.");
     const [start, end] = node.range;
     const scalar = content.slice(start, end);
-    const value = node === uses ? workflow + tool.value : tool.value;
+    const value = node === uses ? uses.value : tool.value;
     if (![value, `'${value}'`, `"${value}"`].includes(scalar))
       throw new ProposalConflictError("Self-upgrade pins must be simple single-line scalars.");
     result = result.slice(0, start) + scalar.replace(tool.value, sourceSha) + result.slice(end);

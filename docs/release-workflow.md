@@ -67,6 +67,12 @@ GitHub documents [reusable input/secret forwarding](https://docs.github.com/en/a
 
 Recovery remains explicit: `release-tag-pending` identifies the merged PR and exact landing. Rerun that tag event or use `tag-release` with the same trusted config/bot and App token; never tag current HEAD, move a conflicting tag or advance the bootstrap boundary. A canceled/stale ordinary event can be rerun to collect current source. Partial branch/PR writes require inspecting state before retrying, as described in the proposal guide.
 
+## Provider repository identity
+
+The provider uses GitHub repository ID `1449550207`. Its self release and proposal replay checks validate that ID and the current provider slug. Historical snapshots retain the repository name and producer revision captured at creation. Replay compares the two approved provider names only for that repository ID, then verifies the original snapshot and generated files with the recorded producer.
+
+The reusable workflow path must use the current GitHub repository slug. The GHCR image at `ghcr.io/lhajoosten/release-log` and the `release-log` CLI command are independent distribution names.
+
 ## First-time setup preflight
 
 Run the preflight from a separate, clean checkout of the reviewed Release Log producer. Check out the full producer SHA that contains `preflight` and install its locked dependencies with `pnpm install --frozen-lockfile --ignore-scripts`. Use a full clone of the consumer with its release branch and tags fetched. Set `GITHUB_TOKEN` to a repository-scoped credential with Contents and Pull requests read access. Obtain the consumer's numeric repository ID from GitHub, for example with `gh api repos/OWNER/REPO --jq .id`.
