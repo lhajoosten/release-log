@@ -1,10 +1,10 @@
-name: Reusable rolling release
+name: Rolling Release writer
 
 on:
   workflow_call:
     inputs:
       tool-sha:
-        description: Reviewed full commit of lhajoosten/release-log containing this CLI
+        description: Reviewed full commit of lhajoosten/rolling-release containing this CLI
         required: true
         type: string
       verification-runtimes:
@@ -60,7 +60,7 @@ jobs:
       - name: Check out only reviewed tool code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: lhajoosten/release-log
+          repository: lhajoosten/rolling-release
           ref: ${{ inputs.tool-sha }}
           path: tool
           persist-credentials: false

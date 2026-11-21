@@ -183,7 +183,7 @@ function callerPreview(configuration: ReleaseInputConfiguration, producerSha: st
     jobs: {
       release: {
         if: "github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true",
-        uses: `lhajoosten/release-log/.github/workflows/rolling-release.yml@${producerSha}`,
+        uses: `lhajoosten/rolling-release/.github/workflows/rolling-release.yml@${producerSha}`,
         with: {
           "tool-sha": producerSha,
           "release-branch": configuration.releaseBranch,

@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   release-log:
-    uses: lhajoosten/release-log/.github/workflows/release-metadata.yml@REVIEWED_FULL_COMMIT_SHA
+    uses: lhajoosten/rolling-release/.github/workflows/release-metadata.yml@REVIEWED_FULL_COMMIT_SHA
     with:
       tool-sha: REVIEWED_FULL_COMMIT_SHA
       configuration: >-

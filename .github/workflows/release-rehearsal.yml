@@ -1,4 +1,4 @@
-name: Read-only release rehearsal
+name: Rolling Release read-only rehearsal
 
 on:
   workflow_dispatch:

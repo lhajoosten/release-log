@@ -56,7 +56,7 @@ for (const pin of pins) {
   await run("git", [
     "fetch",
     "--depth=1",
-    "https://github.com/lhajoosten/release-log.git",
+    "https://github.com/lhajoosten/rolling-release.git",
     pin.sha,
   ]);
   await run("git", ["checkout", "--detach", pin.sha]);

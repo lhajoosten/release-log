@@ -16,7 +16,7 @@ permissions:
 jobs:
   release:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
-    uses: lhajoosten/release-log/.github/workflows/rolling-release.yml@REVIEWED_FULL_COMMIT_SHA
+    uses: lhajoosten/rolling-release/.github/workflows/rolling-release.yml@REVIEWED_FULL_COMMIT_SHA
     with:
       tool-sha: REVIEWED_FULL_COMMIT_SHA
       release-branch: main
