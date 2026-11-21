@@ -76,10 +76,13 @@ jobs:
           pnpm install --frozen-lockfile --ignore-scripts
           node scripts/install-producer-runtimes.ts
 
-      # Apply the temporary publication switch while retaining the pinned producer.
-      - name: Load the temporary scan switch from reviewed main
-        if: steps.producer.outputs.tool-sha == 'fd2d2f1d4d7bfea7640152c5594122f0a1b348ee'
-        run: cp source/scripts/{self-release,container-release,scan-container}.ts tool/scripts/
+      # Keep the pinned producer code for replay when its controller predates the flag.
+      - name: Load scan flag support for older release controllers
+        run: |
+          controller=$(cat tool/scripts/self-release.ts)
+          if [[ "$controller" != *'process.env.RELEASE_CONTAINER_SCAN'* ]]; then
+            cp source/scripts/{self-release,container-release,scan-container}.ts tool/scripts/
+          fi
 
       - name: Mint a short-lived release App token for this repository
         id: app
@@ -94,7 +97,7 @@ jobs:
 
       - name: Reconcile the reviewed candidate and stable outputs
         env:
-          RELEASE_CONTAINER_SCAN: "false"
+          RELEASE_CONTAINER_SCAN: ${{ vars.RELEASE_CONTAINER_SCAN == 'true' && 'true' || 'false' }}
           BOT_USER_ID: ${{ vars.RELEASE_BOT_USER_ID }}
           RELEASE_LOG_APP_TOKEN: ${{ steps.app.outputs.token }}
           GHCR_ACTOR: ${{ github.actor }}

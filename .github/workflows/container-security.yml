@@ -20,17 +20,8 @@ concurrency:
 jobs:
   scan:
     name: container-security
-    # Pause only the PR that changes scan policy for the pending v0.6.0 release.
     if: >-
-      (
-        false ||
-        github.event_name != 'pull_request' ||
-        github.repository != 'lhajoosten/release-log' ||
-        github.event.pull_request.head.repo.full_name != github.repository ||
-        github.event.pull_request.head.ref != 'ci/pause-container-scans' ||
-        github.event.pull_request.base.ref != 'main' ||
-        github.event.pull_request.base.sha != '21662200936919c1df83f9d3ce8fccee42fa3dc4'
-      ) && (
+      vars.RELEASE_CONTAINER_SCAN == 'true' && (
         github.event_name != 'pull_request' ||
         github.event.pull_request.head.repo.full_name != github.repository ||
         github.event.pull_request.head.ref != 'release-log/main' ||

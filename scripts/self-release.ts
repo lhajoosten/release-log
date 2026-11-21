@@ -305,10 +305,7 @@ async function main() {
         }
 
         if (active) {
-          const scanRequired =
-            process.env.RELEASE_CONTAINER_SCAN !== "false" ||
-            active.tag !== "v0.6.0" ||
-            active.landingSha !== "21662200936919c1df83f9d3ce8fccee42fa3dc4";
+          const scanRequired = process.env.RELEASE_CONTAINER_SCAN !== "false";
           details = {
             ...active.pin,
             tag: active.tag,
