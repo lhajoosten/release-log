@@ -24,10 +24,15 @@ for (const { title, version, squash, replacements = 1 } of [
   { title: "fix(api): refresh pinned inputs", version: "1.2.4", squash: false, replacements: 30 },
 ]) {
   void test(`v${version} with ${replacements} replacement(s) keeps the full stable range and verifies the candidate footprint`, async (context) => {
-    const f = await fixture(context, "node", "fix(api): retain selected rows", {
-      selfUse: true,
-      caller: `env:\n  RELEASE_PRODUCER_SHA: ${"a".repeat(40)}\n`,
-    });
+    const f = await fixture(
+      context,
+      squash ? "python-uv" : "node",
+      "fix(api): retain selected rows",
+      {
+        selfUse: true,
+        caller: `env:\n  RELEASE_PRODUCER_SHA: ${"a".repeat(40)}\n`,
+      },
+    );
     const { configuration: defaults, automation, token } = await f.request();
     const configuration = {
       ...defaults,
@@ -250,6 +255,11 @@ for (const { title, version, squash, replacements = 1 } of [
       );
       const replacement = await land(captured, candidate.head, false);
       assert.equal(replacement.prepared.plan.nextVersion, version);
+      if (squash) {
+        const lock = replacement.prepared.files.find(({ path }) => path === "uv.lock");
+        assert.match(lock?.before ?? "", /version = "1\.2\.4"/u);
+        assert.match(lock?.after ?? "", /version = "1\.3\.0"/u);
+      }
       const verified = await verifyReleaseLanding(
         {
           ...input,

@@ -2,7 +2,7 @@ import { readCargoContents } from "./cargo-version.ts";
 import { createHash } from "node:crypto";
 import { GitHubReadError, requestGitHubJson } from "./github.ts";
 import type { GitHubRead } from "./github.ts";
-import { isCargoManifest, isProposalPath } from "./proposal-paths.ts";
+import { isCargoManifest, isProposalPath, isRootLockPath } from "./proposal-paths.ts";
 import type { ProposalFile, ReleaseFileContents } from "./proposal/prepare.ts";
 import type { ReleaseInputConfiguration } from "./config/repository.ts";
 import { ProposalConflictError, proposalObject } from "./evidence/proposal.ts";
@@ -332,7 +332,9 @@ export class GitHubProposalRepository implements RepositoryEvidenceReader {
           tree: files.map((file) => {
             if (
               !isProposalPath(file.path) ||
-              ((file.path === "Cargo.lock" || isCargoManifest(file.path)) &&
+              ((isRootLockPath(file.path) ||
+                file.path === "Cargo.lock" ||
+                isCargoManifest(file.path)) &&
                 !source.entries.has(file.path))
             )
               throw new ProposalConflictError("Unexpected proposal output path.");

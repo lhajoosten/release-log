@@ -405,7 +405,17 @@ void test(
     const bootstrapRepository = join(path, "bootstrap-repository");
     await mkdir(bootstrapRepository);
     await writeFile(join(bootstrapRepository, "package.json"), '{"version":"0.0.0"}\n');
-    await writeFile(join(bootstrapRepository, "pyproject.toml"), '[project]\nversion="0.0.0"\n');
+    const manifest = '[project]\nname="demo"\nversion="0.0.0"\n';
+    const lock =
+      'version = 1\nrevision = 5\n[[package]]\nname = "demo"\nversion = "0.0.0"\nsource = { editable = "." }\n';
+    await writeFile(join(bootstrapRepository, "pyproject.toml"), manifest);
+    await writeFile(join(bootstrapRepository, "uv.lock"), lock);
+    const uvPreview = (
+      await run(["prepare", ...bootstrapArgs, "--repository", bootstrapRepository, "--dry-run"])
+    ).stdout;
+    assert.match(uvPreview, /"path": "pyproject.toml"/u);
+    assert.match(uvPreview, /"path": "uv.lock"/u);
+    assert.equal(await readFile(join(bootstrapRepository, "uv.lock"), "utf8"), lock);
 
     await run(["prepare", ...bootstrapArgs, "--repository", bootstrapRepository, "--write"]);
 
@@ -415,7 +425,11 @@ void test(
     );
     assert.equal(
       await readFile(join(bootstrapRepository, "pyproject.toml"), "utf8"),
-      '[project]\nversion="0.1.0"\n',
+      manifest.replace("0.0.0", "0.1.0"),
+    );
+    assert.equal(
+      await readFile(join(bootstrapRepository, "uv.lock"), "utf8"),
+      lock.replace("0.0.0", "0.1.0"),
     );
 
     const adoptionConfig = {

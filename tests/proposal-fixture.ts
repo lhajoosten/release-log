@@ -28,7 +28,14 @@ export const version = { kind: "released", currentVersion: "1.2.3" } as const;
 
 export async function fixture(
   context: TestContext,
-  mode: "node" | "python" | "both" | "cargo" | "cargo-workspace" = "node",
+  mode:
+    | "node"
+    | "node-npm"
+    | "python"
+    | "python-uv"
+    | "both"
+    | "cargo"
+    | "cargo-workspace" = "node",
   title = "feat(api): export rows",
   setup: {
     selfUse?: boolean;
@@ -83,16 +90,31 @@ export async function fixture(
   }
   git(["init", "--initial-branch=main", `--object-format=${setup.objectFormat ?? "sha1"}`]);
   const manifestVersion = setup.bootstrap ? "0.0.0" : "1.2.3";
-  if (mode === "node" || mode === "both")
+  if (mode === "node" || mode === "node-npm" || mode === "both")
     await writeFile(
       join(directory, "package.json"),
       `{ "version": "${manifestVersion}", "private": true }\n`,
+    );
+  if (mode === "node-npm")
+    await writeFile(
+      join(directory, "package-lock.json"),
+      `{ "lockfileVersion": 3, "version": "${manifestVersion}", "packages": { "": { "version": "${manifestVersion}" } } }\n`,
     );
   if (mode === "python" || mode === "both")
     await writeFile(
       join(directory, "pyproject.toml"),
       `# preserve\n[project]\nversion = "${manifestVersion}" # preserve\n`,
     );
+  if (mode === "python-uv") {
+    await writeFile(
+      join(directory, "pyproject.toml"),
+      `[project]\nname = "fixture_project"\nversion = "${manifestVersion}"\nrequires-python = ">=3.11"\n`,
+    );
+    await writeFile(
+      join(directory, "uv.lock"),
+      `version = 1\nrevision = 5\nrequires-python = ">=3.11"\n\n[[package]]\nname = "fixture-project"\nversion = "${manifestVersion}"\nsource = { virtual = "." }\n`,
+    );
+  }
   if (mode === "cargo")
     await writeFile(
       join(directory, "Cargo.toml"),

@@ -12,7 +12,7 @@ async function mergedProposal(
   context: TestContext,
   mergeKind: "merge" | "squash" = "merge",
   bootstrap = false,
-  mode: "node" | "cargo-workspace" = "node",
+  mode: "node" | "python-uv" | "cargo-workspace" = "node",
 ) {
   const setup = bootstrap ? { bootstrap: true, bootstrapCommit: true, adoption: true } : {};
   const f = await fixture(context, mode, "feat(api): export rows", setup);
@@ -177,6 +177,23 @@ void test("a Cargo workspace proposal is tagged at the exact merge landing", asy
     state.f.git(["show", `${state.landingSha}:Cargo.lock`]),
     /name = "upkeep-core"\nversion = "1\.3\.0"/u,
   );
+});
+
+void test("a bootstrap uv proposal is tagged from the reviewed landing after main advances", async (context) => {
+  const state = await mergedProposal(context, "merge", true, "python-uv");
+  state.f.git(["read-tree", "--reset", "-u", "HEAD"]);
+  await state.f.advance("fix(api): a later change");
+  const transport = tagTransport(state.f);
+  const result = await reconcileReleaseTag({ ...state.request, write: true }, transport);
+  assert.equal(result.outcome, "created");
+  assert.equal(state.f.ref("tags/v0.1.0"), state.landingSha);
+  for (const path of ["pyproject.toml", "uv.lock"])
+    assert.equal(
+      state.f.git(["show", `${state.landingSha}:${path}`]),
+      state.f.git(["show", `${state.sourceSha}:${path}`]).replace("0.0.0", "0.1.0"),
+    );
+  const retry = await reconcileReleaseTag({ ...state.request, write: true }, transport);
+  assert.equal(retry.outcome, "unchanged");
 });
 
 void test("a later main commit does not retarget the release tag", async (context) => {
