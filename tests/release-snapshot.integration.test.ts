@@ -221,6 +221,23 @@ void test("a reviewed documentation subject repair preserves raw Git evidence an
     currentVersion: "0.2.0",
   });
   assert.equal(plan.release, false);
+
+  const ciConfiguration = {
+    ...selected,
+    commitMessageRepairs: [{ ...repair, subject: "ci: verify the README header" }],
+  };
+  const ciSnapshot = await captureReleaseSnapshot(source, ciConfiguration);
+  const ciSerialized = await serializeReleaseSnapshot(ciSnapshot);
+  assert.deepEqual(await replayReleaseSnapshot(ciSerialized, ciConfiguration), ciSnapshot);
+  assert.equal(
+    (
+      await createReleasePlan(ciSerialized, ciConfiguration, {
+        kind: "released",
+        currentVersion: "0.2.0",
+      })
+    ).release,
+    false,
+  );
   await assert.rejects(
     captureReleaseSnapshot(source, {
       ...selected,

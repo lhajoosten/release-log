@@ -238,8 +238,10 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
           return { ...target, wrapBody: true } as const;
         }
         const subject = text(repair.subject, "replacement commit subject", 100);
-        if (subject.trim() !== subject || !/^docs: [^\r\n\0]+$/u.test(subject))
-          return invalid("A commit message repair requires a single non-breaking docs subject.");
+        if (subject.trim() !== subject || !/^(?:docs|ci): [^\r\n\0]+$/u.test(subject))
+          return invalid(
+            "A commit message repair requires a single non-breaking docs or ci subject.",
+          );
         return { ...target, subject };
       })
       .toSorted((left, right) =>
