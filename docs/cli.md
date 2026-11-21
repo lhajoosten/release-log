@@ -36,6 +36,21 @@ release-log prepare --config release-config.json --snapshot inputs.json --curren
 
 `plan` emits version-decision JSON. `render` emits the deterministic Markdown section, or empty stdout for no release. `prepare` emits `{ mode, plan, files }` JSON with each generated output path and exact before/after text. It defaults to dry-run, without creating files/directories. Only explicit `--write` replaces local proposal files. `--write` and `--dry-run` are mutually exclusive. Bootstrap planning replaces `--current-version` with `--initial-version 0.1.0` and must match a captured bootstrap baseline.
 
+## Draft user-facing release notes
+
+```sh
+release-log notes --config release-config.json --snapshot inputs.json --current-version 1.2.3 > release-notes.md
+sha256sum release-notes.md
+```
+
+`notes` replays the captured snapshot against the trusted configuration and uses the same version arguments as `render`, including `--initial-version 0.1.0` for bootstrap. It writes one Markdown draft to stdout, with LF line endings and a final newline. A no-release plan yields empty stdout. A replay or planning failure exits nonzero with a diagnostic on stderr and no Markdown. Check the command succeeded and produced a draft before recording its digest.
+
+The draft uses captured summaries and impact for entries marked `users`, even when the technical changelog uses reduced verbosity. Entries marked `internal` contribute breaking warnings and required actions when present. Unknown audience and missing or unusable context appear under **Needs review** with source links. Historical metadata warnings also appear there. Missing breaking explanations or migration actions are called out explicitly. Review the accuracy of captured claims against their sources. The renderer uses only captured evidence and makes no network or AI requests. See the [Markdown contract and example](rfc/0001-deterministic-release-notes.md).
+
+Review the exact draft alongside the release proposal and record its version, full snapshot ID, contract revision, and SHA-256 digest in the maintainer review. Before relying on that review, regenerate from the currently selected snapshot using the trusted renderer and compare the binding and digest against the reviewed values. Check the saved draft's digest too. Recapture and review again when live evidence changes. A new capture, renderer contract change, or edit to the file that changes the binding or bytes requires fresh review, even if the version stays the same. Keep the original snapshot and matching renderer to replay a past draft.
+
+This is a manual review step. The draft stays outside the generated proposal files and GitHub Release body. The [development AI preview](text-generation.md) is a separate command.
+
 The commands above do not commit, push or open PRs. The separate explicit [proposal controller](release-proposal.md) command performs online reads by default and `propose --write` creates/refreshes a reserved remote branch and PR (new PRs are non-draft). It requires separate automation configuration, credentials and execution approval. This repository’s live caller uses `roll --write` to route ordinary merges through proposal generation and release merges through exact-landing tagging; see the [caller and rollout limits](release-workflow.md#reusable-workflow-and-callers). Only the separate explicit `publish-github --write` executor can publish a GitHub Release; it has no enabled workflow and requires separate execution approval. No command merges, pushes images, calls AI, installs consumer dependencies, executes consumer lifecycle scripts, or runs a Python build backend. `prepare` output contains raw snapshot context: use approved storage and do not publish stdout indiscriminately. Exit codes are 0 for success (including no release), 1 for operation/validation failures, and 2 for usage errors. Errors omit raw bodies, tokens, and unexpected exception details.
 
 ### Backfill existing releases

@@ -410,9 +410,12 @@ void test("archive identity accepts classic and OCI config paths and rejects amb
     assert.throws(() => archiveConfigPath(value));
 });
 
-void test("release workflow gates the event SHA image before step-local publication credentials", async () => {
+void test("the self-release workflow reconciles only trusted main and keeps credentials step-local", async () => {
   const workflow: unknown = parse(
-    await readFile(new URL("../.github/workflows/container-release.yml", import.meta.url), "utf8"),
+    await readFile(
+      new URL("../.github/workflows/rolling-release-caller.yml", import.meta.url),
+      "utf8",
+    ),
   );
   assert.ok(
     typeof workflow === "object" &&
@@ -422,17 +425,20 @@ void test("release workflow gates the event SHA image before step-local publicat
       "concurrency" in workflow &&
       "jobs" in workflow,
   );
-  assert.deepEqual(workflow.on, { push: { tags: ["v[0-9]+.[0-9]+.[0-9]+"] } });
+  assert.deepEqual(workflow.on, {
+    push: { branches: ["main"] },
+    schedule: [{ cron: "19 */4 * * *" }],
+    workflow_dispatch: null,
+  });
   assert.deepEqual(workflow.permissions, { contents: "read" });
   assert.deepEqual(workflow.concurrency, {
-    group: "container-release",
+    group: "release-log-${{ github.repository }}-main",
     "cancel-in-progress": false,
-    queue: "max",
   });
   assert.ok(
-    typeof workflow.jobs === "object" && workflow.jobs !== null && "publish" in workflow.jobs,
+    typeof workflow.jobs === "object" && workflow.jobs !== null && "reconcile" in workflow.jobs,
   );
-  const job = workflow.jobs.publish;
+  const job = workflow.jobs.reconcile;
   assert.ok(
     typeof job === "object" &&
       job !== null &&
@@ -441,35 +447,36 @@ void test("release workflow gates the event SHA image before step-local publicat
       "permissions" in job &&
       "if" in job,
   );
-  assert.deepEqual(job.permissions, { contents: "read", packages: "write" });
-  assert.match(String(job.if), /github.event.created == true/u);
-  const commands: string[] = [];
+  assert.deepEqual(job.permissions, {
+    contents: "write",
+    packages: "write",
+    "pull-requests": "read",
+  });
+  assert.ok("concurrency" in job);
+  assert.deepEqual(job.concurrency, { group: "container-release", "cancel-in-progress": false });
+  assert.match(String(job.if), /github.ref == 'refs\/heads\/main'/u);
+  let credentialSteps = 0;
   for (const step of job.steps) {
     assert.ok(typeof step === "object" && step !== null);
     if ("uses" in step) {
       assert.match(String(step.uses), /@[a-f0-9]{40}$/u);
       if (String(step.uses).startsWith("actions/checkout@")) {
-        assert.ok("with" in step);
-        assert.deepEqual(step.with, {
-          ref: "${{ github.sha }}",
-          "fetch-depth": 0,
-          "persist-credentials": false,
-        });
+        assert.ok("with" in step && typeof step.with === "object" && step.with !== null);
+        assert.equal(
+          Object.getOwnPropertyDescriptor(step.with, "persist-credentials")?.value,
+          false,
+        );
       }
     }
-    if ("run" in step) commands.push(String(step.run));
-    if ("env" in step && JSON.stringify(step.env).includes("secrets.GITHUB_TOKEN")) {
+    if ("env" in step && JSON.stringify(step.env).includes("github.token")) {
+      credentialSteps++;
       assert.ok("run" in step);
-      assert.equal(step.run, "pnpm container:release publish");
+      assert.match(String(step.run), /node tool\/scripts\/self-release.ts/u);
     }
   }
-  assert.deepEqual(commands.slice(0, 4), [
-    "pnpm install --frozen-lockfile --ignore-scripts",
-    "pnpm container:release validate",
-    "pnpm container:build --tag release-log-candidate:release",
-    "pnpm check:container --image release-log-candidate:release",
-  ]);
-  assert.match(commands[4] ?? "", /pnpm container:scan --image release-log-candidate:release/u);
-  assert.match(commands[4] ?? "", /--allow-openssl-backport/u);
-  assert.equal(commands[5], "pnpm container:release publish");
+  assert.equal(credentialSteps, 1);
+  await assert.rejects(
+    readFile(new URL("../.github/workflows/container-release.yml", import.meta.url)),
+    { code: "ENOENT" },
+  );
 });

@@ -25,6 +25,9 @@ function withoutTransitionOptions(config: ReleaseInputConfiguration) {
     selfUpgrade: _selfUpgrade,
     githubRelease: _githubRelease,
     commitMessageRepairs: _commitMessageRepairs,
+    internalPublication: _internalPublication,
+    candidateLandings: _candidateLandings,
+    candidateStableNotes: _candidateStableNotes,
     ...rest
   } = config;
   return { ...rest, changelog: { verbosity: config.changelog?.verbosity ?? "detailed" } };
@@ -53,6 +56,7 @@ export function capturedVerificationConfiguration(
   if (
     (captured.selfUpgrade && !current.selfUpgrade) ||
     (captured.githubRelease && !current.githubRelease) ||
+    (captured.internalPublication && !current.internalPublication) ||
     captured.commitMessageRepairs?.some(
       (repair) => !current.commitMessageRepairs?.some((pin) => isDeepStrictEqual(pin, repair)),
     )
