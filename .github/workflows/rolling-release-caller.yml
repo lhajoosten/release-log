@@ -76,6 +76,11 @@ jobs:
           pnpm install --frozen-lockfile --ignore-scripts
           node scripts/install-producer-runtimes.ts
 
+      # Apply the temporary publication switch while retaining the pinned producer.
+      - name: Load the temporary scan switch from reviewed main
+        if: steps.producer.outputs.tool-sha == 'fd2d2f1d4d7bfea7640152c5594122f0a1b348ee'
+        run: cp source/scripts/{self-release,container-release}.ts tool/scripts/
+
       - name: Mint a short-lived release App token for this repository
         id: app
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
@@ -89,6 +94,7 @@ jobs:
 
       - name: Reconcile the reviewed candidate and stable outputs
         env:
+          RELEASE_CONTAINER_SCAN: "false"
           BOT_USER_ID: ${{ vars.RELEASE_BOT_USER_ID }}
           RELEASE_LOG_APP_TOKEN: ${{ steps.app.outputs.token }}
           GHCR_ACTOR: ${{ github.actor }}

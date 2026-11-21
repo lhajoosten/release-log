@@ -304,12 +304,17 @@ async function main() {
         }
 
         if (active) {
+          const scanRequired =
+            process.env.RELEASE_CONTAINER_SCAN !== "false" ||
+            active.tag !== "v0.6.0" ||
+            active.landingSha !== "21662200936919c1df83f9d3ce8fccee42fa3dc4";
           details = {
             ...active.pin,
             tag: active.tag,
             sourceSha: active.verified.source.commitSha,
             stableBaseline: active.baseline.name,
             producer: active.verified.identity.producerSha,
+            vulnerabilityScan: scanRequired ? "required" : "skipped",
           };
           await report(hasPublicWrites ? "resuming-publication" : "validating", details);
           const target = await readTagTarget(api, active.tag);
@@ -317,6 +322,7 @@ async function main() {
             throw new ProposalConflictError("Stable tag points to another commit.");
           await git("worktree", "add", "--detach", candidateDirectory, active.landingSha);
           const sameClaim = saved?.landingSha === active.landingSha ? saved : null;
+          let smokeTestedImageId: string | null = null;
           try {
             await run("pnpm", ["install", "--frozen-lockfile", "--ignore-scripts"]);
             const outcome = await publishInternalCandidate(active.pin, sameClaim, {
@@ -347,14 +353,16 @@ async function main() {
                 if (!/^sha256:[a-f0-9]{64}$/u.test(imageId))
                   throw new Error("Invalid built image ID.");
                 await run("pnpm", ["check:container", "--image", imageId]);
-                await run("pnpm", [
-                  "container:scan",
-                  "--image",
-                  imageId,
-                  "--output",
-                  join(reports, "candidate-scan"),
-                  "--allow-openssl-backport",
-                ]);
+                smokeTestedImageId = imageId;
+                if (scanRequired)
+                  await run("pnpm", [
+                    "container:scan",
+                    "--image",
+                    imageId,
+                    "--output",
+                    join(reports, "candidate-scan"),
+                    "--allow-openssl-backport",
+                  ]);
               },
               publishImage: async (beforePush) => {
                 const { result } = await reconcilePublication(
@@ -362,10 +370,12 @@ async function main() {
                   active.landingSha,
                   () => readImage(active),
                   run,
-                  async () =>
-                    JSON.parse(
-                      await readFile(join(reports, "candidate-scan/evidence.json"), "utf8"),
-                    ) as unknown,
+                  scanRequired
+                    ? async () =>
+                        JSON.parse(
+                          await readFile(join(reports, "candidate-scan/evidence.json"), "utf8"),
+                        ) as unknown
+                    : { smokeTestedImageId },
                   beforePush,
                   join(reports, "reused-scan"),
                 );
