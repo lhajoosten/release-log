@@ -32,7 +32,10 @@ time	tests/release-cycle.integration.test.ts	20800
 time	tests/release-notes.test.ts	790
 time	tests/release-plan.test.ts	879
 time	tests/release-proposal.integration.test.ts	21991
-time	tests/release-publication.integration.test.ts	110253
+time	tests/release-publication-guards.integration.test.ts	27586
+time	tests/release-publication-registry.integration.test.ts	9760
+time	tests/release-publication-writes.integration.test.ts	30467
+time	tests/release-publication.integration.test.ts	20171
 time	tests/release-readiness.test.ts	623
 time	tests/release-rehearsal.integration.test.ts	14363
 time	tests/release-review.integration.test.ts	27999
