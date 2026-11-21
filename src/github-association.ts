@@ -380,8 +380,7 @@ export async function collectMergedPullRequests(
           !inRange.has(item.mergeCommitSha)
         )
           continue;
-        if (request.range.baseline.kind === "tag")
-          shared.push({ number: item.number, branch: item.branch, landing: item.mergeCommitSha });
+        shared.push({ number: item.number, branch: item.branch, landing: item.mergeCommitSha });
         if (item.branch !== request.releaseBranch) continue;
         let pull = pulls.get(item.number);
         if (!pull) {
@@ -509,7 +508,7 @@ export async function collectMergedPullRequests(
         if (!inRange.has(sha))
           throw new PullRequestAssociationError(
             "partial-membership",
-            `Git footprint crosses the tagged baseline at commit ${sha}.`,
+            `Git footprint crosses the ${verified.baseline.kind === "tag" ? "tagged" : "bootstrap"} baseline at commit ${sha}.`,
           );
         graph.set(sha, await local(sha));
       }
@@ -637,7 +636,6 @@ export async function collectMergedPullRequests(
     let landed: readonly GitCommitEvidence[];
     let landingKind: "merge" | "linear";
     if (
-      request.range.baseline.kind === "tag" &&
       landing.parentShas.length === 2 &&
       landing.parentShas[1] !== pull.headSha &&
       !verifiedAutomation.some((proof) => proof.pullNumber === pull.number)
