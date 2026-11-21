@@ -23,6 +23,7 @@ export function updateChangelog(
   existing: string,
   rendered: string | null,
   releasedVersion?: string,
+  recoveredStableNotes?: string,
 ): string {
   bounded(existing);
   if (rendered !== null) bounded(rendered);
@@ -92,10 +93,22 @@ export function updateChangelog(
     : existing.startsWith("\n", end)
       ? end + 1
       : end;
+  if (recoveredStableNotes !== undefined) {
+    generatedSection(recoveredStableNotes);
+    const heading = recoveredStableNotes.split("\n")[0];
+    if (
+      existing
+        .slice(after)
+        .split("\n")
+        .some((line) => line === heading)
+    )
+      recoveredStableNotes = undefined;
+  }
+  const stableNotes = released ? content : recoveredStableNotes;
   const result =
     existing.slice(0, start) +
     generatedSection(rendered) +
-    (released ? `\n${content}\n` : "") +
+    (stableNotes ? `\n${stableNotes}\n` : "") +
     existing.slice(after);
   bounded(result);
   return result;

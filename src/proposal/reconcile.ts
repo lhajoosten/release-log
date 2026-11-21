@@ -9,6 +9,8 @@ import { GitHubProposalRepository, ProposalConflictError } from "../github-propo
 import type { GitHubRead } from "../github.ts";
 import { verifyPrevious } from "./verification.ts";
 import { inspectProposalHistory } from "./history.ts";
+import type { CandidateProposalHistory } from "./history.ts";
+export type { CandidateProposalHistory } from "./history.ts";
 import { writeProposal } from "./write.ts";
 import { prepareVerifiedRelease, validateReleaseFileContents } from "./prepare.ts";
 import { encodeVerifiedSnapshot } from "../snapshot/canonical.ts";
@@ -64,6 +66,7 @@ export type ReleaseProposalResult = ProposalResultBase &
 export async function reconcileReleaseProposal(
   request: ReleaseProposalRequest,
   transport: GitHubRead = fetch,
+  candidateHistory?: CandidateProposalHistory,
 ): Promise<ReleaseProposalResult> {
   const config = parseReleaseInputConfiguration(request.configuration);
   const automation = parseReleaseAutomation(request.automation);
@@ -84,6 +87,7 @@ export async function reconcileReleaseProposal(
   const sourceSha = snapshot.normalized.sourceCommitSha;
   const baseline = snapshot.input.range.baseline;
   const requireFresh = async () => {
+    await candidateHistory?.assertCurrent();
     if ((await api.ref("heads", config.releaseBranch)) !== sourceSha)
       throw new ProposalConflictError(
         "Main changed after capture; collect and review the complete range again.",
@@ -102,6 +106,7 @@ export async function reconcileReleaseProposal(
     baseline,
     selectedVersion,
     transport,
+    ...(candidateHistory ? { candidateHistory } : {}),
   });
   await requireFresh();
   const initialHead = await api.ref("heads", api.headRef, true);
@@ -115,7 +120,11 @@ export async function reconcileReleaseProposal(
     );
   const historyHead = previous ? initialHead : (completed?.headSha ?? null);
   const prior = previous ? await verifyPrevious(api, previous, config, automation.botUserId) : null;
-  if (prior && JSON.stringify(prior.identity.baseline) !== JSON.stringify(baseline))
+  if (
+    prior &&
+    !candidateHistory &&
+    JSON.stringify(prior.identity.baseline) !== JSON.stringify(baseline)
+  )
     throw new ProposalConflictError(
       "The proposal belongs to another baseline; review the release lifecycle before refreshing.",
     );
@@ -138,7 +147,11 @@ export async function reconcileReleaseProposal(
     throw new ProposalConflictError(
       "Self-upgrades require an explicitly pinned active producer runtime.",
     );
-  if (config.selfUpgrade && readToolPin(sourceContents[workflowPath] ?? "") !== activeProducerSha())
+  if (
+    config.selfUpgrade &&
+    !candidateHistory &&
+    readToolPin(sourceContents[workflowPath] ?? "") !== activeProducerSha()
+  )
     throw new ProposalConflictError(
       "The captured caller no longer pins the active producer; rerun using the reviewed current caller.",
     );
