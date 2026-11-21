@@ -1,6 +1,30 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:6102bceeb9b9e2dc71c95e35f5e9ffdbd8538f7b7a7ffcd7109230abd0033029 -->
+<!-- release-log:pending:v1 sha256:2a7f1c41f49d44fd3ffecdd2608daea7da906e7b2b6c7fed603ef4925366890e -->
+
+## v0.6.0 (2026-11-21)
+
+### ✨ Features
+
+- Keep the root uv lock entry in sync with the Python release version&#46; ([#129](https://github.com/lhajoosten/release-log/pull/129)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Synchronize npm root version mirrors during release preparation&#46; ([#130](https://github.com/lhajoosten/release-log/pull/130)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Generate offline Markdown release notes from captured release evidence&#46; ([#135](https://github.com/lhajoosten/release-log/pull/135)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Add a pinned pre&#45;merge metadata check and read&#45;only onboarding verification for rolling&#45;release consumers&#46; ([#138](https://github.com/lhajoosten/release-log/pull/138)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+<details>
+<summary>🔧 Internal maintenance</summary>
+
+- Verify Bun locked installs after root&#45;only releases&#46; ([#132](https://github.com/lhajoosten/release-log/pull/132)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Verify Poetry lock freshness after static Python version bumps&#46; ([#134](https://github.com/lhajoosten/release-log/pull/134)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Queue reviewed internal release candidates and publish them after the container gate passes&#46; ([#139](https://github.com/lhajoosten/release-log/pull/139)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+</details>
+
+<br>
+
+Full changelog: [v0&#46;5&#46;2&#8230;2bb3afe3e37b5dae50c389c10cbca3fd101704ae](https://github.com/lhajoosten/release-log/compare/v0.5.2...2bb3afe3e37b5dae50c389c10cbca3fd101704ae) (captured source).
+
+<!-- release-log:pending:end -->
 
 ## v0.5.2 (2026-11-21)
 
@@ -10,7 +34,6 @@
 
 Full changelog: [v0&#46;5&#46;1&#8230;cc0161772f51b637cad637a6d4f4a0447c1e3a5e](https://github.com/lhajoosten/release-log/compare/v0.5.1...cc0161772f51b637cad637a6d4f4a0447c1e3a5e) (captured source).
 
-<!-- release-log:pending:end -->
 
 ## v0.5.1 (2026-11-21)
 
