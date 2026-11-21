@@ -1,26 +1,26 @@
 # Deterministic release notes from captured evidence
 
-Status: proposed for review in [issue #76](https://github.com/lhajoosten/release-log/issues/76).
+Status: implemented in the offline `notes` command for [issue #76](https://github.com/lhajoosten/release-log/issues/76). See the [CLI review procedure](../cli.md#draft-user-facing-release-notes).
 
-## Decision requested
+## Decision
 
-Approve the audience rules, first Markdown layout, and review identity below. The technical changelog remains the complete release record. The notes give readers supported explanations and upgrade instructions, and give maintainers a visible list of evidence gaps to review.
+The technical changelog remains the complete release record. The notes give readers supported explanations and upgrade instructions, and give maintainers a visible list of evidence gaps to review.
 
 Generate the notes offline by replaying a [release snapshot](../release-snapshot.md) with the expected trusted configuration and deriving the [release plan](../release-plan.md) with explicit version configuration. Follow the plan for release membership, exclusions, version, classification, and breaking status. Read explanatory text and review warnings from the matching normalized snapshot entries. The changelog can omit context by design at lower verbosity settings, so reading it back would lose evidence. The existing `pnpm notes:preview` script is a separate development preview based on a changelog section.
 
 ## Markdown
 
-Proposed entry point: `release-log notes` takes the same configuration, snapshot, and version arguments as `render`. A release produces one UTF-8 Markdown artifact on stdout with LF line endings and one final newline. A no-release plan produces empty stdout. Replay, planning, or rendering failure exits nonzero with a diagnostic on stderr and no partial artifact. Maintainers can save the stdout bytes under a path of their choosing.
+`release-log notes` takes the same configuration, snapshot, and version arguments as `render`. A release produces one UTF-8 Markdown artifact on stdout with LF line endings and one final newline. A no-release plan produces empty stdout. Replay, planning, or rendering failure exits nonzero with a diagnostic on stderr and no partial artifact. Maintainers can save the stdout bytes under a path of their choosing.
 
 Use the title `# Release notes for vVERSION`, a visible draft notice, and the binding described below. Emit nonempty sections in this order: **Breaking changes**, **Required actions**, **Improvements**, **Fixes**, **Other changes**, **Needs review**. Keep plan order within each section, following the plan's ordinary, bootstrap, and historical arrays in that order. Include a source reference on every entry, even when a source occurs in multiple sections.
 
-| Evidence                                              | Output                                                                                                                                                                               |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Valid `users` context                                 | Render the captured summary and impact. Group `feat` and `perf` under improvements, `fix` under fixes, and other types under other changes.                                          |
-| Valid `internal` context                              | Suppress summary and impact. Retain breaking evidence and required actions. Retain captured historical review warnings where present.                                                |
-| Missing or unusable context admitted by replay        | Put the captured title or subject and the metadata gap in Needs review. Treat audience and impact as unknown. Keep any trusted breaking flag and captured explanation.               |
-| Breaking contribution of any audience                 | Render captured breaking explanations. With no explanation, say that the source declares a breaking change and supplies no explanation.                                              |
-| Valid nonnull action, or breaking with missing action | Render the supplied action, including for nonbreaking changes. For a breaking entry with no action, flag that migration instructions are missing and direct reviewers to the source. |
+| Evidence                                              | Output                                                                                                                                                                                                  |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Valid `users` context                                 | Render the captured summary and impact. Group `feat` and `perf` under improvements, `fix` under fixes, and other types under other changes.                                                             |
+| Valid `internal` context                              | Suppress summary and impact. Retain breaking evidence and required actions. Retain captured historical review warnings where present.                                                                   |
+| Missing or unusable context admitted by replay        | Put the captured title or subject and the metadata gap in Needs review. Treat audience and impact as unknown. Keep any trusted breaking flag and captured explanation.                                  |
+| Breaking contribution of any audience                 | Render captured breaking explanations, including a conventional subject recorded as breaking evidence. With no explanation, say that the source declares a breaking change and supplies no explanation. |
+| Valid nonnull action, or breaking with missing action | Render the supplied action, including for nonbreaking changes. For a breaking entry with no action, flag that migration instructions are missing and direct reviewers to the source.                    |
 
 Historical and bootstrap entries use real PR or commit identities. A historical entry with usable context follows its declared audience and retains any captured review warnings. A historical user entry without an authoritative type appears under Other changes. Invalid or incomplete raw context admitted historically supplies no summary, impact, or action text. An ordinary malformed context block still fails replay under the existing policy. Verified exclusions follow the plan and produce no entries. If every section is empty, emit “No user-facing changes or required actions were recorded.”
 
@@ -47,7 +47,7 @@ Contract: release-notes-v1
 ## Breaking changes
 
 - The service no longer reads the legacy cache directory. ([#43](https://github.com/example/app/pull/43))
-- The source declares a breaking change and supplies no explanation. ([#45](https://github.com/example/app/pull/45))
+- Remove legacy authentication. ([#45](https://github.com/example/app/pull/45))
 
 ## Required actions
 
@@ -76,6 +76,6 @@ In a separate bootstrap draft, an unassociated historical commit could appear in
 
 If #43's action changes and the evidence is recaptured for the same version, the new snapshot ID invalidates the previous review. Changing those words directly in the old Markdown also invalidates the review because its byte digest changes.
 
-## Implementation after agreement
+## Follow-up work
 
-Add the offline renderer and CLI entry point, document the command and review procedure, and verify them with synthetic captures. Cover supported historical and current snapshots, the cases above, literal rendering of hostile Markdown, repeated byte-identical output, and stale review after changes to inputs or draft bytes. Keep review manual for this first artifact. Proposal storage, automated approval and publication, AI integration, and the [#77 export schema](https://github.com/lhajoosten/release-log/issues/77) are separate work.
+Review is manual for this artifact. [Delivery #128](https://github.com/lhajoosten/release-log/issues/128) covers the reviewed handoff to GitHub Releases and consumer workflows. Proposal storage, automated approval, AI integration, and the [#77 export schema](https://github.com/lhajoosten/release-log/issues/77) are separate work.

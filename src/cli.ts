@@ -43,7 +43,7 @@ const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/ap
   release-log collect --config FILE --repository DIR --source SHA
       (--baseline-tag TAG | --bootstrap-sha SHA) [--exclusions FILE]
   release-log backfill --config FILE --repository DIR [--dry-run | --write]
-  release-log plan|render --config FILE --snapshot FILE
+  release-log plan|render|notes --config FILE --snapshot FILE
       (--current-version VERSION | --initial-version 0.1.0)
   release-log prepare --config FILE --snapshot FILE --repository DIR
       (--current-version VERSION | --initial-version 0.1.0) [--dry-run | --write]
@@ -78,8 +78,9 @@ current GitHub PR authors (GITHUB_TOKEN); --write replaces only CHANGELOG.md.
 It preserves pending content and never invents historical capture timestamps.
 Initial adoption requires a version 2 config with a fixed
 bootstrap baselineSha/onboardingSha record; old metadata becomes review warnings.
-plan emits decision JSON; render emits Markdown (empty for no
-release). prepare defaults to dry-run and emits plan/files JSON; only --write
+plan emits decision JSON, render emits the technical changelog, and notes emits
+a Markdown draft for maintainer review. render and notes are empty for no
+release. prepare defaults to dry-run and emits plan/files JSON; only --write
 writes local proposal files. It supports package.json, pyproject.toml, and Cargo.toml.
 Configure contextPolicy as required (default) or optional; optional missing context
 retains title/source evidence and visible warnings, while malformed blocks fail.

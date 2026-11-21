@@ -1,6 +1,6 @@
 # Optional text generation
 
-The `release-log/ai` library export implements [#80](https://github.com/lhajoosten/release-log/issues/80) using AI SDK Core and direct provider packages. The [architecture decision](adr/0002-ai-sdk-provider-integration.md) records why. A source-checkout development helper can preview notes from a changelog section. Captured-input release notes, reviewed proposal artifacts and publication remain separate work under [#76](https://github.com/lhajoosten/release-log/issues/76).
+The `release-log/ai` library export implements [#80](https://github.com/lhajoosten/release-log/issues/80) using AI SDK Core and direct provider packages. The [architecture decision](adr/0002-ai-sdk-provider-integration.md) records why. A source-checkout development helper can preview notes from a changelog section. Use the [offline notes command](cli.md#draft-user-facing-release-notes) to generate a review draft directly from captured release evidence.
 
 ## Local configuration
 
@@ -48,7 +48,7 @@ pnpm notes:preview v0.2.0
 
 Omit the version to select the first release heading. `--changelog FILE` selects another input file. The helper explicitly loads `.env` when present, sends only the selected section to the configured provider, and prints Markdown to stdout with progress/usage on stderr. It does not change the changelog or publish content. To retain a draft, redirect stdout to a file you choose.
 
-This replaces the earlier ignored `.local/preview-release-notes.mjs` helper. It is a source-checkout development command and is not part of the packaged CLI. Internal source context is still sent so safety evidence stays available; the prompt omits internal prose but retains breaking warnings/actions. Source-link checks reject added URLs or dropped non-internal references, and generated HTML/images are rejected. These checks do not prove audience filtering, factual accuracy or safety coverage: review the draft against its source before use. The captured-input, safety-validation and reviewed artifact contract in #76 remains separate work.
+This replaces the earlier ignored `.local/preview-release-notes.mjs` helper. It is a source-checkout development command and is not part of the packaged CLI. Internal source context is still sent so safety evidence stays available; the prompt omits internal prose but retains breaking warnings/actions. Source-link checks reject added URLs or dropped non-internal references, and generated HTML/images are rejected. Review the draft against its source for audience filtering, factual accuracy, and safety coverage before use.
 
 ## Supported providers
 
