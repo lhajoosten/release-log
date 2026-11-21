@@ -1,6 +1,21 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:6102bceeb9b9e2dc71c95e35f5e9ffdbd8538f7b7a7ffcd7109230abd0033029 -->
+<!-- release-log:pending:v1 sha256:e9801817a1518978bfc9f0712bb9f4f606c40824182e6cb1108aeae08d415a9f -->
+
+## v0.6.0 (2026-11-21)
+
+<details>
+<summary>🔧 Internal maintenance</summary>
+
+- Queue reviewed internal release candidates and publish them after the container gate passes&#46; ([#139](https://github.com/lhajoosten/release-log/pull/139)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+</details>
+
+<br>
+
+Full changelog: [v0&#46;5&#46;2&#8230;9fd43d06871a467a22b5312046b6cc90016089ee](https://github.com/lhajoosten/release-log/compare/v0.5.2...9fd43d06871a467a22b5312046b6cc90016089ee) (captured source).
+
+<!-- release-log:pending:end -->
 
 ## v0.5.2 (2026-11-21)
 
@@ -10,7 +25,6 @@
 
 Full changelog: [v0&#46;5&#46;1&#8230;cc0161772f51b637cad637a6d4f4a0447c1e3a5e](https://github.com/lhajoosten/release-log/compare/v0.5.1...cc0161772f51b637cad637a6d4f4a0447c1e3a5e) (captured source).
 
-<!-- release-log:pending:end -->
 
 ## v0.5.1 (2026-11-21)
 
