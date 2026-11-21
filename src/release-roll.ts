@@ -8,9 +8,10 @@ import {
 } from "./github-proposals.ts";
 import type { GitHubRead } from "./github.ts";
 import { selectReleaseCycle } from "./cycle/select.ts";
+import type { ReleaseCycleResult } from "./cycle/types.ts";
 import { reconcileReleaseProposal } from "./proposal/reconcile.ts";
 import { parseReleaseAutomation } from "./config/automation.ts";
-import type { ReleaseProposalResult } from "./proposal/reconcile.ts";
+import type { CandidateProposalHistory, ReleaseProposalResult } from "./proposal/reconcile.ts";
 import type { ReleaseAutomationConfiguration } from "./config/automation.ts";
 import { captureReleaseSnapshot } from "./snapshot/capture.ts";
 import { serializeReleaseSnapshot } from "./snapshot/replay.ts";
@@ -132,6 +133,32 @@ export async function rollRelease(
       `Closed unmerged release proposals require manual recovery: ${cycle.pullNumbers.join(", ")}.`,
     );
 
+  return {
+    route: "proposal",
+    result: await proposeReleaseForCycle(
+      { ...request, configuration, automation, cycle, landingSha },
+      transport,
+    ),
+  };
+}
+
+export async function proposeReleaseForCycle(
+  request: Omit<ReleaseRollRequest, "event" | "eventName"> & {
+    readonly cycle: Extract<ReleaseCycleResult, { outcome: "selected" }>;
+    readonly landingSha: string;
+    readonly candidateHistory?: CandidateProposalHistory;
+  },
+  transport: GitHubRead = fetch,
+): Promise<ReleaseProposalResult> {
+  const { configuration, automation, cycle, landingSha } = request;
+  const { sourceSha } = cycle;
+  const api = new GitHubProposalRepository(
+    configuration,
+    automation.botUserId,
+    request.token,
+    transport,
+  );
+
   // This is deliberately after the pending-tag guard and before PR collection.
   // Local ref object and peeled commit must both match the selected remote tag.
   const range = await inspectPendingRelease(request.repository, cycle.baseline, sourceSha);
@@ -165,6 +192,9 @@ export async function rollRelease(
         releaseBranch: configuration.releaseBranch,
         localRepository: request.repository,
         range,
+        ...(configuration.candidateLandings
+          ? { candidateLandings: configuration.candidateLandings }
+          : {}),
         token: request.token,
         ...(cycle.baseline.kind === "bootstrap" && configuration.schemaVersion === 2
           ? { onboardingSha: configuration.bootstrap.onboardingSha }
@@ -175,18 +205,16 @@ export async function rollRelease(
     configuration,
     new Date().toISOString(),
   );
-  return {
-    route: "proposal",
-    result: await reconcileReleaseProposal(
-      {
-        configuration,
-        automation,
-        token: request.token,
-        snapshot: await serializeReleaseSnapshot(snapshot),
-        version: cycle.version,
-        write: request.write === true,
-      },
-      transport,
-    ),
-  };
+  return reconcileReleaseProposal(
+    {
+      configuration,
+      automation,
+      token: request.token,
+      snapshot: await serializeReleaseSnapshot(snapshot),
+      version: cycle.version,
+      write: request.write === true,
+    },
+    transport,
+    request.candidateHistory,
+  );
 }

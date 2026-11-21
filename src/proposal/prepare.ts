@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { taggedReleaseNotes } from "../github-release.ts";
 import { updateChangelog } from "../changelog/history.ts";
 import { updateToolPins } from "./tool-pins.ts";
 import { proposalPaths, workflowPath } from "../proposal-paths.ts";
@@ -57,6 +59,13 @@ export function prepareVerifiedRelease(
   contents: ReleaseFileContents,
 ): PreparedRelease {
   const plan = deriveReleasePlan(snapshot, version);
+  const pending = snapshot.configuration.candidateLandings?.at(-1);
+  const fileVersion = pending ? { ...plan, currentVersion: pending.version } : plan;
+  if (pending) {
+    const notes = taggedReleaseNotes(contents["CHANGELOG.md"] ?? "", pending.version);
+    if (createHash("sha256").update(notes).digest("hex") !== pending.changelogDigest)
+      throw new ProposalFilesError("The source changelog differs from the verified candidate.");
+  }
   for (const lock of unsupportedLocks) {
     if (contents[lock] !== null)
       throw new ProposalFilesError(
@@ -70,14 +79,16 @@ export function prepareVerifiedRelease(
     throw new ProposalFilesError(
       "uv.lock requires a root pyproject.toml; restore and commit the manifest before retrying.",
     );
-  const cargo = updateCargoVersions(contents, plan);
+  const cargo = updateCargoVersions(contents, fileVersion);
   if (packageJSON === null && pyprojectTOML === null && cargo === null)
     throw new ProposalFilesError(
       "A root package.json, pyproject.toml, or Cargo.toml with a static release version is required.",
     );
   const manifests: ProposalFile[] = [];
-  const packageUpdate = packageJSON === null ? null : updatePackageVersion(packageJSON, plan);
-  const pythonUpdate = pyprojectTOML === null ? null : updatePyprojectVersion(pyprojectTOML, plan);
+  const packageUpdate =
+    packageJSON === null ? null : updatePackageVersion(packageJSON, fileVersion);
+  const pythonUpdate =
+    pyprojectTOML === null ? null : updatePyprojectVersion(pyprojectTOML, fileVersion);
   if (packageUpdate && pythonUpdate && packageUpdate.version !== pythonUpdate.version)
     throw new ProposalFilesError(
       "Node and Python manifest versions disagree; align them before planning.",
@@ -97,14 +108,16 @@ export function prepareVerifiedRelease(
     manifests.push({
       path: "uv.lock",
       before: uvLock,
-      after: updateUvLockVersion(pyprojectTOML, uvLock, pythonUpdate, plan),
+      after: updateUvLockVersion(pyprojectTOML, uvLock, pythonUpdate, fileVersion),
     });
   const changelog = contents["CHANGELOG.md"];
   const rendered = renderPlannedChangelog(snapshot, plan);
+  if (pending && !plan.release) return { plan, files: [] };
   const updatedChangelog = updateChangelog(
     changelog ?? "",
     rendered,
-    version.kind === "released" ? version.currentVersion : undefined,
+    !pending && version.kind === "released" ? version.currentVersion : undefined,
+    snapshot.configuration.candidateStableNotes,
   );
   if (!plan.release) return { plan, files: [] };
   if (rendered === null) throw new ProposalFilesError("A release plan must render a changelog.");

@@ -15,7 +15,7 @@ The [rolling-release workflow guide](docs/release-workflow.md) covers setup, per
 
 ## Proven behavior
 
-This repository uses the source-pinned workflow with proposal/tag writes enabled. Its first release, [v0.1.0](https://github.com/lhajoosten/release-log/tree/v0.1.0), tags the exact landing of [release PR #62](https://github.com/lhajoosten/release-log/pull/62). Subsequent self-use releases `v0.2.0` and `v0.2.1` also tag their exact release-PR landings, with tag-bound membership and preserved prior changelog content.
+This repository uses [internal candidates](docs/container-release.md) to gate its own stable publication. Its first release, [v0.1.0](https://github.com/lhajoosten/release-log/tree/v0.1.0), tags the exact landing of [release PR #62](https://github.com/lhajoosten/release-log/pull/62). Subsequent self-use releases `v0.2.0` and `v0.2.1` also tag their exact release-PR landings, with tag-bound membership and preserved prior changelog content.
 
 A private validation sandbox has also demonstrated:
 
@@ -58,7 +58,7 @@ The npm package remains private at `0.2.1`. The Linux/amd64 image `ghcr.io/lhajo
 
 Start with the [consumer workflow template](examples/rolling-release.yml) and [setup contract](docs/release-workflow.md#reusable-workflow-and-callers). New consumers need their own repository identity, reviewed bootstrap/onboarding boundaries, trusted configuration and GitHub App installation. Pin both workflow and tool to the same reviewed full commit SHA; the example keeps writes disabled until setup is approved.
 
-The newer controller also supports opt-in [release PR self-upgrades and GitHub Releases](docs/release-workflow.md#self-upgrades-and-github-releases). This repository’s caller selects the reviewed implementation revision and retains its legacy verification runtime; the operations guide records the bootstrap’s required App permissions and read-only verification evidence.
+The newer controller also supports opt-in [release PR self-upgrades and GitHub Releases](docs/release-workflow.md#self-upgrades-and-github-releases). This repository’s self-release workflow selects a reviewed producer revision and retains prior verification runtimes; the operations guide records the bootstrap’s required App permissions and read-only verification evidence.
 
 PRs use conventional titles and the [version 1 release-context block](docs/release-context.md). Context is required by default; consumers can explicitly select the [optional policy](docs/release-context.md#consumer-context-policy). This repository keeps it required.
 

@@ -10,9 +10,11 @@ import {
 import { reconcileReleaseProposal } from "../src/release-proposal.ts";
 import { reconcileReleaseTag } from "../src/release-tag.ts";
 import { selectReleaseCycle } from "../src/release-cycle.ts";
-import { taggedReleaseNotes } from "../src/github-release.ts";
+import { reconcileGitHubLatest, taggedReleaseNotes } from "../src/github-release.ts";
 import { updateChangelog } from "../src/changelog.ts";
 import { fixture, json, object, text } from "./proposal-fixture.ts";
+import { GitHubProposalRepository } from "../src/github-proposals.ts";
+import { fixtureConfiguration } from "./release-fixture.ts";
 
 async function state(context: TestContext, mergeKind: "merge" | "squash" = "merge") {
   const f = await fixture(context);
@@ -274,4 +276,50 @@ void test("only the verified section becomes release notes, with history and edi
   ])
     assert.throws(() => taggedReleaseNotes(value, "1.3.0"));
   assert.throws(() => taggedReleaseNotes(changelog, "1.2.3"));
+});
+
+void test("self-publication repairs GitHub latest independently and retains a newer release", async () => {
+  const notes = "## v1.3.0\n\nVerified notes.\n";
+  const version = {
+    id: 100,
+    tag_name: "v1.3.0",
+    name: "v1.3.0",
+    body: notes,
+    draft: false,
+    prerelease: false,
+  };
+  const newer = { ...version, id: 101, tag_name: "v1.4.0", name: "v1.4.0" };
+  let latest: typeof version | null = null;
+  let writes = 0;
+  const api = new GitHubProposalRepository(
+    fixtureConfiguration,
+    42,
+    "synthetic-token",
+    async (url, options) => {
+      const path = new URL(url).pathname;
+      if (path.endsWith("/releases/latest")) return latest ? json(latest) : json({}, 404);
+      if (path.endsWith("/releases/tags/v1.3.0")) return json(version);
+      assert.equal(options.method, "PATCH");
+      assert.ok(path.endsWith("/releases/100"));
+      assert.equal(options.body, '{"make_latest":"true"}');
+      writes++;
+      latest = version;
+      return json(version);
+    },
+  );
+  const run = (beforeWrite: () => Promise<void> = async () => {}) =>
+    reconcileGitHubLatest(api, version.tag_name, notes, beforeWrite);
+  assert.equal(await run(), "updated");
+  assert.equal(await run(), "unchanged");
+  latest = null;
+  assert.equal(
+    await run(async () => {
+      latest = newer;
+    }),
+    "retained-newer",
+  );
+  assert.equal(await run(), "retained-newer");
+  latest = { ...version, id: 99 };
+  await assert.rejects(run(), /conflicts/u);
+  assert.equal(writes, 1);
 });
