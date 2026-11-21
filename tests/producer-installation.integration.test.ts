@@ -87,7 +87,7 @@ if(command==='git' && args[0]==='rev-parse') process.stdout.write(readFileSync('
     [legacy, previous, older].map((sha) => [
       "fetch",
       "--depth=1",
-      "https://github.com/lhajoosten/release-log.git",
+      "https://github.com/lhajoosten/rolling-release.git",
       sha,
     ]),
   );

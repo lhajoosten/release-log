@@ -553,7 +553,7 @@ void test("consumer reusable workflow runs only pinned Release Log code with tru
   );
   assert.match(source, /workflow_call:/u);
   assert.match(source, /name: metadata/u);
-  assert.match(source, /repository: lhajoosten\/release-log/u);
+  assert.match(source, /repository: lhajoosten\/rolling-release/u);
   assert.ok(source.includes("ref: ${{ inputs.tool-sha }}"));
   assert.match(source, /persist-credentials: false/u);
   assert.match(source, /pnpm install --frozen-lockfile --ignore-scripts/u);
