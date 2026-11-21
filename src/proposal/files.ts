@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { isCargoManifest, isProposalPath, proposalPaths, workflowPath } from "../proposal-paths.ts";
+import {
+  isCargoManifest,
+  isProposalPath,
+  isRootLockPath,
+  proposalPaths,
+  workflowPath,
+} from "../proposal-paths.ts";
 import { cargoMemberPaths, readCargoContents } from "../cargo-version.ts";
 import { prepareReleaseFileContents, ProposalFilesError, releaseInputPaths } from "./prepare.ts";
 import type { PreparedRelease } from "./prepare.ts";
@@ -46,12 +52,12 @@ async function rootPath(repository: string): Promise<string> {
 async function currentFile(root: string, relative: string): Promise<string | null> {
   const path = await inspectPath(root, relative);
   try {
-    if (relative !== "uv.lock") return await readFile(path, "utf8");
+    if (!isRootLockPath(relative)) return await readFile(path, "utf8");
     const bytes = await readFile(path);
     const text = bytes.toString("utf8");
     if (!Buffer.from(text).equals(bytes))
       throw new ProposalFilesError(
-        "uv.lock must be UTF-8 text. Regenerate and commit uv.lock before retrying.",
+        `${relative} must be UTF-8 text. Regenerate and commit the lockfile before retrying.`,
       );
     return text;
   } catch (error) {
@@ -100,8 +106,8 @@ export async function writeReleaseFiles(
   for (const file of prepared.files) {
     if (!allowed.has(file.path) && (!cargoOutputs.has(file.path) || file.before === null))
       throw new ProposalFilesError("Only supported proposal paths are permitted.");
-    if (file.path === "uv.lock" && file.before === null)
-      throw new ProposalFilesError("Release preparation can only update an existing uv.lock.");
+    if (isRootLockPath(file.path) && file.before === null)
+      throw new ProposalFilesError(`Release preparation can only update an existing ${file.path}.`);
     if (Buffer.byteLength(file.after, "utf8") > 16 * 1024 * 1024)
       throw new ProposalFilesError("A proposal output exceeds 16 MiB.");
     if ((await currentFile(root, file.path)) !== file.before)

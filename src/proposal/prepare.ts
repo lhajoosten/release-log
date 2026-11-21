@@ -1,6 +1,6 @@
 import { updateChangelog } from "../changelog/history.ts";
 import { updateToolPins } from "./tool-pins.ts";
-import { proposalPaths, workflowPath } from "../proposal-paths.ts";
+import { npmLockPaths, proposalPaths, workflowPath } from "../proposal-paths.ts";
 import type { ProposalPath } from "../proposal-paths.ts";
 import { renderPlannedChangelog } from "../changelog/render.ts";
 import { deriveReleasePlan } from "../planning/derive-release-plan.ts";
@@ -11,6 +11,7 @@ import { replayReleaseSnapshot } from "../snapshot/replay.ts";
 import type { ReleaseInputConfiguration } from "../config/repository.ts";
 import { updateCargoVersions } from "../cargo-version.ts";
 import type { CargoContents } from "../cargo-version.ts";
+import { updateNpmLockVersion } from "../npm-version.ts";
 import { updateUvLockVersion } from "../uv-version.ts";
 import { updatePackageVersion, updatePyprojectVersion } from "../version-files.ts";
 
@@ -31,8 +32,7 @@ export interface PreparedRelease {
   readonly pendingChangelog?: string;
   readonly files: readonly ProposalFile[];
 }
-const unsupportedLocks = ["package-lock.json", "npm-shrinkwrap.json"] as const;
-export const releaseInputPaths = [...proposalPaths, ...unsupportedLocks] as const;
+export const releaseInputPaths = proposalPaths;
 export type ReleaseFileContents = Readonly<
   Record<Exclude<(typeof releaseInputPaths)[number], typeof workflowPath>, string | null> &
     Partial<Record<typeof workflowPath, string | null>> &
@@ -57,13 +57,17 @@ export function prepareVerifiedRelease(
   contents: ReleaseFileContents,
 ): PreparedRelease {
   const plan = deriveReleasePlan(snapshot, version);
-  for (const lock of unsupportedLocks) {
-    if (contents[lock] !== null)
-      throw new ProposalFilesError(
-        `${lock} needs a root-version mirror adapter before preparing a release; no files were written.`,
-      );
-  }
   const packageJSON = contents["package.json"];
+  const npmLocks = npmLockPaths.filter((path) => contents[path] !== null);
+  const [npmPath] = npmLocks;
+  if (npmLocks.length > 1)
+    throw new ProposalFilesError(
+      "Keep one authoritative npm lockfile. Remove the unused package-lock.json or npm-shrinkwrap.json before retrying.",
+    );
+  if (npmPath && packageJSON === null)
+    throw new ProposalFilesError(
+      `${npmPath} requires a root package.json. Restore and commit the manifest before retrying.`,
+    );
   const pyprojectTOML = contents["pyproject.toml"];
   const uvLock = contents["uv.lock"];
   if (uvLock !== null && pyprojectTOML === null)
@@ -91,6 +95,15 @@ export function prepareVerifiedRelease(
   }
   if (packageJSON !== null && packageUpdate)
     manifests.push({ path: "package.json", before: packageJSON, after: packageUpdate.content });
+  if (npmPath && packageUpdate) {
+    const npmLock = contents[npmPath];
+    if (npmLock !== null)
+      manifests.push({
+        path: npmPath,
+        before: npmLock,
+        after: updateNpmLockVersion(npmLock, npmPath, packageUpdate.version, plan),
+      });
+  }
   if (pyprojectTOML !== null && pythonUpdate)
     manifests.push({ path: "pyproject.toml", before: pyprojectTOML, after: pythonUpdate.content });
   if (uvLock !== null && pyprojectTOML !== null && pythonUpdate)

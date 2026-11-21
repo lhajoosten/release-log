@@ -7,8 +7,16 @@ export function isCargoManifest(path: string): path is Exclude<CargoPath, "Cargo
   return /^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*\/)*Cargo\.toml$/u.test(path) && path.length <= 512;
 }
 
+export const npmLockPaths = ["package-lock.json", "npm-shrinkwrap.json"] as const;
+export type NpmLockPath = (typeof npmLockPaths)[number];
+
+export function isRootLockPath(path: string): path is NpmLockPath | "uv.lock" {
+  return path === "uv.lock" || path === "package-lock.json" || path === "npm-shrinkwrap.json";
+}
+
 export const proposalPaths = [
   "package.json",
+  ...npmLockPaths,
   "pyproject.toml",
   "uv.lock",
   "CHANGELOG.md",

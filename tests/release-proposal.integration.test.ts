@@ -14,7 +14,15 @@ import { capturedIdentity, describe } from "../src/proposal-identity.ts";
 import { requestGitHubJson, GitHubReadError } from "../src/github.ts";
 import { fixture, json, object, text, botId } from "./proposal-fixture.ts";
 
-for (const mode of ["node", "python", "python-uv", "both", "cargo", "cargo-workspace"] as const) {
+for (const mode of [
+  "node",
+  "node-npm",
+  "python",
+  "python-uv",
+  "both",
+  "cargo",
+  "cargo-workspace",
+] as const) {
   void test(`${mode}: real Git branch creation, stable rolling PR refresh, and retries preserve the complete generated diff`, async (context) => {
     const f = await fixture(context, mode);
     const dry = await reconcileReleaseProposal(await f.request(), f.transport);
@@ -25,6 +33,7 @@ for (const mode of ["node", "python", "python-uv", "both", "cargo", "cargo-works
       assert.ok(dry.changedPaths.includes("pyproject.toml"));
       assert.ok(dry.changedPaths.includes("uv.lock"));
     }
+    if (mode === "node-npm") assert.ok(dry.changedPaths.includes("package-lock.json"));
     const created = await reconcileReleaseProposal(await f.request(true), f.transport);
     assert.equal(created.outcome, "created");
     assert.match(created.proposalId, /^[a-f0-9]{64}$/u);
@@ -41,7 +50,7 @@ for (const mode of ["node", "python", "python-uv", "both", "cargo", "cargo-works
     assert.match(firstBody, /^### Features$/mu);
     assert.ok(firstBody.includes("[#1]"));
     assert.ok(!firstBody.includes("[#2]"));
-    if (mode === "node" || mode === "both")
+    if (mode === "node" || mode === "node-npm" || mode === "both")
       assert.match(f.git(["show", `${head}:package.json`]), /"version": "1.3.0"/u);
     if (mode === "python" || mode === "both")
       assert.equal(
@@ -55,6 +64,11 @@ for (const mode of ["node", "python", "python-uv", "both", "cargo", "cargo-works
           f.git(["show", `${dry.sourceSha}:${path}`]).replace("1.2.3", "1.3.0"),
         );
     }
+    if (mode === "node-npm")
+      assert.equal(
+        f.git(["show", `${head}:package-lock.json`]),
+        f.git(["show", `${dry.sourceSha}:package-lock.json`]).replaceAll("1.2.3", "1.3.0"),
+      );
     if (mode === "cargo") {
       assert.equal(
         f.git(["show", `${head}:Cargo.toml`]),

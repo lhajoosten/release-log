@@ -179,23 +179,6 @@ void test("bootstrap requires matching Node/Python and matching Python mirror va
   );
 });
 
-void test("unimplemented root-version lockfile mirrors block preparation without writes", async (context) => {
-  for (const lock of ["package-lock.json", "npm-shrinkwrap.json"]) {
-    const path = await directory(context);
-    await writeFile(join(path, "pyproject.toml"), '[project]\nversion="1.2.3"\n');
-    await writeFile(join(path, lock), "unmanaged lockfile\n");
-    await assert.rejects(
-      prepareReleaseFiles(path, fixture.serialized, fixtureConfiguration, version),
-      /root-version mirror adapter/u,
-    );
-    assert.equal(
-      await readFile(join(path, "pyproject.toml"), "utf8"),
-      '[project]\nversion="1.2.3"\n',
-    );
-    assert.deepEqual((await readdir(path)).toSorted(), [lock, "pyproject.toml"].toSorted());
-  }
-});
-
 void test("no-release plans preserve manifests and produce no files", async (context) => {
   const path = await directory(context);
   const noRelease = await releaseFixture([{ title: "docs(api): explain keys" }]);
@@ -350,5 +333,103 @@ for (const { lock, manifest = uvManifest, expected } of [
     assert.deepEqual((await readdir(path)).toSorted(), [...before.keys()].toSorted());
     for (const [name, value] of before)
       assert.equal(await readFile(join(path, name), "utf8"), value);
+  });
+}
+
+const npmManifest = '{"name":"example","version":"1.2.3"}\n';
+const npmLockV3 = String.raw`{
+  "name": "example",
+  "version": "1.2.3",
+  "lockfileVersion": 3,
+  "packages": {
+    "node_modules/other": { "version": "1.2.3", "resolved": "https://registry.example/other.tgz" },
+    "": { "name": "example", "ver\u0073ion": "1.2.3" }
+  }
+}
+`;
+
+for (const [path, original, expected] of [
+  [
+    "npm-shrinkwrap.json",
+    '{"version":"1.2.3","lockfileVersion":1,"dependencies":{"other":{"version":"1.2.3"}}}\n',
+    '{"version":"1.2.4","lockfileVersion":1,"dependencies":{"other":{"version":"1.2.3"}}}\n',
+  ],
+  ...[2, 3].map((format) => {
+    const lock = npmLockV3
+      .replace('"lockfileVersion": 3', `"lockfileVersion": ${format}`)
+      .replaceAll("\n", "\r\n");
+    return [
+      "package-lock.json",
+      lock,
+      lock
+        .replace('"version": "1.2.3"', '"version": "1.2.4"')
+        .replace(String.raw`"ver\u0073ion": "1.2.3"`, String.raw`"ver\u0073ion": "1.2.4"`),
+    ] as const;
+  }),
+] as const) {
+  void test(`npm release updates root version mirrors only for ${path}: ${original.match(/"lockfileVersion":\s*\d/u)?.[0]}`, async (context) => {
+    const dir = await directory(context);
+    await writeFile(join(dir, "package.json"), npmManifest);
+    await writeFile(join(dir, path), original);
+    const prepared = await prepareReleaseFiles(
+      dir,
+      fixture.serialized,
+      fixtureConfiguration,
+      version,
+    );
+    assert.deepEqual(
+      prepared.files.find((file) => file.path === path),
+      {
+        path,
+        before: original,
+        after: expected,
+      },
+    );
+    assert.equal(await readFile(join(dir, path), "utf8"), original);
+    await writeReleaseFiles(dir, prepared);
+    assert.equal(await readFile(join(dir, path), "utf8"), expected);
+    assert.equal(
+      await readFile(join(dir, "package.json"), "utf8"),
+      npmManifest.replace("1.2.3", "1.2.4"),
+    );
+  });
+}
+
+for (const { lock, extraLock = false, manifest = npmManifest, expected } of [
+  {
+    lock: npmLockV3.replace('"version": "1.2.3"', '"version": "1.2.2"'),
+    expected: /root version must match.*Regenerate/u,
+  },
+  {
+    lock: npmLockV3.replace(String.raw`"ver\u0073ion": "1.2.3"`, '"version":"1.2.2"'),
+    expected: /root version must match/u,
+  },
+  { lock: npmLockV3.replace('"": {', '"not-root": {'), expected: /root version must match/u },
+  {
+    lock: npmLockV3.replace('"lockfileVersion": 3', '"lockfileVersion": 99'),
+    expected: /requires npm lockfile format/u,
+  },
+  { lock: npmLockV3.replace('"": {', '"": {}, "": {'), expected: /exactly one root package/u },
+  {
+    lock: npmLockV3.replace('"version": "1.2.3"', '"version": "1.2.3", "version": "1.2.3"'),
+    expected: /exactly one version/u,
+  },
+  { lock: "not JSON", expected: /must be valid JSON/u },
+  { lock: npmLockV3, extraLock: true, expected: /one authoritative npm lockfile/u },
+  { lock: npmLockV3, manifest: null, expected: /requires a root package.json/u },
+]) {
+  void test(`npm release rejects ${expected} before writing files`, async (context) => {
+    const dir = await directory(context);
+    const before = new Map([["package-lock.json", lock]]);
+    if (manifest !== null) before.set("package.json", manifest);
+    if (extraLock) before.set("npm-shrinkwrap.json", lock);
+    for (const [path, contents] of before) await writeFile(join(dir, path), contents);
+    await assert.rejects(
+      prepareReleaseFiles(dir, fixture.serialized, fixtureConfiguration, version),
+      expected,
+    );
+    assert.deepEqual((await readdir(dir)).toSorted(), [...before.keys()].toSorted());
+    for (const [path, contents] of before)
+      assert.equal(await readFile(join(dir, path), "utf8"), contents);
   });
 }
