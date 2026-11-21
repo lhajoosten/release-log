@@ -14,6 +14,7 @@ import {
 import type { ReleaseInputConfiguration } from "../src/release-snapshot.ts";
 import { createReleasePlan } from "../src/release-plan.ts";
 import { renderChangelog } from "../src/changelog.ts";
+import { capturedVerificationConfiguration } from "../src/proposal/verification.ts";
 
 const execute = promisify(execFile);
 const base = "0".repeat(40);
@@ -128,6 +129,111 @@ void test("capture matches a hand-written normalized golden and retains raw asso
   assert.equal(snapshot.configurationId, expectedConfigurationId);
   assert.match(snapshot.snapshotId, /^[a-f0-9]{64}$/u);
   assert.match(snapshot.tool.normalizerId, /^[a-f0-9]{64}$/u);
+});
+
+void test("a reviewed documentation subject repair preserves raw Git evidence and replays", async () => {
+  const bootstrap = input();
+  const source = {
+    ...bootstrap,
+    range: {
+      ...bootstrap.range,
+      baseline: { kind: "tag" as const, name: "v0.2.0", objectSha: base, commitSha: base },
+    },
+  };
+  const message = "Add README header\n\nPreserve this authored body.\n";
+  const commit = { sha: first, message, parentShas: [base] };
+  source.pullRequests = [
+    {
+      ...entry(),
+      title: "chore(readme): add a header",
+      originalCommits: [commit],
+      landedCommits: [commit],
+    },
+  ];
+  const repair = { pullNumber: 101, commitSha: first, subject: "docs: add a README header" };
+  const selected = { ...config, commitMessageRepairs: [repair] };
+
+  await assert.rejects(captureReleaseSnapshot(source, config), hasCode("metadata-invalid"));
+  const snapshot = await captureReleaseSnapshot(source, selected);
+  assert.equal(snapshot.input.pullRequests[0]?.originalCommits[0]?.message, message);
+  assert.equal(snapshot.input.pullRequests[0]?.landedCommits[0]?.message, message);
+  assert.deepEqual(
+    snapshot.normalized.pullRequests[0]?.commits.map(({ metadata }) => metadata.raw),
+    Array(2).fill("docs: add a README header\n\nPreserve this authored body.\n"),
+  );
+  const serialized = await serializeReleaseSnapshot(snapshot);
+  assert.deepEqual(await replayReleaseSnapshot(serialized, selected), snapshot);
+  const plan = await createReleasePlan(serialized, selected, {
+    kind: "released",
+    currentVersion: "0.2.0",
+  });
+  assert.equal(plan.release, false);
+  await assert.rejects(
+    captureReleaseSnapshot(source, {
+      ...selected,
+      commitMessageRepairs: [{ ...repair, pullNumber: 102 }],
+    }),
+    hasCode("metadata-invalid"),
+  );
+  await assert.rejects(captureReleaseSnapshot(input(), selected), hasCode("metadata-invalid"));
+  commit.message = "Add README header\n\nBREAKING CHANGE: migration required.\n";
+  await assert.rejects(captureReleaseSnapshot(source, selected), hasCode("metadata-invalid"));
+});
+
+void test("an exact body wrap preserves wording and the original subject", async () => {
+  const source = input();
+  const subject = "ci: speed up the quality checks";
+  const body =
+    "Use the checksum-pinned cargo-deny binary to eliminate the CI source build and run the Rust and container checks in parallel.";
+  const message = `${subject}\n\n${body}\n`;
+  const commit = { sha: first, message, parentShas: [base] };
+  source.pullRequests = [
+    {
+      ...entry(),
+      title: "ci(workflow): speed up the quality checks",
+      originalCommits: [commit],
+      landedCommits: [commit],
+    },
+  ];
+  const selected = {
+    ...config,
+    commitMessageRepairs: [{ pullNumber: 101, commitSha: first, wrapBody: true as const }],
+  };
+  await assert.rejects(captureReleaseSnapshot(source, config), hasCode("metadata-invalid"));
+  const snapshot = await captureReleaseSnapshot(source, selected);
+  assert.equal(snapshot.input.pullRequests[0]?.landedCommits[0]?.message, message);
+  const normalized = snapshot.normalized.pullRequests[0]?.commits[0]?.metadata.raw;
+  assert.equal(
+    normalized,
+    `${subject}\n\nUse the checksum-pinned cargo-deny binary to eliminate the CI source build and run the Rust and\ncontainer checks in parallel.\n`,
+  );
+  assert.deepEqual(
+    await replayReleaseSnapshot(await serializeReleaseSnapshot(snapshot), selected),
+    snapshot,
+  );
+  commit.message = `Non-conventional subject\n\n${body}\n`;
+  await assert.rejects(captureReleaseSnapshot(source, selected), hasCode("metadata-invalid"));
+});
+
+void test("verification preserves prior proposal repair authority and rejects an untrusted repair", () => {
+  const repair = { pullNumber: 101, commitSha: first, subject: "docs: add a README header" };
+  const complete = { ...config, commitMessageRepairs: [repair] };
+  assert.deepEqual(
+    capturedVerificationConfiguration(JSON.stringify({ configuration: config }), complete),
+    config,
+  );
+  assert.deepEqual(
+    capturedVerificationConfiguration(JSON.stringify({ configuration: complete }), complete),
+    complete,
+  );
+  const altered = {
+    ...config,
+    commitMessageRepairs: [{ ...repair, subject: "docs: different header" }],
+  };
+  assert.deepEqual(
+    capturedVerificationConfiguration(JSON.stringify({ configuration: altered }), complete),
+    complete,
+  );
 });
 
 void test("bootstrap commit snapshots retain typed commit evidence without inventing PR context", async () => {
