@@ -1,0 +1,7 @@
+{
+  "mode": "report-only",
+  "limits": { "rust": 12, "typescript": 10, "tsx": 12, "python": 12 },
+  "duplication": {},
+  "include": ["src/**"],
+  "exclude": ["**/node_modules/**", "**/.worktrees/**", "**/.pnpm-store/**"]
+}
