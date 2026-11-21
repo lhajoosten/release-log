@@ -1,0 +1,213 @@
+name: Rolling Release consumer
+
+on:
+  workflow_call:
+    inputs:
+      configuration:
+        description: Reviewed release configuration JSON for the calling repository
+        type: string
+        required: true
+      release-branch:
+        description: Configured default release branch
+        type: string
+        required: true
+      app-id:
+        type: string
+        required: true
+      bot-user-id:
+        type: string
+        required: true
+      write-enabled:
+        description: Set false to pause merge writes
+        type: boolean
+        default: true
+    secrets:
+      app-private-key:
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  preview:
+    name: Preview with release-log latest
+    # The website is the first approved consumer of this replay registry.
+    if: >-
+      github.repository_id == '1458711968' &&
+      github.event.repository.default_branch == inputs.release-branch &&
+      inputs.app-id != '' && inputs.bot-user-id != '' &&
+      ((github.event_name == 'workflow_dispatch' &&
+        github.ref == format('refs/heads/{0}', inputs.release-branch)) ||
+       (github.event_name == 'pull_request_target' &&
+        github.event.action == 'closed' && github.event.pull_request.merged == true &&
+        github.event.pull_request.base.ref == inputs.release-branch))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      RELEASE_LOG_IMAGE: ghcr.io/lhajoosten/release-log:latest
+    steps:
+      - name: Prepare trusted caller configuration
+        env:
+          CONFIGURATION: ${{ inputs.configuration }}
+          RELEASE_BRANCH: ${{ inputs.release-branch }}
+          BOT_USER_ID: ${{ inputs.bot-user-id }}
+        run: |
+          input_dir="$RUNNER_TEMP/release-preview"
+          mkdir -p "$input_dir"
+          jq -e -c --arg repo "$GITHUB_REPOSITORY" --argjson id "$GITHUB_REPOSITORY_ID" \
+            --arg branch "$RELEASE_BRANCH" \
+            'select(.repository == $repo and .repositoryId == $id and .releaseBranch == $branch and .selfUpgrade != true and .internalPublication != true)' \
+            <<< "$CONFIGURATION" > "$input_dir/config.json"
+          [[ "$BOT_USER_ID" =~ ^[1-9][0-9]*$ ]]
+          jq -n --argjson bot "$BOT_USER_ID" \
+            '{schemaVersion: 1, botUserId: $bot}' > "$input_dir/automation.json"
+          cp "$GITHUB_EVENT_PATH" "$input_dir/event.json"
+
+      - name: Check out release history as data
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || format('refs/heads/{0}', inputs.release-branch) }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve the latest preview image and reviewed website history
+        id: images
+        env:
+          HISTORY: &website-history >-
+            [
+              {"sha":"3929887fbbb8309a55ad819a3d4f0063928a5340","legacy":false,"digest":"08279dd93f1e1917ae007d62f1bff6ea986298d59b93a3182f6c606d4ac4b11a"},
+              {"sha":"8d3c1b1eb575d773d9c9446804fcde4df1e73f7a","legacy":true,"digest":"39fd52c45348d8c103bad37dedc558df8d3fa65eb87cbdc16b9b844a385531a2"}
+            ]
+        run: |
+          docker pull --platform linux/amd64 "$RELEASE_LOG_IMAGE"
+          image_id=$(docker image inspect --format '{{.Id}}' "$RELEASE_LOG_IMAGE")
+          [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
+          printf 'image-id=%s\n' "$image_id" >> "$GITHUB_OUTPUT"
+
+          # Manual planning has no proposal to replay.
+          [[ "$GITHUB_EVENT_NAME" == pull_request_target ]] || exit 0
+          revision_format='{{ index .Config.Labels "org.opencontainers.image.revision" }}'
+          active=$(docker image inspect --format "$revision_format" "$image_id")
+          [[ "$active" =~ ^[a-f0-9]{40}$ ]]
+          input_dir="$RUNNER_TEMP/release-preview"
+          history=$(jq -c --arg active "$active" 'map(select(.sha != $active))' <<< "$HISTORY")
+          while IFS=$'\t' read -r sha digest; do
+            image="ghcr.io/lhajoosten/release-log@sha256:$digest"
+            docker pull --platform linux/amd64 "$image"
+            test "$(docker image inspect --format "$revision_format" "$image")" = "$sha"
+            container=$(docker create --platform linux/amd64 "$image")
+            trap 'docker rm "$container" >/dev/null' EXIT
+            mkdir -p "$input_dir/producers/$sha"
+            docker cp "$container:/opt/release-log/." "$input_dir/producers/$sha"
+            docker rm "$container" >/dev/null
+            trap - EXIT
+          done < <(jq -r '.[] | [.sha, .digest] | @tsv' <<< "$history")
+          jq -n --arg active "$active" --argjson history "$history" \
+            '{activeSha: $active, producers: [$history[] | {sha, legacy, directory: ("/inputs/producers/" + .sha)}]}' \
+            > "$input_dir/producers.json"
+
+      - name: Mint a repository-scoped read-only preview token
+        id: app
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.app-private-key }}
+          permission-contents: read
+          permission-pull-requests: read
+
+      - name: Render a read-only preview
+        env:
+          IMAGE_ID: ${{ steps.images.outputs.image-id }}
+          GITHUB_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          input_dir="$RUNNER_TEMP/release-preview"
+
+          preview() {
+            docker run --rm --platform linux/amd64 --read-only --cap-drop ALL \
+              --security-opt no-new-privileges --user "$(id -u):$(id -g)" \
+              --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m \
+              --mount "type=bind,src=$GITHUB_WORKSPACE/source,dst=/source,readonly" \
+              --mount "type=bind,src=$input_dir,dst=/inputs,readonly" "$@"
+          }
+
+          if [[ "$GITHUB_EVENT_NAME" == pull_request_target ]]; then
+            RELEASE_LOG_APP_TOKEN="$GITHUB_TOKEN" preview -e RELEASE_LOG_APP_TOKEN -e GITHUB_EVENT_NAME \
+              "$IMAGE_ID" roll --config /inputs/config.json --automation /inputs/automation.json \
+              --repository /source --event /inputs/event.json --producer-runtimes /inputs/producers.json --dry-run
+            exit
+          fi
+
+          cycle=$(preview -e GITHUB_TOKEN "$IMAGE_ID" select-cycle --config /inputs/config.json \
+            --automation /inputs/automation.json --source "$GITHUB_SHA")
+          kind=$(jq -er --arg sha "$GITHUB_SHA" \
+            'select(.outcome == "selected" and .sourceSha == $sha) | .baseline.kind' <<< "$cycle")
+          commit=$(jq -er '.baseline.commitSha' <<< "$cycle")
+          if [[ "$kind" == tag ]]; then
+            tag=$(jq -er '.baseline.name' <<< "$cycle")
+            object=$(jq -er '.baseline.objectSha' <<< "$cycle")
+            version=$(jq -er '.version.currentVersion' <<< "$cycle")
+            [[ "$tag" == "v$version" && "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            test "$(git -C source rev-parse "refs/tags/$tag")" = "$object"
+            test "$(git -C source rev-parse "refs/tags/$tag^{commit}")" = "$commit"
+            boundary=(--baseline-tag "$tag")
+            version_args=(--current-version "$version")
+          elif [[ "$kind" == bootstrap && "$commit" =~ ^[a-f0-9]{40}$ ]]; then
+            boundary=(--bootstrap-sha "$commit")
+            version_args=(--initial-version 0.1.0)
+          else
+            echo "Unexpected release boundary" >&2
+            exit 1
+          fi
+          preview -e GITHUB_TOKEN "$IMAGE_ID" collect --config /inputs/config.json \
+            --repository /source --source "$GITHUB_SHA" "${boundary[@]}" > "$input_dir/snapshot.json"
+          preview --network none "$IMAGE_ID" prepare --config /inputs/config.json \
+            --repository /source --snapshot /inputs/snapshot.json "${version_args[@]}" --dry-run | jq -e '.plan'
+
+  writer-history:
+    name: Resolve reviewed writer history
+    if: >-
+      github.repository_id == '1458711968' &&
+      github.event.repository.default_branch == inputs.release-branch &&
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'closed' && github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == inputs.release-branch &&
+      inputs.app-id != '' && inputs.bot-user-id != '' && inputs.write-enabled
+    permissions: {}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      runtimes: ${{ steps.pins.outputs.runtimes }}
+    steps:
+      - id: pins
+        env:
+          CONFIGURATION: ${{ inputs.configuration }}
+          RELEASE_BRANCH: ${{ inputs.release-branch }}
+          HISTORY: *website-history
+        run: |
+          jq -e --arg repo "$GITHUB_REPOSITORY" --argjson id "$GITHUB_REPOSITORY_ID" \
+            --arg branch "$RELEASE_BRANCH" \
+            '.repository == $repo and .repositoryId == $id and .releaseBranch == $branch and .selfUpgrade != true and .internalPublication != true' \
+            <<< "$CONFIGURATION" >/dev/null
+          runtimes=$(jq -c 'map({sha, legacy})' <<< "$HISTORY")
+          printf 'runtimes=%s\n' "$runtimes" >> "$GITHUB_OUTPUT"
+
+  write-release:
+    name: Verify and write the release
+    needs: writer-history
+    uses: lhajoosten/rolling-release/.github/workflows/rolling-release.yml@14c1f1258381dab0e553c5e030e1ec71aec5127f
+    with:
+      tool-sha: 14c1f1258381dab0e553c5e030e1ec71aec5127f
+      verification-runtimes: ${{ needs.writer-history.outputs.runtimes }}
+      release-branch: ${{ inputs.release-branch }}
+      app-id: ${{ inputs.app-id }}
+      bot-user-id: ${{ inputs.bot-user-id }}
+      configuration: ${{ inputs.configuration }}
+      write: true
+    secrets:
+      app-private-key: ${{ secrets.app-private-key }}
