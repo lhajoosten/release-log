@@ -1,6 +1,36 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:6102bceeb9b9e2dc71c95e35f5e9ffdbd8538f7b7a7ffcd7109230abd0033029 -->
+<!-- release-log:pending:v1 sha256:8fe36173d5c8410e707fbf1ccd1b547967786556c58b1536f00314c70dd5168e -->
+
+## v0.6.0 (2026-11-21)
+
+### ✨ Features
+
+- Keep the root uv lock entry in sync with the Python release version&#46; ([#129](https://github.com/lhajoosten/release-log/pull/129)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Synchronize npm root version mirrors during release preparation&#46; ([#130](https://github.com/lhajoosten/release-log/pull/130)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Add a read&#45;only preflight for first&#45;time Release Log setup&#46; ([#133](https://github.com/lhajoosten/release-log/pull/133)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Generate offline Markdown release notes from captured release evidence&#46; ([#135](https://github.com/lhajoosten/release-log/pull/135)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Add a pinned pre&#45;merge metadata check and read&#45;only onboarding verification for rolling&#45;release consumers&#46; ([#138](https://github.com/lhajoosten/release-log/pull/138)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+### 🐛 Fixes
+
+- Support verified shared PR landings in first&#45;release changelogs&#46; ([#143](https://github.com/lhajoosten/release-log/pull/143)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+<details>
+<summary>🔧 Internal maintenance</summary>
+
+- Verify Bun locked installs after root&#45;only releases&#46; ([#132](https://github.com/lhajoosten/release-log/pull/132)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Verify Poetry lock freshness after static Python version bumps&#46; ([#134](https://github.com/lhajoosten/release-log/pull/134)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Queue reviewed internal release candidates and publish them after the container gate passes&#46; ([#139](https://github.com/lhajoosten/release-log/pull/139)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Enforce ownership of AI SDK dependencies in the text&#45;generation wrapper&#46; ([#144](https://github.com/lhajoosten/release-log/pull/144)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+</details>
+
+<br>
+
+Full changelog: [v0&#46;5&#46;2&#8230;ff59a4cd0625f387fd4e9061dd12b7eb6fe9d2a4](https://github.com/lhajoosten/release-log/compare/v0.5.2...ff59a4cd0625f387fd4e9061dd12b7eb6fe9d2a4) (captured source).
+
+<!-- release-log:pending:end -->
 
 ## v0.5.2 (2026-11-21)
 
@@ -10,7 +40,6 @@
 
 Full changelog: [v0&#46;5&#46;1&#8230;cc0161772f51b637cad637a6d4f4a0447c1e3a5e](https://github.com/lhajoosten/release-log/compare/v0.5.1...cc0161772f51b637cad637a6d4f4a0447c1e3a5e) (captured source).
 
-<!-- release-log:pending:end -->
 
 ## v0.5.1 (2026-11-21)
 
