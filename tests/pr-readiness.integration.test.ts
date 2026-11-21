@@ -546,6 +546,24 @@ void test("metadata workflow runs only trusted base source with read-only permis
   assert.match(source, /cancel-in-progress: true/u);
 });
 
+void test("consumer reusable workflow runs only pinned Release Log code with trusted configuration", async () => {
+  const source = await readFile(
+    new URL("../.github/workflows/release-metadata.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /workflow_call:/u);
+  assert.match(source, /name: metadata/u);
+  assert.match(source, /repository: lhajoosten\/release-log/u);
+  assert.ok(source.includes("ref: ${{ inputs.tool-sha }}"));
+  assert.match(source, /persist-credentials: false/u);
+  assert.match(source, /pnpm install --frozen-lockfile --ignore-scripts/u);
+  assert.match(source, /permissions:\n  contents: read\n  pull-requests: read/u);
+  assert.ok(source.includes("RELEASE_LOG_CONFIGURATION: ${{ inputs.configuration }}"));
+  assert.match(source, /pnpm check:pr-metadata --configuration/u);
+  assert.doesNotMatch(source, /secrets\.|pull_request\.head|refs\/pull|actions\/cache@/u);
+  assert.equal(source.match(/uses: [^@\n]+@[0-9a-f]{40}(?= |\n)/gu)?.length, 3);
+});
+
 void test("metadata command exercises successful and failing checks with only the HTTP boundary replaced", async (context) => {
   const directory = await mkdtemp(join(tmpdir(), "release-log-pr-command-"));
   context.after(async () => {
@@ -625,6 +643,42 @@ void test("metadata command exercises successful and failing checks with only th
       );
       return true;
     },
+  );
+
+  const config = {
+    schemaVersion: 1,
+    repository: request.repository,
+    repositoryId: 1,
+    releaseBranch: "releases/stable",
+    releasePolicy: "release-policy-v1",
+    contextPolicy: "optional",
+  };
+  const consumerEnv = { ...env, RELEASE_LOG_CONFIGURATION: JSON.stringify(config) };
+  const consumerPR = pull({
+    body: "",
+    base: { sha: base, ref: config.releaseBranch, repo: { id: 1, full_name: request.repository } },
+  });
+  await writeFile(responses, JSON.stringify([consumerPR, [remoteCommit()], consumerPR]));
+  const consumer = await execute(
+    process.execPath,
+    ["--import", loader, script, "--configuration"],
+    {
+      cwd: directory,
+      timeout: 10_000,
+      env: consumerEnv,
+    },
+  );
+  assert.match(consumer.stdout, /"code":"block-missing"/u);
+  assert.match(consumer.stdout, /"valid":true/u);
+
+  await writeFile(responses, JSON.stringify([pull()]));
+  await assert.rejects(
+    execute(process.execPath, ["--import", loader, script, "--configuration"], {
+      cwd: directory,
+      timeout: 10_000,
+      env: consumerEnv,
+    }),
+    /current PR base does not match the trusted release branch and repository ID/u,
   );
 
   const invalid = pull({

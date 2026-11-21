@@ -33,6 +33,10 @@ Do **not** replace `onboardingSha` with the latest main SHA on each refresh. Eve
 
 For this repository, `release-log.config.json` records baseline `bb0033fb274e69a8aabad6a17d71f18ec9292f60` and onboarding `c28fe6faa4d516847fbc725e9186cc80ac8873af`, the source previously captured by the approved read-only rehearsal. This preserves the original first-commit base and all subsequent membership. It does not rewrite historical PRs. This repository additionally selects `changelog.verbosity: concise` and `changelog.format: compact`; [verbosity](changelog.md#verbosity) is separate from the fixed history boundaries and never removes breaking warnings or available required actions. Changing that rendering setting requires fresh capture/review, not changing onboarding or replaying old captures against a different configuration.
 
+## Require metadata for new PRs
+
+Install the [pre-merge gate](pr-readiness.md#consumer-setup-and-migration) alongside the rolling-release caller. Exercise the check before requiring it on the release branch, then [verify the protection settings](pr-readiness.md#read-only-onboarding-verification). The historical cutoff stays fixed.
+
 ## Legacy versus new changes
 
 | Evidence                                            | Through the fixed onboarding SHA                                                                              | After onboarding / tagged cycles                           |

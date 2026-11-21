@@ -1,0 +1,55 @@
+name: Reusable Release Log metadata
+
+on:
+  workflow_call:
+    inputs:
+      tool-sha:
+        description: Reviewed full commit of lhajoosten/release-log containing the validator
+        required: true
+        type: string
+      configuration:
+        description: Trusted release input configuration JSON from the reviewed caller
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  metadata:
+    name: metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Require a pinned tool revision
+        env:
+          TOOL_SHA: ${{ inputs.tool-sha }}
+        run: '[[ "$TOOL_SHA" =~ ^[a-f0-9]{40}$ ]]'
+
+      - name: Check out only reviewed validator code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: lhajoosten/release-log
+          ref: ${{ inputs.tool-sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
+        with:
+          cache: false
+
+      - name: Install trusted locked dependencies without lifecycle scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Validate current PR metadata through read-only API calls
+        env:
+          RELEASE_LOG_CONFIGURATION: ${{ inputs.configuration }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm check:pr-metadata --configuration
