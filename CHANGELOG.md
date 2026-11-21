@@ -1,6 +1,16 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:d5a9a8295dfb2e53b3018f045e03548f0d106e8b1234a037c79e8fac35760a47 -->
+<!-- release-log:pending:v1 sha256:6102bceeb9b9e2dc71c95e35f5e9ffdbd8538f7b7a7ffcd7109230abd0033029 -->
+
+## v0.5.2 (2026-11-21)
+
+### 🐛 Fixes
+
+- Allow exact&#44; reviewed message repairs for commits that have already merged&#46; ([#123](https://github.com/lhajoosten/release-log/pull/123)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+Full changelog: [v0&#46;5&#46;1&#8230;cc0161772f51b637cad637a6d4f4a0447c1e3a5e](https://github.com/lhajoosten/release-log/compare/v0.5.1...cc0161772f51b637cad637a6d4f4a0447c1e3a5e) (captured source).
+
+<!-- release-log:pending:end -->
 
 ## v0.5.1 (2026-11-21)
 
@@ -26,7 +36,6 @@
 
 Full changelog: [v0&#46;5&#46;0&#8230;c93ca47226d8aaadbdb2b94b0bfd02585f7fe896](https://github.com/lhajoosten/release-log/compare/v0.5.0...c93ca47226d8aaadbdb2b94b0bfd02585f7fe896) (captured source).
 
-<!-- release-log:pending:end -->
 
 ## v0.5.0 (2026-11-20)
 
