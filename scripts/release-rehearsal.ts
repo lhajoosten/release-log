@@ -206,6 +206,16 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
         "Rehearsal configuration must match the trusted repository identity and main branch.",
       );
 
+    // The published image can predate the provider rename. This rehearsal
+    // previews notes and versions, without requesting provider publication.
+    const {
+      selfUpgrade: _selfUpgrade,
+      internalPublication: _internalPublication,
+      candidateLandings: _candidateLandings,
+      candidateStableNotes: _candidateStableNotes,
+      ...previewConfiguration
+    } = configuration;
+
     if (
       mode === "bootstrap" &&
       (configuration.schemaVersion !== 2 ||
@@ -217,7 +227,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
 
     await rehearseRelease(
       {
-        configuration,
+        configuration: previewConfiguration,
         sourceSha: environment("GITHUB_SHA"),
         repositoryDirectory: repository,
         outputDirectory: environment("REHEARSAL_OUTPUT"),

@@ -1,6 +1,6 @@
 # PR metadata readiness
 
-The read-only `PR metadata` workflow implements the ordinary-PR gate from [#14](https://github.com/lhajoosten/release-log/issues/14), using the [accepted release policy](release-policy.md). It is separate from source-quality CI. The deployed workflow has successful ordinary-PR and generated-release-PR runs, as recorded below. Exhaustive edit/fork/failure-event and required-check exercises still need separately authorized controlled validation. Required-check settings are not configured by source changes.
+The read-only `PR metadata` workflow implements the ordinary-PR gate from [#14](https://github.com/lhajoosten/rolling-release/issues/14), using the [accepted release policy](release-policy.md). It is separate from source-quality CI. The deployed workflow has successful ordinary-PR and generated-release-PR runs, as recorded below. Exhaustive edit/fork/failure-event and required-check exercises still need separately authorized controlled validation. Required-check settings are not configured by source changes.
 
 ## Rules
 
@@ -39,7 +39,7 @@ A final read detects mutations during validation, not edits after it finishes. T
 
 ## Consumer setup and migration
 
-Rolling-release consumers use the [metadata caller template](https://github.com/lhajoosten/release-log/blob/main/examples/release-metadata-caller.yml) from [issue #137](https://github.com/lhajoosten/release-log/issues/137). The required check is **`release-log / metadata`**, supplied by GitHub Actions. Keep this job identity unique in the repository.
+Rolling-release consumers use the [metadata caller template](https://github.com/lhajoosten/rolling-release/blob/main/examples/release-metadata-caller.yml) from [issue #137](https://github.com/lhajoosten/rolling-release/issues/137). The required check is **`release-log / metadata`**, supplied by GitHub Actions. Keep this job identity unique in the repository.
 
 1. Copy the template to `.github/workflows/release-metadata-caller.yml` on the release branch. Replace both placeholders with the same reviewed full Release Log commit SHA containing the reusable workflow and validator. Use the branch from your rolling-release caller as the literal `branches` filter, escaping GitHub glob characters where necessary. Copy the trusted `configuration` JSON from `.github/workflows/rolling-release-caller.yml`. Keep both callers aligned when changing the branch or context policy. Existing consumers retain their release tags and fixed onboarding boundaries.
 2. Land the caller and observe a successful check on an ordinary PR, then confirm that the release App's generated proposal receives the same check. The workflow runs for fork contributions and consumes only pinned Release Log source and its locked dependencies. It uses read-only repository and PR permissions and needs no App credentials.
@@ -64,7 +64,7 @@ The command checks the installed callers on the release branch, the metadata wor
 
 Keep these restrictions when editing the workflow. The existing unprivileged `pull_request` Quality workflow continues testing source changes separately. Never move its PR-source execution into the target-context job.
 
-Because the validator is loaded from the base SHA, a PR introducing this workflow cannot prove its own target-context execution. The implementation is deployed. Successful [ordinary PR #72 metadata](https://github.com/lhajoosten/release-log/actions/runs/43926736110) and [generated release PR #73 metadata](https://github.com/lhajoosten/release-log/actions/runs/43928611710) runs were observed on 2026-11-16. Those green runs do not establish all event/failure behavior or required-check settings. Use a separately approved sandbox PR to verify remaining scenarios:
+Because the validator is loaded from the base SHA, a PR introducing this workflow cannot prove its own target-context execution. The implementation is deployed. Successful [ordinary PR #72 metadata](https://github.com/lhajoosten/rolling-release/actions/runs/43926736110) and [generated release PR #73 metadata](https://github.com/lhajoosten/rolling-release/actions/runs/43928611710) runs were observed on 2026-11-16. Those green runs do not establish all event/failure behavior or required-check settings. Use a separately approved sandbox PR to verify remaining scenarios:
 
 - A valid ordinary/fork PR passes and missing context fails with actionable output.
 - Title/body edits, pushes, reopening, and readiness transitions validate current metadata and invalidate failures appropriately.

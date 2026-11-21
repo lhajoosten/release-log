@@ -940,7 +940,7 @@ void test("initialization proposes the exact legacy setup cutoff and agrees with
   assert.ok("workflow_dispatch" in object(caller.on));
   assert.equal(
     job.uses,
-    `lhajoosten/release-log/.github/workflows/rolling-release.yml@${inputs.producerSha}`,
+    `lhajoosten/rolling-release/.github/workflows/rolling-release.yml@${inputs.producerSha}`,
   );
   assert.equal(parameters["tool-sha"], inputs.producerSha);
   assert.equal(parameters.write, false);

@@ -1,4 +1,4 @@
-# release-log
+# Rolling Release
 
 <img width="2172" height="724" alt="image" src="https://github.com/user-attachments/assets/e414345c-7151-4dbc-8277-d2791a54e147" />
 
@@ -15,7 +15,7 @@ The [rolling-release workflow guide](docs/release-workflow.md) covers setup, per
 
 ## Proven behavior
 
-This repository uses [internal candidates](docs/container-release.md) to gate its own stable publication. Its first release, [v0.1.0](https://github.com/lhajoosten/release-log/tree/v0.1.0), tags the exact landing of [release PR #62](https://github.com/lhajoosten/release-log/pull/62). Subsequent self-use releases `v0.2.0` and `v0.2.1` also tag their exact release-PR landings, with tag-bound membership and preserved prior changelog content.
+This repository uses [internal candidates](docs/container-release.md) to gate its own stable publication. Its first release, [v0.1.0](https://github.com/lhajoosten/rolling-release/tree/v0.1.0), tags the exact landing of [release PR #62](https://github.com/lhajoosten/rolling-release/pull/62). Subsequent self-use releases `v0.2.0` and `v0.2.1` also tag their exact release-PR landings, with tag-bound membership and preserved prior changelog content.
 
 A private validation sandbox has also demonstrated:
 
