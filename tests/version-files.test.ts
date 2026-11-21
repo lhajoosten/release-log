@@ -473,3 +473,31 @@ void test("a Bun workspace root release preserves bun.lock and workspace member 
   assert.equal(await readFile(join(memberPath, "package.json"), "utf8"), member);
   assert.equal(await readFile(join(path, "bun.lock"), "utf8"), lock);
 });
+
+for (const table of ["project", "tool.poetry"]) {
+  void test(`Poetry lock bytes are preserved when bumping [${table}].version`, async (context) => {
+    const path = await directory(context);
+    const manifest = `[${table}]\nname="example"\nversion="1.2.3"\n`;
+    const lock =
+      'package = []\n\n[metadata]\nlock-version = "2.1"\npython-versions = ">=3.11"\ncontent-hash = "fixture"\n';
+    await writeFile(join(path, "pyproject.toml"), manifest);
+    await writeFile(join(path, "poetry.lock"), lock);
+
+    const prepared = await prepareReleaseFiles(
+      path,
+      fixture.serialized,
+      fixtureConfiguration,
+      version,
+    );
+    assert.deepEqual(
+      prepared.files.map((file) => file.path),
+      ["pyproject.toml", "CHANGELOG.md", ".release-log/inputs.json"],
+    );
+    await writeReleaseFiles(path, prepared);
+    assert.equal(
+      await readFile(join(path, "pyproject.toml"), "utf8"),
+      manifest.replace("1.2.3", "1.2.4"),
+    );
+    assert.equal(await readFile(join(path, "poetry.lock"), "utf8"), lock);
+  });
+}
