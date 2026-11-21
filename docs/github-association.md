@@ -13,7 +13,7 @@ Use a repository-limited token with PR read access. Only GET requests to constru
 ## Association evidence
 
 1. For every captured commit, collect all pages from GitHub's commit-to-PR association endpoint. GitHub documents this as identifying the merged PR that introduced a default-branch commit; other histories may also return open/associated PRs. An association by itself is not release eligibility.
-2. Start with merged PRs in the configured repository targeting the release branch whose `merge_commit_sha` is in the captured local range. Other targets can qualify through the tagged stack checks below. Open or unmerged PRs and out-of-range landings are ineligible. Merge dates are retained for audit. Git reachability determines membership.
+2. Start with merged PRs in the configured repository targeting the release branch whose `merge_commit_sha` is in the captured local range. Other targets can qualify through the shared stack checks below. Open or unmerged PRs and out-of-range landings are ineligible. Merge dates are retained for audit. Git reachability determines membership.
 3. Fetch each qualifying PR's current details and complete original commit list once. Capture selected raw metadata, source identity, head/landing IDs, and commit messages/parents; do not retain authentication or unrelated response fields.
 4. Verify each PR's actual introduced footprint using the local commit graph and GitHub mapping, as described below. Deduplicate by PR number and require exactly one PR owner or eligible bootstrap commit entry for every captured commit.
 5. Re-read selected PR metadata before returning. Changed metadata or identity fails with an explicit refresh/retry instruction instead of mixing capture states.
@@ -28,9 +28,9 @@ Each non-structural introduced commit needs unique GitHub association evidence. 
 
 ### Shared stack landings
 
-In a tagged cycle, a release-branch PR whose head differs from the second parent can qualify through a verified same-repository stack. The commit association endpoint can report only the release-branch PR. Discovery reads closed PRs targeting each successive head branch and requires a single continuation with the same landing SHA until it reaches the second parent. GitHub commit lists and local commit evidence must cover the entire landing, and an authored commit needs a commit association to the release-branch PR or its verified owner. A PR on an unrelated branch cannot qualify by reporting the same SHA.
+In tagged and bootstrap ranges, a release-branch PR whose head differs from the second parent can qualify through a verified same-repository stack. The commit association endpoint can report only the release-branch PR. Discovery reads closed PRs targeting each successive head branch and requires a single continuation with the same landing SHA until it reaches the second parent. GitHub commit lists and local commit evidence must cover the entire landing within the captured range, and an authored commit needs a commit association to the release-branch PR or its verified owner. A PR on an unrelated branch cannot qualify by reporting the same SHA.
 
-Snapshot evidence records each stack member's captured `stackBase` ref and SHA, full original commit list, and individually owned landed commits. Offline replay checks the first-parent landing, branch chain, Git footprint and ownership before validating each PR's metadata. See the [stack attribution policy](release-policy.md#stacked-prs-in-tagged-cycles).
+Snapshot evidence records each stack member's captured `stackBase` ref and SHA, full original commit list, and individually owned landed commits. Offline replay checks the first-parent landing, branch chain, Git footprint and ownership before validating each PR's metadata. See the [stack attribution policy](release-policy.md#stacked-prs).
 
 ### Squash and rebase histories
 
