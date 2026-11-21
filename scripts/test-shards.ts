@@ -91,11 +91,7 @@ function sum(values: Iterable<number>) {
 }
 
 const [command, ...args] = process.argv.slice(2);
-if (command === "record") {
-  const [output] = args;
-  assert.ok(output, "Specify a timing output file");
-  record(files, output);
-} else if (command === "plan") {
+if (command === "plan") {
   const [count, history] = args;
   console.log(JSON.stringify(plan(positiveInteger(count, "Shard count"), history), null, 2));
 } else if (command === "run") {
@@ -107,31 +103,24 @@ if (command === "record") {
   assert.ok(shard, "Shard index is outside the plan");
   record(shard.files, output);
 } else if (command === "verify") {
-  const [baselinePath, ...shardPaths] = args;
-  assert.ok(baselinePath && shardPaths.length, "Specify the baseline and each shard report");
-  const baseline = readTimings(baselinePath);
-  assert.deepEqual(
-    [...baseline.tests.keys()].toSorted(),
-    files,
-    "Baseline files differ from discovery",
-  );
-  const reports = shardPaths.map((path) => readTimings(path));
-  const reportedTests = reports.flatMap(({ tests }) => [...tests]);
-  assert.deepEqual(
-    reportedTests.map(([file]) => file).toSorted(),
-    files,
-    "Shards must report every file exactly once",
-  );
-  for (const [file, count] of reportedTests) {
-    assert.equal(
-      count,
-      baseline.tests.get(file),
-      `Test count differs from the baseline for ${file}`,
+  const [history, ...shardPaths] = args;
+  assert.ok(history && shardPaths.length, "Specify file timings and each shard report");
+  const shards = plan(shardPaths.length, history);
+  let testCount = 0;
+  for (const [index, path] of shardPaths.entries()) {
+    const expected = shards[index];
+    assert.ok(expected);
+    const { tests } = readTimings(path);
+    assert.deepEqual(
+      [...tests.keys()].toSorted(),
+      expected.files.toSorted(),
+      `Completed files differ from the plan for shard ${index + 1}`,
     );
+    testCount += sum(tests.values());
   }
   console.log(
-    `Verified ${files.length} files and ${sum(baseline.tests.values())} tests across ${reports.length} shards`,
+    `Verified ${files.length} files and ${testCount} tests across ${shards.length} shards`,
   );
 } else {
-  throw new Error("Expected record, plan, run, or verify");
+  throw new Error("Expected plan, run, or verify");
 }
