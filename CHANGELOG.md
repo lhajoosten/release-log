@@ -1,6 +1,6 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:8fe36173d5c8410e707fbf1ccd1b547967786556c58b1536f00314c70dd5168e -->
+<!-- release-log:pending:v1 sha256:dffc471e90de463bfba3ca3ed95f51dcd5486dbc4cbe533f01ab3a596044287b -->
 
 ## v0.6.0 (2026-11-21)
 
@@ -23,12 +23,14 @@
 - Verify Poetry lock freshness after static Python version bumps&#46; ([#134](https://github.com/lhajoosten/release-log/pull/134)) by [&#64;lhajoosten](https://github.com/lhajoosten)
 - Queue reviewed internal release candidates and publish them after the container gate passes&#46; ([#139](https://github.com/lhajoosten/release-log/pull/139)) by [&#64;lhajoosten](https://github.com/lhajoosten)
 - Enforce ownership of AI SDK dependencies in the text&#45;generation wrapper&#46; ([#144](https://github.com/lhajoosten/release-log/pull/144)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Register the reviewed producer that generated the v0&#46;6&#46;0 proposal&#46; ([#145](https://github.com/lhajoosten/release-log/pull/145)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Replay generated release proposals with reviewed runtimes before merge&#46; ([#147](https://github.com/lhajoosten/release-log/pull/147)) by [&#64;lhajoosten](https://github.com/lhajoosten)
 
 </details>
 
 <br>
 
-Full changelog: [v0&#46;5&#46;2&#8230;ff59a4cd0625f387fd4e9061dd12b7eb6fe9d2a4](https://github.com/lhajoosten/release-log/compare/v0.5.2...ff59a4cd0625f387fd4e9061dd12b7eb6fe9d2a4) (captured source).
+Full changelog: [v0&#46;5&#46;2&#8230;fd2d2f1d4d7bfea7640152c5594122f0a1b348ee](https://github.com/lhajoosten/release-log/compare/v0.5.2...fd2d2f1d4d7bfea7640152c5594122f0a1b348ee) (captured source).
 
 <!-- release-log:pending:end -->
 
