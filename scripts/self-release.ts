@@ -4,7 +4,10 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { isDeepStrictEqual } from "node:util";
 import { parseReleaseAutomation } from "../src/config/automation.ts";
-import { parseReleaseInputConfiguration } from "../src/config/repository.ts";
+import {
+  parseReleaseInputConfiguration,
+  resolveProviderConfiguration,
+} from "../src/config/repository.ts";
 import { reconcileGitHubLatest, taggedReleaseNotes } from "../src/github-release.ts";
 import {
   GitHubProposalRepository,
@@ -39,12 +42,13 @@ const localImage = "release-log-candidate:release";
 class StaleCandidate extends Error {}
 
 async function main() {
-  const configuration = parseReleaseInputConfiguration(
-    JSON.parse(process.env.CONFIGURATION ?? "null"),
+  const configuration = resolveProviderConfiguration(
+    parseReleaseInputConfiguration(JSON.parse(process.env.CONFIGURATION ?? "null")),
+    process.env.GITHUB_REPOSITORY,
+    Number(process.env.GITHUB_REPOSITORY_ID),
   );
   if (
     configuration.internalPublication !== true ||
-    process.env.GITHUB_REPOSITORY !== configuration.repository ||
     process.env.GITHUB_REF !== "refs/heads/main" ||
     !["push", "schedule", "workflow_dispatch"].includes(process.env.GITHUB_EVENT_NAME ?? "")
   )

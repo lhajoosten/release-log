@@ -1,3 +1,4 @@
+import { isReleaseLogRepositoryName } from "./config/repository.ts";
 import { isDeepStrictEqual } from "node:util";
 import { parse } from "yaml";
 
@@ -79,9 +80,10 @@ async function loadWorkflow(get: Read, path: string, sha: string) {
 
 function withPinnedSource(job: unknown, workflow: string) {
   if (!isObject(job) || !isObject(job.with) || typeof job.uses !== "string") return undefined;
-  const prefix = `lhajoosten/release-log/.github/workflows/${workflow}@`;
-  if (!job.uses.startsWith(prefix)) return undefined;
-  const pin = job.uses.slice(prefix.length);
+  const [repository, pin] = job.uses.split(`/.github/workflows/${workflow}@`);
+  if (repository === undefined || pin === undefined || !isReleaseLogRepositoryName(repository))
+    return undefined;
+  if (job.uses !== `${repository}/.github/workflows/${workflow}@${pin}`) return undefined;
   return fullSha.test(pin) && job.with["tool-sha"] === pin ? job.with : undefined;
 }
 

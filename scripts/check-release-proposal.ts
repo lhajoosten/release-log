@@ -7,6 +7,7 @@ import {
   isReleaseLogRepositoryName,
   parseReleaseInputConfiguration,
   RELEASE_LOG_REPOSITORY_ID,
+  resolveProviderConfiguration,
 } from "../src/config/repository.ts";
 import { GitHubProposalRepository, ProposalConflictError } from "../src/github-proposals.ts";
 import { pullRequestFromEvent } from "../src/github-pr-readiness.ts";
@@ -47,10 +48,12 @@ const configurationJSON: unknown = document.getIn(["env", "CONFIGURATION"]);
 const pins: unknown = document.getIn(["env", "VERIFICATION_RUNTIMES"]);
 if (document.errors.length || typeof configurationJSON !== "string" || typeof pins !== "string")
   throw new Error("Expected reviewed self-release configuration and verification runtime pins.");
-const configuration = parseReleaseInputConfiguration(JSON.parse(configurationJSON));
+const configuration = resolveProviderConfiguration(
+  parseReleaseInputConfiguration(JSON.parse(configurationJSON)),
+  GITHUB_REPOSITORY,
+  repositoryId,
+);
 if (
-  !isReleaseLogRepositoryName(configuration.repository) ||
-  configuration.repositoryId !== repositoryId ||
   configuration.releaseBranch !== "main" ||
   !configuration.selfUpgrade ||
   !configuration.internalPublication
