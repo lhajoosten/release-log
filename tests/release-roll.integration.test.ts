@@ -11,7 +11,11 @@ import { createReleasePlan } from "../src/release-plan.ts";
 import { preflightRelease } from "../src/release-preflight.ts";
 import { rollRelease } from "../src/release-roll.ts";
 import type { ReleaseRollRequest } from "../src/release-roll.ts";
-import { replayReleaseSnapshot } from "../src/release-snapshot.ts";
+import {
+  captureReleaseSnapshot,
+  replayReleaseSnapshot,
+  serializeReleaseSnapshot,
+} from "../src/release-snapshot.ts";
 import { fixture, json, object, text } from "./proposal-fixture.ts";
 
 async function lifecycle(context: TestContext, bootstrapCommit = false) {
@@ -190,28 +194,34 @@ async function lifecycle(context: TestContext, bootstrapCommit = false) {
     f.git(["read-tree", "--reset", "-u", "HEAD"]);
     return { landing, event: mergedEvent, head };
   }
-  async function landStack(titles: readonly [string, string, string], breakingCommit = false) {
-    await rollRelease(request(), transport);
-    const released = await merge("merge");
-    await rollRelease({ ...request(), event: released.event }, transport);
-
+  function addStack(
+    base: string,
+    titles: readonly [string, string, string?],
+    breakingCommit = false,
+  ) {
     const tree = f.git(["rev-parse", "HEAD^{tree}"]).trim();
     const commit = (parents: readonly string[], message: string) =>
-      f.git(["commit-tree", tree, ...parents.flatMap((parent) => ["-p", parent])], message).trim();
-    const root = commit([released.landing], "refactor: reorganize modules");
+      f
+        .git(["commit-tree", tree, ...parents.flatMap((parent) => ["-p", parent]), "-m", message])
+        .trim();
+    const root = commit([base], "refactor: reorganize modules");
     const middle = commit([root], "fix: preserve selected rows");
-    const topChange = commit(
-      [middle],
-      breakingCommit
-        ? "feat!: allow exports\n\nBREAKING CHANGE: the export flag changed"
-        : "refactor: share export layout",
-    );
-    const top = commit([topChange, root], "Merge the parent branch");
-    const landing = commit([released.landing, top], "Merge the stacked changes");
-    f.git(["update-ref", "refs/heads/main", landing, released.landing]);
+    const topChange = titles[2]
+      ? commit(
+          [middle],
+          breakingCommit
+            ? "feat!: allow exports\n\nBREAKING CHANGE: the export flag changed"
+            : "refactor: share export layout",
+        )
+      : middle;
+    const top = titles[2] ? commit([topChange, root], "Merge the parent branch") : middle;
+    const landing = commit([base, top], "Merge the stacked changes");
+    f.git(["update-ref", "refs/heads/main", landing, base]);
     const refs = ["main", "stack/base", "stack/middle", "stack/top"];
-    const heads = [released.landing, root, middle, top];
-    for (const [index, originals] of [[root], [middle], [topChange, top]].entries()) {
+    const heads = [base, root, middle, top];
+    const commitLists = [[root], [middle]];
+    if (titles[2]) commitLists.push([topChange, top]);
+    for (const [index, originals] of commitLists.entries()) {
       const ref = refs[index];
       const headRef = refs[index + 1];
       const baseSha = heads[index];
@@ -245,7 +255,13 @@ async function lifecycle(context: TestContext, bootstrapCommit = false) {
     stackedLinks.set(landing, [201]);
     const rootPull = stackedPulls.get(201);
     assert.ok(rootPull);
-    return { event: event(rootPull), released, landing, root, middle, topChange, top };
+    return { event: event(rootPull), landing, root, middle, topChange, top };
+  }
+  async function landStack(titles: readonly [string, string, string], breakingCommit = false) {
+    await rollRelease(request(), transport);
+    const released = await merge("merge");
+    await rollRelease({ ...request(), event: released.event }, transport);
+    return { ...addStack(released.landing, titles, breakingCommit), released };
   }
   return {
     f,
@@ -256,6 +272,7 @@ async function lifecycle(context: TestContext, bootstrapCommit = false) {
     transport,
     collectionCalls,
     merge,
+    addStack,
     landStack,
     stackedPulls,
     stackedOriginals,
@@ -263,6 +280,126 @@ async function lifecycle(context: TestContext, bootstrapCommit = false) {
     stackedBases,
   };
 }
+
+void test("a configured bootstrap accepts and replays a two-PR shared landing", async (context) => {
+  const s = await lifecycle(context);
+  const config = s.inputs.configuration;
+  assert.equal(config.schemaVersion, 2);
+  const { baselineSha, onboardingSha } = config.bootstrap;
+  const stack = s.addStack(onboardingSha, [
+    "feat(stack): add exports",
+    "fix(stack): preserve selections",
+  ]);
+  // GitHub can link an authored commit to its inner PR on the intermediate branch.
+  s.stackedLinks.set(stack.middle, [202]);
+  const request = { ...s.request(), event: stack.event, write: false };
+  const dry = await rollRelease(request, s.transport);
+  assert.equal(dry.route, "proposal");
+  assert.equal(dry.result.outcome, "would-create");
+  assert.equal(dry.result.baselineSha, baselineSha);
+  assert.equal(dry.result.sourceSha, stack.landing);
+  assert.equal(s.f.ref("tags/v0.1.0"), null);
+  assert.equal(s.f.pulls.length, 0);
+
+  const range = await inspectPendingRelease(
+    s.f.directory,
+    { kind: "bootstrap", commitSha: baselineSha },
+    stack.landing,
+  );
+  const association = await collectMergedPullRequests(
+    {
+      repository: config.repository,
+      releaseBranch: config.releaseBranch,
+      localRepository: s.f.directory,
+      token: request.token,
+      range,
+      onboardingSha,
+    },
+    s.transport,
+  );
+  const snapshotText = await serializeReleaseSnapshot(
+    await captureReleaseSnapshot(association, config),
+  );
+  const captured = await replayReleaseSnapshot(snapshotText, config);
+  assert.deepEqual(
+    captured.input.range.commitShas,
+    [onboardingSha, stack.root, stack.middle, stack.landing].toSorted(),
+  );
+  assert.deepEqual(captured.input.bootstrapCommits, []);
+  assert.deepEqual(
+    captured.input.pullRequests
+      .filter((pull) => pull.stackBase)
+      .map((pull) => ({
+        number: pull.number,
+        commits: pull.landedCommits.map(({ sha }) => sha),
+      })),
+    [
+      { number: 201, commits: [stack.root, stack.landing].toSorted() },
+      { number: 202, commits: [stack.middle] },
+    ],
+  );
+  const plan = await createReleasePlan(snapshotText, config, {
+    kind: "bootstrap",
+    initialVersion: "0.1.0",
+  });
+  assert.equal(plan.nextVersion, "0.1.0");
+  assert.deepEqual(
+    captured.normalized.pullRequests
+      .filter((pull) => pull.number >= 201)
+      .map((pull) => ({
+        number: pull.number,
+        subject: pull.title.description,
+        summary: pull.context?.summary,
+        commits: pull.commits.map(({ sha }) => sha),
+      })),
+    [
+      { number: 201, subject: "add exports", summary: "Stack change 201", commits: [stack.root] },
+      {
+        number: 202,
+        subject: "preserve selections",
+        summary: "Stack change 202",
+        commits: [stack.middle],
+      },
+    ],
+  );
+});
+
+void test("bootstrap shared landings reject incomplete, overlapping, or contradictory evidence and enforce new PR metadata", async (context) => {
+  const s = await lifecycle(context);
+  const config = s.inputs.configuration;
+  assert.equal(config.schemaVersion, 2);
+  const stack = s.addStack(config.bootstrap.onboardingSha, [
+    "feat(stack): add exports",
+    "fix(stack): preserve selections",
+  ]);
+  const request = { ...s.request(), event: stack.event, write: false };
+  const inner = s.stackedPulls.get(202);
+  assert.ok(inner);
+
+  s.stackedBases.delete("stack/base");
+  await assert.rejects(rollRelease(request, s.transport), /no corroborating continuation/u);
+  s.stackedBases.set("stack/base", [202]);
+
+  inner.commits = 2;
+  s.stackedOriginals.set(202, [stack.root, stack.middle]);
+  await assert.rejects(rollRelease(request, s.transport), /makes a competing claim/u);
+  inner.commits = 1;
+  s.stackedOriginals.set(202, [stack.middle]);
+
+  inner.base.sha = config.bootstrap.onboardingSha;
+  await assert.rejects(
+    rollRelease(request, s.transport),
+    /contradictory landing, base or head evidence/u,
+  );
+  inner.base.sha = stack.root;
+
+  inner.title = "Unstructured title";
+  await assert.rejects(
+    rollRelease(request, s.transport),
+    /PR #202 shared landing .*release metadata must be repaired/u,
+  );
+  assert.equal(s.f.pulls.length, 0);
+});
 
 void test("a tagged refactor stack makes no release and survives into the next proposal", async (context) => {
   const s = await lifecycle(context);
