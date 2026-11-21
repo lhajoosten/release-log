@@ -1,6 +1,6 @@
 import { updateChangelog } from "../changelog/history.ts";
 import { updateToolPins } from "./tool-pins.ts";
-import { proposalPaths, workflowPath } from "../proposal-paths.ts";
+import { workflowPath } from "../proposal-paths.ts";
 import type { ProposalPath } from "../proposal-paths.ts";
 import { renderPlannedChangelog } from "../changelog/render.ts";
 import { deriveReleasePlan } from "../planning/derive-release-plan.ts";
@@ -10,8 +10,13 @@ import type { ReleaseSnapshot } from "../snapshot/model.ts";
 import { replayReleaseSnapshot } from "../snapshot/replay.ts";
 import type { ReleaseInputConfiguration } from "../config/repository.ts";
 import { updateCargoVersions } from "../cargo-version.ts";
-import type { CargoContents } from "../cargo-version.ts";
 import { updatePackageVersion, updatePyprojectVersion } from "../version-files.ts";
+
+import type { VersionPlan } from "../version-files.ts";
+import { unsupportedLocks } from "../version-file-inputs.ts";
+import type { ReleaseFileContents } from "../version-file-inputs.ts";
+
+export type { ReleaseFileContents } from "../version-file-inputs.ts";
 
 export class ProposalFilesError extends Error {
   constructor(message: string) {
@@ -30,14 +35,6 @@ export interface PreparedRelease {
   readonly pendingChangelog?: string;
   readonly files: readonly ProposalFile[];
 }
-const unsupportedLocks = ["package-lock.json", "npm-shrinkwrap.json", "uv.lock"] as const;
-export const releaseInputPaths = [...proposalPaths, ...unsupportedLocks] as const;
-export type ReleaseFileContents = Readonly<
-  Record<Exclude<(typeof releaseInputPaths)[number], typeof workflowPath>, string | null> &
-    Partial<Record<typeof workflowPath, string | null>> &
-    CargoContents
->;
-
 export function validateReleaseFileContents(contents: ReleaseFileContents): void {
   for (const value of Object.values(contents)) {
     if (
@@ -50,16 +47,14 @@ export function validateReleaseFileContents(contents: ReleaseFileContents): void
   }
 }
 
-export function prepareVerifiedRelease(
-  snapshot: ReleaseSnapshot,
-  version: ReleaseVersionConfiguration,
+export function prepareVersionFiles(
   contents: ReleaseFileContents,
-): PreparedRelease {
-  const plan = deriveReleasePlan(snapshot, version);
+  plan: VersionPlan,
+): readonly ProposalFile[] {
   for (const lock of unsupportedLocks) {
     if (contents[lock] !== null)
       throw new ProposalFilesError(
-        `${lock} needs a root-version mirror adapter before preparing a release; no files were written.`,
+        `${lock} needs a root-version mirror adapter before preparing a release. Select a compatible producer or defer activation.`,
       );
   }
   const packageJSON = contents["package.json"];
@@ -87,6 +82,16 @@ export function prepareVerifiedRelease(
     manifests.push({ path: "package.json", before: packageJSON, after: packageUpdate.content });
   if (pyprojectTOML !== null && pythonUpdate)
     manifests.push({ path: "pyproject.toml", before: pyprojectTOML, after: pythonUpdate.content });
+  return manifests;
+}
+
+export function prepareVerifiedRelease(
+  snapshot: ReleaseSnapshot,
+  version: ReleaseVersionConfiguration,
+  contents: ReleaseFileContents,
+): PreparedRelease {
+  const plan = deriveReleasePlan(snapshot, version);
+  const manifests = prepareVersionFiles(contents, plan);
   const changelog = contents["CHANGELOG.md"];
   const rendered = renderPlannedChangelog(snapshot, plan);
   const updatedChangelog = updateChangelog(

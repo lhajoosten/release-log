@@ -31,7 +31,7 @@ on:
         type: boolean
     secrets:
       app-private-key:
-        required: true
+        required: false
 
 permissions:
   contents: read
@@ -44,9 +44,11 @@ concurrency:
 jobs:
   roll:
     if: >-
-      (github.event_name == 'pull_request_target' || github.event_name == 'pull_request') &&
-      github.event.action == 'closed' && github.event.pull_request.merged == true &&
-      github.event.pull_request.base.ref == inputs.release-branch
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == format('refs/heads/{0}', inputs.release-branch)) ||
+      ((github.event_name == 'pull_request_target' || github.event_name == 'pull_request') &&
+       github.event.action == 'closed' && github.event.pull_request.merged == true &&
+       github.event.pull_request.base.ref == inputs.release-branch)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -77,7 +79,10 @@ jobs:
 
       - name: Build and install the pinned tarball without consumer code
         working-directory: tool
+        env:
+          TOOL_SHA: ${{ inputs.tool-sha }}
         run: |
+          test "$(git rev-parse HEAD)" = "$TOOL_SHA"
           pnpm install --frozen-lockfile --ignore-scripts
           mkdir -p "$RUNNER_TEMP/release-package" "$RUNNER_TEMP/release-cli"
           pnpm pack --out "$RUNNER_TEMP/release-package/release-log.tgz"
@@ -99,32 +104,53 @@ jobs:
           CONFIGURATION: ${{ inputs.configuration }}
           BOT_USER_ID: ${{ inputs.bot-user-id }}
           RELEASE_BRANCH: ${{ inputs.release-branch }}
+          RELEASE_APP_ID: ${{ inputs.app-id }}
+          HAS_APP_KEY: ${{ secrets.app-private-key != '' }}
         run: |
           node --input-type=module <<'JS'
           import { appendFile, writeFile } from 'node:fs/promises';
           const { parseReleaseInputConfiguration } = await import(`${process.env.RUNNER_TEMP}/release-cli/dist/src/release-snapshot.js`);
           const { parseReleaseAutomation } = await import(`${process.env.RUNNER_TEMP}/release-cli/dist/src/release-proposal.js`);
           const config = parseReleaseInputConfiguration(JSON.parse(process.env.CONFIGURATION));
-          if (config.repository !== process.env.GITHUB_REPOSITORY || config.releaseBranch !== process.env.RELEASE_BRANCH) throw new Error('Caller repository/branch mismatch');
-          const automation = parseReleaseAutomation({ schemaVersion: 1, botUserId: Number(process.env.BOT_USER_ID) });
+          if (config.repository !== process.env.GITHUB_REPOSITORY || config.repositoryId !== Number(process.env.GITHUB_REPOSITORY_ID) || config.releaseBranch !== process.env.RELEASE_BRANCH) throw new Error('Caller repository/branch mismatch');
           await appendFile(process.env.GITHUB_OUTPUT, `self-upgrade=${config.selfUpgrade === true}\n`);
           await writeFile(`${process.env.RUNNER_TEMP}/release-config.json`, JSON.stringify(config));
-          await writeFile(`${process.env.RUNNER_TEMP}/release-automation.json`, JSON.stringify(automation));
+          if (process.env.GITHUB_EVENT_NAME === 'workflow_dispatch') {
+            if (process.env.GITHUB_REF !== 'refs/heads/' + config.releaseBranch) throw new Error('Manual preflight requires the configured release branch');
+            const appId = process.env.RELEASE_APP_ID;
+            const canProbe = /^[1-9]\d*$/.test(appId) && Number.isSafeInteger(Number(appId)) && process.env.HAS_APP_KEY === 'true';
+            await appendFile(process.env.GITHUB_OUTPUT, `probe-app=${canProbe}\n`);
+          } else {
+            const automation = parseReleaseAutomation({ schemaVersion: 1, botUserId: Number(process.env.BOT_USER_ID) });
+            await writeFile(`${process.env.RUNNER_TEMP}/release-automation.json`, JSON.stringify(automation));
+          }
           JS
 
       - name: Check out current release source as data with complete tags and history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ github.repository }}
-          ref: ${{ inputs.release-branch }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || inputs.release-branch }}
           path: source
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Check App installation access on this repository
+        if: github.event_name == 'workflow_dispatch' && steps.configuration.outputs.probe-app == 'true'
+        id: installation
+        continue-on-error: true
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.app-private-key }}
+          permission-metadata: read
+
       # Mint after queueing and tool installation. Never expose the key/token to
       # consumer dependency scripts, source code, or a PR-head checkout.
-      - name: Mint a short-lived token for this repository only
+      - name: Mint a short-lived token with the required permissions
+        if: github.event_name != 'workflow_dispatch' || steps.installation.outcome == 'success'
         id: app
+        continue-on-error: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
         with:
           app-id: ${{ inputs.app-id }}
@@ -134,7 +160,30 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
 
+      - name: Rehearse initialization on the captured release branch
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_LOG_APP_TOKEN: ${{ steps.app.outputs.token }}
+          RELEASE_LOG_PREFLIGHT_ACTIONS: "true"
+          RELEASE_LOG_PREFLIGHT_APP_ID: ${{ inputs.app-id }}
+          RELEASE_LOG_PREFLIGHT_BOT_ID: ${{ inputs.bot-user-id }}
+          RELEASE_LOG_PREFLIGHT_HAS_KEY: ${{ secrets.app-private-key != '' }}
+          RELEASE_LOG_PREFLIGHT_INSTALLATION: ${{ steps.installation.outcome }}
+          RELEASE_LOG_PREFLIGHT_INSTALLATION_TOKEN: ${{ steps.installation.outputs.token }}
+          RELEASE_LOG_PREFLIGHT_PERMISSIONS: ${{ steps.app.outcome }}
+          RELEASE_LOG_PREFLIGHT_APP_SLUG: ${{ steps.installation.outputs.app-slug }}
+          TOOL_SHA: ${{ inputs.tool-sha }}
+        run: |
+          test "$(git -C source rev-parse HEAD)" = "$GITHUB_SHA"
+          node "$RUNNER_TEMP/release-cli/dist/src/cli.js" preflight \
+            --producer-runtimes "$RUNNER_TEMP/release-producer-runtimes.json" \
+            --config "$RUNNER_TEMP/release-config.json" \
+            --repository "$GITHUB_WORKSPACE/source" \
+            --source "$GITHUB_SHA" --producer-sha "$TOOL_SHA" --initial-version 0.1.0
+
       - name: Route the merge through the packaged CLI
+        if: github.event_name != 'workflow_dispatch'
         env:
           RELEASE_LOG_APP_TOKEN: ${{ steps.app.outputs.token }}
           RELEASE_WRITE: ${{ inputs.write }}

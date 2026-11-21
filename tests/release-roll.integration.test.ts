@@ -1,21 +1,24 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
+import { join } from "node:path";
 import type { TestContext } from "node:test";
 import { parse } from "yaml";
 import { inspectCommit, inspectPendingRelease } from "../src/git.ts";
 import type { GitHubRead } from "../src/github.ts";
 import { collectMergedPullRequests } from "../src/github-association.ts";
 import { createReleasePlan } from "../src/release-plan.ts";
+import { preflightRelease } from "../src/release-preflight.ts";
 import { rollRelease } from "../src/release-roll.ts";
 import type { ReleaseRollRequest } from "../src/release-roll.ts";
 import { replayReleaseSnapshot } from "../src/release-snapshot.ts";
 import { fixture, json, object, text } from "./proposal-fixture.ts";
 
-async function lifecycle(context: TestContext) {
+async function lifecycle(context: TestContext, bootstrapCommit = false) {
   const f = await fixture(context, "node", "feat(api): export rows", {
     bootstrap: true,
     adoption: true,
+    bootstrapCommit,
   });
   const inputs = await f.request();
   const token = "synthetic-installation-token";
@@ -727,4 +730,208 @@ void test("a source change during collection prevents subsequent proposal writes
   assert.ok(changed);
   assert.equal(s.f.pulls.length, 0);
   assert.ok(s.f.calls.every((call) => call.method === "GET"));
+});
+
+void test("initialization proposes the exact legacy setup cutoff and agrees with read-only roll", async (context) => {
+  const { f, request, transport } = await lifecycle(context, true);
+  f.git(["tag", "-d", "v1.2.3"]);
+  const sourceSha = f.ref("heads/main");
+  assert.ok(sourceSha);
+  const setupSha = f.git(["rev-parse", "HEAD^"]).trim();
+  const { repository, repositoryId, releaseBranch, releasePolicy } = request().configuration;
+  const config = {
+    schemaVersion: 1,
+    repository,
+    repositoryId,
+    releaseBranch,
+    releasePolicy,
+  } as const;
+  const inputs = {
+    repository: f.directory,
+    configuration: config,
+    sourceSha,
+    producerSha: "1".repeat(40),
+    initialVersion: "0.1.0",
+    token: request().token,
+  };
+  const app = {
+    appId: "4321",
+    botUserId: String(request().automation.botUserId),
+    hasPrivateKey: true,
+    installation: "success",
+    permissions: "success",
+    slug: "release-fixture",
+    installationToken: "synthetic-probe-token",
+    token: request().token,
+  };
+  const read: GitHubRead = (url, options) => {
+    assert.equal(options.method, "GET");
+    assert.equal(options.body, undefined);
+    const path = new URL(url).pathname;
+    if (path === "/repos/example/project/tags") return Promise.resolve(json([]));
+    if (path === "/users/release-fixture%5Bbot%5D") {
+      assert.equal(
+        new Headers(options.headers).get("authorization"),
+        "Bearer synthetic-probe-token",
+      );
+      return Promise.resolve(
+        json({ login: "release-fixture[bot]", type: "Bot", id: Number(app.botUserId) }),
+      );
+    }
+    return transport(url, options);
+  };
+  const before = f.git(["show-ref"]);
+  const early = await preflightRelease({ ...inputs, onboardingSha: f.baseline }, read);
+  assert.equal(early.status, "blocked");
+  assert.match(early.findings.history?.message ?? "", new RegExp(setupSha, "u"));
+  assert.equal(early.rangeReview?.bootstrap.onboardingSha, setupSha);
+  assert.equal(early.caller, null);
+
+  const preview = await preflightRelease(inputs, read);
+  assert.equal(preview.status, "unverified");
+  assert.equal(preview.findings.appConfiguration?.status, "unverified");
+  assert.equal(preview.baseline.sha, f.baseline);
+  assert.deepEqual(preview.rangeReview?.commitOnlyEvidence, [setupSha]);
+  assert.deepEqual(preview.rangeReview?.landings, [
+    { number: 101, sha: sourceSha, verification: "strict" },
+  ]);
+  assert.ok(preview.rangeReview);
+  assert.ok(preview.caller);
+  const caller = object(parse(preview.caller) as unknown);
+  const job = object(object(caller.jobs).release);
+  const parameters = object(job.with);
+  assert.ok("workflow_dispatch" in object(caller.on));
+  assert.equal(
+    job.uses,
+    `lhajoosten/release-log/.github/workflows/rolling-release.yml@${inputs.producerSha}`,
+  );
+  assert.equal(parameters["tool-sha"], inputs.producerSha);
+  assert.equal(parameters.write, false);
+  assert.doesNotMatch(
+    JSON.stringify(preview),
+    /synthetic-installation-token|Preserve rows|originalCommits/u,
+  );
+
+  const fixed = { ...config, schemaVersion: 2 as const, bootstrap: preview.rangeReview.bootstrap };
+  const reviewed = { ...inputs, configuration: fixed, app };
+  const verified = await preflightRelease(reviewed, read);
+  assert.equal(verified.status, "ready");
+  assert.equal(verified.findings.appDryRun?.status, "passed");
+  const roll = await rollRelease({ ...request(), configuration: fixed, write: false }, read);
+  assert.equal(roll.route, "proposal");
+  assert.equal(roll.result.outcome, "would-create");
+  assert.equal(f.git(["show-ref"]), before);
+  assert.equal(f.git(["status", "--porcelain"]), "");
+
+  const otherProducer = await preflightRelease({ ...reviewed, producerSha: "2".repeat(40) }, read);
+  assert.notEqual(verified.inputId, otherProducer.inputId);
+  for (const [overrides, stage] of [
+    [
+      { appId: "", botUserId: "", hasPrivateKey: false, installation: "skipped" },
+      "appConfiguration",
+    ],
+    [{ installation: "failure" }, "appInstallation"],
+    [{ permissions: "failure" }, "appPermissions"],
+    [{ botUserId: "43" }, "appIdentity"],
+  ] as const) {
+    const blocked = await preflightRelease({ ...reviewed, app: { ...app, ...overrides } }, read);
+    assert.equal(blocked.status, "blocked");
+    assert.equal(blocked.findings[stage]?.status, "blocked");
+    assert.equal(blocked.findings.appDryRun?.status, "unverified");
+    assert.equal(blocked.findings.history?.status, "passed");
+    assert.equal(blocked.caller, null);
+  }
+
+  f.git(["commit", "--allow-empty", "-m", "chore: later direct change"]);
+  const later = f.git(["rev-parse", "HEAD"]).trim();
+  const stale = await preflightRelease(reviewed, read);
+  assert.match(stale.findings.history?.message ?? "", /branch moved/u);
+  const rejected = await preflightRelease({ ...reviewed, sourceSha: later }, read);
+  assert.equal(rejected.status, "blocked");
+  assert.match(rejected.findings.history?.message ?? "", new RegExp(later, "u"));
+  assert.equal(rejected.rangeReview, null);
+  assert.equal(f.ref("heads/release-log/main"), null);
+});
+
+void test("initialization reports missing and candidate version files, ancestry errors, lockfile blockers and adoption independently", async (context) => {
+  const { f, request, transport } = await lifecycle(context, true);
+  f.git(["tag", "-d", "v1.2.3"]);
+  const config = request().configuration;
+  assert.equal(config.schemaVersion, 2);
+  const setupSha = f.git(["rev-parse", "HEAD^"]).trim();
+  const fixed = { ...config, bootstrap: { baselineSha: f.baseline, onboardingSha: setupSha } };
+  const sourceSha = f.git(["rev-parse", "HEAD"]).trim();
+  const options = {
+    repository: f.directory,
+    configuration: fixed,
+    sourceSha,
+    producerSha: "1".repeat(40),
+    initialVersion: "0.1.0",
+    token: request().token,
+  };
+  let tags: unknown[] = [];
+  const read: GitHubRead = (url, init) => {
+    assert.equal(init.method, "GET");
+    return new URL(url).pathname === "/repos/example/project/tags"
+      ? Promise.resolve(json(tags))
+      : transport(url, init);
+  };
+
+  f.git(["rm", "package.json"]);
+  f.git(["commit", "-m", "chore: plan Python project"]);
+  const planning = f.git(["rev-parse", "HEAD"]).trim();
+  await writeFile(join(f.directory, "pyproject.toml"), '[project]\nversion = "0.0.0"\n');
+  await writeFile(join(f.directory, "uv.lock"), "version = 1\n");
+  f.git(["add", "pyproject.toml", "uv.lock"]);
+  f.git(["commit", "-m", "chore: prepare candidate files"]);
+  const unsupported = f.git(["rev-parse", "HEAD"]).trim();
+  f.git(["rm", "uv.lock"]);
+  f.git(["commit", "-m", "chore: defer unsupported lockfile"]);
+  const compatible = f.git(["rev-parse", "HEAD"]).trim();
+  f.git(["reset", "--hard", planning]);
+
+  const missing = await preflightRelease(
+    { ...options, sourceSha: planning, candidateSha: unsupported },
+    read,
+  );
+  assert.match(
+    missing.findings.sourceFiles?.message ?? "",
+    /root package.json, pyproject.toml, or Cargo.toml/u,
+  );
+  assert.match(missing.findings.candidateFiles?.message ?? "", /uv\.lock.*compatible producer/u);
+  assert.equal(missing.findings.history?.status, "blocked");
+  assert.equal(missing.caller, null);
+  const candidate = await preflightRelease(
+    { ...options, sourceSha: planning, candidateSha: compatible },
+    read,
+  );
+  assert.equal(candidate.findings.candidateFiles?.status, "passed");
+  assert.equal(candidate.findings.sourceFiles?.status, "blocked");
+
+  f.git(["reset", "--hard", unsupported]);
+  const simultaneous = await preflightRelease({ ...options, sourceSha: unsupported }, read);
+  assert.match(
+    simultaneous.findings.history?.message ?? "",
+    /Commit [a-f0-9]{40} has no verified merged-PR landing footprint/u,
+  );
+  assert.match(simultaneous.findings.sourceFiles?.message ?? "", /uv\.lock/u);
+  const invalid = await preflightRelease(
+    {
+      ...options,
+      sourceSha: unsupported,
+      configuration: { ...fixed, bootstrap: { baselineSha: compatible, onboardingSha: setupSha } },
+    },
+    read,
+  );
+  assert.match(invalid.findings.history?.message ?? "", /baseline must be an ancestor/u);
+
+  tags = [{ name: "v1.2.3" }];
+  const tagged = await preflightRelease({ ...options, sourceSha: unsupported }, read);
+  assert.match(
+    tagged.findings.history?.message ?? "",
+    /Stable tag v1\.2\.3.*established-release adoption/u,
+  );
+  assert.equal(tagged.findings.sourceFiles?.status, "blocked");
+  assert.equal(f.ref("heads/release-log/main"), null);
+  assert.equal(f.git(["status", "--porcelain"]), "");
 });

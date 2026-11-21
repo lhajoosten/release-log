@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { runPreflight } from "./cli/preflight.ts";
 import { loadProducerRuntimes, withProducerRuntimes } from "./producer-runtime.ts";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +37,10 @@ import { parseReleaseInputConfiguration } from "./config/repository.ts";
 
 const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/approval verification)
 
+  release-log preflight --repository DIR --target OWNER/REPO --repository-id ID
+    --release-branch BRANCH --producer-sha SHA --initial-version 0.1.0
+    [--source SHA] [--baseline-sha SHA] [--onboarding-sha SHA] [--candidate-sha SHA]
+    (--config FILE can replace target, repository ID, branch and both boundaries)
   release-log roll --config FILE --automation FILE --repository DIR --event FILE
       [--dry-run | --write]
   release-log select-cycle --config FILE --automation FILE --source SHA
@@ -62,6 +67,10 @@ const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/ap
       --publication-policy FILE --receipt FILE --repository DIR
       --asset-directory DIR [--dry-run | --write]
   release-log --help | --version
+
+preflight checks the initial release range, pinned producer and version files
+without writes. GITHUB_TOKEN enables read-only PR checks; App readiness requires
+the reviewed manual Actions caller.
 
 roll routes merged PR events through pre-collection cycle selection or exact-landing
 tagging. It requires RELEASE_LOG_APP_TOKEN; default dry-run.
@@ -128,6 +137,22 @@ async function runCLI(args: readonly string[]): Promise<string> {
   if (!args.length || (args.length === 1 && args[0] === "--help")) return help;
   const command = args[0];
   const commandOptions = new Map<string, readonly string[]>([
+    [
+      "preflight",
+      [
+        "config",
+        "repository",
+        "target",
+        "repository-id",
+        "release-branch",
+        "producer-sha",
+        "initial-version",
+        "source",
+        "baseline-sha",
+        "onboarding-sha",
+        "candidate-sha",
+      ],
+    ],
     ["roll", ["config", "automation", "repository", "event", "dry-run", "write"]],
     ["select-cycle", ["config", "automation", "source"]],
     ["collect", ["config", "repository", "source", "baseline-tag", "bootstrap-sha", "exclusions"]],
@@ -179,6 +204,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
   }
   if (options.has("write") && options.has("dry-run"))
     throw new UsageError("--write and --dry-run are mutually exclusive.");
+  if (command === "preflight") return runPreflight(options);
   const configJSON: unknown = JSON.parse(await readText(required(options, "config"), 1024 * 1024));
   const config = parseReleaseInputConfiguration(configJSON);
   if (planningCommand) return planningCommand.run(options, config);
