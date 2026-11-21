@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -433,3 +433,43 @@ for (const { lock, extraLock = false, manifest = npmManifest, expected } of [
       assert.equal(await readFile(join(dir, path), "utf8"), contents);
   });
 }
+
+void test("a Bun workspace root release preserves bun.lock and workspace member versions", async (context) => {
+  const path = await directory(context);
+  const lock = `{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": { "name": "example", "dependencies": { "leaf": "workspace:*" } },
+    "packages/leaf": { "name": "leaf", "version": "1.2.3" },
+  },
+  "packages": { "leaf": ["leaf@workspace:packages/leaf"] },
+}
+`;
+  const manifest =
+    '{"name":"example","version":"1.2.3","workspaces":["packages/*"],"dependencies":{"leaf":"workspace:*"}}\n';
+  const member = '{"name":"leaf","version":"1.2.3"}\n';
+  const memberPath = join(path, "packages", "leaf");
+  await mkdir(memberPath, { recursive: true });
+  await writeFile(join(memberPath, "package.json"), member);
+  await writeFile(join(path, "package.json"), manifest);
+  await writeFile(join(path, "bun.lock"), lock);
+
+  const prepared = await prepareReleaseFiles(
+    path,
+    fixture.serialized,
+    fixtureConfiguration,
+    version,
+  );
+  assert.deepEqual(
+    prepared.files.map((file) => file.path),
+    ["package.json", "CHANGELOG.md", ".release-log/inputs.json"],
+  );
+  await writeReleaseFiles(path, prepared);
+  assert.equal(
+    await readFile(join(path, "package.json"), "utf8"),
+    manifest.replace("1.2.3", "1.2.4"),
+  );
+  assert.equal(await readFile(join(memberPath, "package.json"), "utf8"), member);
+  assert.equal(await readFile(join(path, "bun.lock"), "utf8"), lock);
+});
