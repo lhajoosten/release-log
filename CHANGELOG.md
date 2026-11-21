@@ -1,6 +1,32 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:ddb6b6070fb7aee21d6ae43f21a71e45f898251544724a87803909d67249dfb1 -->
+<!-- release-log:pending:v1 sha256:d5a9a8295dfb2e53b3018f045e03548f0d106e8b1234a037c79e8fac35760a47 -->
+
+## v0.5.1 (2026-11-21)
+
+### 🐛 Fixes
+
+- Support verified stacked pull requests in tagged release cycles&#46; ([#120](https://github.com/lhajoosten/release-log/pull/120)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+<details>
+<summary>🔧 Internal maintenance</summary>
+
+- Reuse verified release evidence during proposal preparation and enforce TypeScript architecture boundaries&#46; ([#108](https://github.com/lhajoosten/release-log/pull/108)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Separate publication planning from registry observation and GitHub writes&#46; ([#110](https://github.com/lhajoosten/release-log/pull/110)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Separate snapshot capture and replay behind the existing producer entry point&#46; ([#113](https://github.com/lhajoosten/release-log/pull/113)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Separate proposal history verification and guarded writes within the proposal lifecycle&#46; ([#114](https://github.com/lhajoosten/release-log/pull/114)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Move release cycle selection and tag reconciliation into capability directories&#46; ([#115](https://github.com/lhajoosten/release-log/pull/115)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Separate approval evidence decoding from review capture&#44; verification&#44; and exclusion auditing&#46; ([#116](https://github.com/lhajoosten/release-log/pull/116)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Give plan and render typed command handlers and a shared versioned input decoder&#46; ([#117](https://github.com/lhajoosten/release-log/pull/117)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Activate the reviewed stacked&#45;landing collector in the rolling release workflow&#46; ([#121](https://github.com/lhajoosten/release-log/pull/121)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+</details>
+
+<br>
+
+Full changelog: [v0&#46;5&#46;0&#8230;c93ca47226d8aaadbdb2b94b0bfd02585f7fe896](https://github.com/lhajoosten/release-log/compare/v0.5.0...c93ca47226d8aaadbdb2b94b0bfd02585f7fe896) (captured source).
+
+<!-- release-log:pending:end -->
 
 ## v0.5.0 (2026-11-20)
 
@@ -25,7 +51,6 @@
 
 Full changelog: [v0&#46;4&#46;1&#8230;8ca6913f2ca04fd96976b7c88588e417e13c5d57](https://github.com/lhajoosten/release-log/compare/v0.4.1...8ca6913f2ca04fd96976b7c88588e417e13c5d57) (captured source).
 
-<!-- release-log:pending:end -->
 
 ## v0.4.1 (2026-11-19)
 
