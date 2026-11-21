@@ -28,17 +28,14 @@ The sandbox uses synthetic examples; it proves those lifecycle behaviors, not in
 
 ## Run the published CLI
 
-On Linux/amd64 with Docker, pull and run the verified `v0.2.1` image without logging in:
+On Linux/amd64 with Docker, run the newest successfully published stable image without logging in:
 
 ```sh
-docker pull --platform linux/amd64 ghcr.io/lhajoosten/release-log:v0.2.1
-docker run --rm --network none --read-only --cap-drop ALL \
-  ghcr.io/lhajoosten/release-log@sha256:1f0ba94d9a78c183942460179721c565f2698cc8523a5f9e868330578ff47c7f --version
-docker run --rm --network none --read-only --cap-drop ALL \
-  ghcr.io/lhajoosten/release-log@sha256:1f0ba94d9a78c183942460179721c565f2698cc8523a5f9e868330578ff47c7f --help
+docker run --rm --pull=always --platform linux/amd64 --network none --read-only --cap-drop ALL \
+  ghcr.io/lhajoosten/release-log:latest --version
 ```
 
-Use the digest reference in automation. The [runtime guide](docs/container.md#run-with-mounted-inputs) shows configuration/snapshot mounts, host UID/GID and explicit writes. Stable version tags and digest references are available. The updated publisher also promotes `ghcr.io/lhajoosten/release-log:latest` to the highest successfully published stable version with the same digest; its first live promotion is pending a release containing that implementation. No arm64 image is provided.
+Use `--pull=always` or explicitly pull `:latest` before running if you want automatic updates. For reproducible runs, use a [digest reference](docs/container-release.md#pull-and-run). The [runtime guide](docs/container.md#run-with-mounted-inputs) shows configuration and snapshot mounts, host UID/GID and explicit writes. The image supports Linux/amd64.
 
 ## Build the CLI from source
 
