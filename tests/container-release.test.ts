@@ -253,21 +253,25 @@ void test("a paused scan binds the journal and registry to the exact smoke-teste
   const result = await reconcilePublication(
     "v1.2.3",
     sha,
-    async () => (++reads <= 2 ? null : { ...h.published, configDigest: imageId }),
+    async () => (++reads <= 2 ? null : h.published),
     h.run,
-    { smokeTestedImageId: imageId },
-    async (configDigest) => assert.equal(configDigest, imageId),
+    { smokeTestedImage: { imageId, configDigest: h.published.configDigest } },
+    async (configDigest) => assert.equal(configDigest, h.published.configDigest),
   );
-  assert.equal(result.result.configDigest, imageId);
+  assert.equal(result.result.configDigest, h.published.configDigest);
   assert.deepEqual(
     h.calls.map((call) => call.args[0]),
     ["image", "image", "tag", "push"],
   );
 
-  for (const smokeTestedImageId of [null, h.published.configDigest]) {
+  for (const smokeTestedImage of [
+    null,
+    { imageId: h.published.configDigest, configDigest: h.published.configDigest },
+    { imageId, configDigest: "invalid" },
+  ]) {
     const changed = harness();
     await assert.rejects(
-      reconcilePublication("v1.2.3", sha, async () => null, changed.run, { smokeTestedImageId }),
+      reconcilePublication("v1.2.3", sha, async () => null, changed.run, { smokeTestedImage }),
       /smoke tests for its exact image ID/u,
     );
     assert.ok(changed.calls.every((call) => !call.authenticated));
@@ -277,7 +281,7 @@ void test("a paused scan binds the journal and registry to the exact smoke-teste
 void test("resuming publication with a paused scan still smoke-tests the retained image", async () => {
   const h = harness();
   await reconcilePublication("v1.2.3", sha, async () => h.published, h.run, {
-    smokeTestedImageId: null,
+    smokeTestedImage: null,
   });
   assert.deepEqual(
     h.calls.map((call) => call.args[0]),

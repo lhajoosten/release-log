@@ -20,6 +20,7 @@ import {
   checkImage,
   ContainerPublicationConflict,
   copyLatestManifest,
+  inspectSmokeTestedImage,
   readPublication,
   reconcileLatestAlias,
   reconcilePublication,
@@ -322,7 +323,7 @@ async function main() {
             throw new ProposalConflictError("Stable tag points to another commit.");
           await git("worktree", "add", "--detach", candidateDirectory, active.landingSha);
           const sameClaim = saved?.landingSha === active.landingSha ? saved : null;
-          let smokeTestedImageId: string | null = null;
+          let smokeTestedImage: Awaited<ReturnType<typeof inspectSmokeTestedImage>> | null = null;
           try {
             await run("pnpm", ["install", "--frozen-lockfile", "--ignore-scripts"]);
             const outcome = await publishInternalCandidate(active.pin, sameClaim, {
@@ -353,7 +354,6 @@ async function main() {
                 if (!/^sha256:[a-f0-9]{64}$/u.test(imageId))
                   throw new Error("Invalid built image ID.");
                 await run("pnpm", ["check:container", "--image", imageId]);
-                smokeTestedImageId = imageId;
                 if (scanRequired)
                   await run("pnpm", [
                     "container:scan",
@@ -363,6 +363,7 @@ async function main() {
                     join(reports, "candidate-scan"),
                     "--allow-openssl-backport",
                   ]);
+                else smokeTestedImage = await inspectSmokeTestedImage(imageId, run);
               },
               publishImage: async (beforePush) => {
                 const { result } = await reconcilePublication(
@@ -375,7 +376,7 @@ async function main() {
                         JSON.parse(
                           await readFile(join(reports, "candidate-scan/evidence.json"), "utf8"),
                         ) as unknown
-                    : { smokeTestedImageId },
+                    : { smokeTestedImage },
                   beforePush,
                   join(reports, "reused-scan"),
                 );

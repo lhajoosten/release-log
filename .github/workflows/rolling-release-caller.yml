@@ -79,7 +79,7 @@ jobs:
       # Apply the temporary publication switch while retaining the pinned producer.
       - name: Load the temporary scan switch from reviewed main
         if: steps.producer.outputs.tool-sha == 'fd2d2f1d4d7bfea7640152c5594122f0a1b348ee'
-        run: cp source/scripts/{self-release,container-release}.ts tool/scripts/
+        run: cp source/scripts/{self-release,container-release,scan-container}.ts tool/scripts/
 
       - name: Mint a short-lived release App token for this repository
         id: app
