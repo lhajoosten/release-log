@@ -7,12 +7,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { parse } from "yaml";
-import {
-  checkExceptionImage,
-  checkInventory,
-  installScanner,
-  summarizeMatches,
-} from "../scripts/scan-container.ts";
+import { checkInventory, installScanner, summarizeMatches } from "../scripts/scan-container.ts";
 
 void test("security workflow runs unprivileged scans and retains failure evidence with pinned Actions", async () => {
   const workflow: unknown = parse(
@@ -177,65 +172,6 @@ void test("only the patched Alpine OpenSSL packages receive the temporary backpo
   ])
     assert.equal(summarizeMatches({ matches: [changed] }, beforeExpiry, true).blocked, true);
   assert.equal(summarizeMatches({ matches: [match] }, beforeExpiry).blocked, true);
-});
-
-void test("the v0.6.0 exception is opt-in, expires, and waives only the five reviewed Alpine findings", () => {
-  const beforeExpiry = new Date("2026-11-27T23:59:59Z");
-  const expiry = new Date("2026-11-28T00:00:00Z");
-  const matches = [
-    "CVE-2026-124709",
-    "CVE-2026-107494",
-    "CVE-2026-121482",
-    "CVE-2026-84786",
-    "CVE-2026-107493",
-  ].flatMap((id) =>
-    ["libssl3", "libcrypto3"].map((name) => ({
-      vulnerability: { id, severity: "High", namespace: "nvd:cpe" },
-      artifact: {
-        name,
-        version: "3.5.9-r1",
-        type: "apk",
-        purl: `pkg:apk/alpine/${name}@3.5.9-r1?arch=x86_64`,
-      },
-    })),
-  );
-  assert.deepEqual(summarizeMatches({ matches }, beforeExpiry, true, true), {
-    counts: { High: 10 },
-    blocked: false,
-    waived: 10,
-  });
-  assert.equal(summarizeMatches({ matches }, beforeExpiry, true).blocked, true);
-  assert.equal(summarizeMatches({ matches }, expiry, true, true).blocked, true);
-  const [match] = matches;
-  assert.ok(match);
-  for (const changed of [
-    { ...match, artifact: { ...match.artifact, version: "3.5.9-r2" } },
-    { ...match, artifact: { ...match.artifact, type: "binary" } },
-    { ...match, vulnerability: { ...match.vulnerability, id: "CVE-other" } },
-    { ...match, vulnerability: { ...match.vulnerability, namespace: "alpine:3.24" } },
-    { ...match, vulnerability: { ...match.vulnerability, severity: "Critical" } },
-    { ...match, vulnerability: { ...match.vulnerability, severity: "Unknown" } },
-  ]) {
-    assert.equal(
-      summarizeMatches({ matches: [...matches, changed] }, beforeExpiry, true, true).blocked,
-      true,
-    );
-  }
-});
-
-void test("release exception requires the exact source, version and landing in the image config", () => {
-  const labels = {
-    "org.opencontainers.image.source": "https://github.com/lhajoosten/release-log",
-    "org.opencontainers.image.version": "0.6.0",
-    "org.opencontainers.image.revision": "21662200936919c1df83f9d3ce8fccee42fa3dc4",
-  };
-  checkExceptionImage({ config: { Labels: labels } });
-  for (const label of Object.keys(labels)) {
-    assert.throws(
-      () => checkExceptionImage({ config: { Labels: { ...labels, [label]: "different" } } }),
-      /requires the reviewed v0.6.0 image/u,
-    );
-  }
 });
 
 void test("scanner downloads fail closed before extraction on HTTP failures or checksum mismatch", async (t) => {

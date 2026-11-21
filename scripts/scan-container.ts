@@ -74,41 +74,12 @@ const backportedOpenSslCves = new Set([
   "CVE-2026-88823",
 ]);
 
-export const releaseOpenSslException = {
-  tag: "v0.6.0",
-  landingSha: "21662200936919c1df83f9d3ce8fccee42fa3dc4",
-  expiresAt: "2026-11-28T00:00:00Z",
-  cves: [
-    "CVE-2026-124709",
-    "CVE-2026-107494",
-    "CVE-2026-121482",
-    "CVE-2026-84786",
-    "CVE-2026-107493",
-  ],
-};
-
-export function checkExceptionImage(value: unknown) {
-  const labels = record(record(record(value).config).Labels);
-  if (
-    labels["org.opencontainers.image.source"] !== "https://github.com/lhajoosten/release-log" ||
-    labels["org.opencontainers.image.version"] !== releaseOpenSslException.tag.slice(1) ||
-    labels["org.opencontainers.image.revision"] !== releaseOpenSslException.landingSha
-  )
-    throw new Error("The OpenSSL release exception requires the reviewed v0.6.0 image.");
-}
-
-export function summarizeMatches(
-  value: unknown,
-  now = new Date(),
-  allowBackport = false,
-  allowReleaseException = false,
-) {
+export function summarizeMatches(value: unknown, now = new Date(), allowBackport = false) {
   const report = record(value);
   if (!Array.isArray(report.matches)) throw new Error("Missing vulnerability matches.");
   const counts: Record<string, number> = {};
   let blocked = false;
   let backported = 0;
-  let waived = 0;
   for (const item of report.matches) {
     const match = record(item);
     const vulnerability = record(match.vulnerability);
@@ -121,36 +92,21 @@ export function summarizeMatches(
       throw new Error("Malformed vulnerability match.");
     counts[severity] = (counts[severity] ?? 0) + 1;
     const artifact = isRecord(match.artifact) ? match.artifact : {};
-    const alpineOpenSsl =
+    const isBackported =
+      allowBackport &&
+      now.getTime() < Date.parse("2026-12-15T00:00:00Z") &&
       severity === "High" &&
       vulnerability.namespace === "nvd:cpe" &&
+      backportedOpenSslCves.has(vulnerability.id) &&
       artifact.type === "apk" &&
       (artifact.name === "libcrypto3" || artifact.name === "libssl3") &&
       artifact.version === "3.5.9-r1" &&
       typeof artifact.purl === "string" &&
       artifact.purl.startsWith(`pkg:apk/alpine/${artifact.name}@3.5.9-r1?`);
-    if (
-      alpineOpenSsl &&
-      allowBackport &&
-      now.getTime() < Date.parse("2026-12-15T00:00:00Z") &&
-      backportedOpenSslCves.has(vulnerability.id)
-    )
-      backported++;
-    else if (
-      alpineOpenSsl &&
-      allowReleaseException &&
-      now.getTime() < Date.parse(releaseOpenSslException.expiresAt) &&
-      releaseOpenSslException.cves.includes(vulnerability.id)
-    )
-      waived++;
+    if (isBackported) backported++;
     else if (["High", "Critical", "Unknown"].includes(severity)) blocked = true;
   }
-  return {
-    counts,
-    blocked,
-    ...(backported > 0 ? { backported } : {}),
-    ...(waived > 0 ? { waived } : {}),
-  };
+  return { counts, blocked, ...(backported > 0 ? { backported } : {}) };
 }
 
 async function digest(path: string) {
@@ -176,12 +132,7 @@ export async function installScanner(name: keyof typeof scannerPins, directory: 
   return join(directory, name);
 }
 
-export async function scanContainer(
-  image: string,
-  output: string,
-  allowBackport = false,
-  allowReleaseException = false,
-) {
+export async function scanContainer(image: string, output: string, allowBackport = false) {
   if (process.platform !== "linux" || process.arch !== "x64")
     throw new Error("Container security scanning currently requires Linux x86-64.");
   const destination = resolve(output);
@@ -235,7 +186,6 @@ export async function scanContainer(
       : configPath.slice(0, -5);
     if (configDigest !== `sha256:${expectedConfig}`)
       throw new Error("Docker archive config digest mismatch.");
-    if (allowReleaseException) checkExceptionImage(JSON.parse(configBytes));
     const [syft, grype] = await Promise.all([
       installScanner("syft", directory),
       installScanner("grype", directory),
@@ -300,7 +250,6 @@ export async function scanContainer(
       JSON.parse(await readFile(reportPath, "utf8")),
       new Date(),
       allowBackport,
-      allowReleaseException,
     );
     const evidence = {
       scannedAt: new Date().toISOString(),
@@ -314,12 +263,9 @@ export async function scanContainer(
       database,
       inventory,
       ...findings,
-      ...(allowReleaseException ? { releaseException: releaseOpenSslException } : {}),
-      policy: allowReleaseException
-        ? "Fail on High, Critical or Unknown severity, subject to documented backports and the recorded v0.6.0 exception."
-        : allowBackport
-          ? "Fail on High, Critical or Unknown severity, except the documented OpenSSL backports through 2026-12-14 UTC."
-          : "Fail on High, Critical or Unknown severity, including unfixed findings; no repository ignore rules.",
+      policy: allowBackport
+        ? "Fail on High, Critical or Unknown severity, except the documented OpenSSL backports through 2026-12-14 UTC."
+        : "Fail on High, Critical or Unknown severity, including unfixed findings; no repository ignore rules.",
     };
     await save("evidence.json", evidence);
     process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
@@ -335,14 +281,8 @@ export async function scanContainer(
 
 if (import.meta.main) {
   const args = process.argv.slice(2);
-  const allowReleaseException =
-    args.length === 6 &&
-    args[4] === "--allow-openssl-backport" &&
-    args[5] === "--allow-v0.6.0-openssl-exception";
   if (
-    (args.length !== 4 &&
-      !(args.length === 5 && args[4] === "--allow-openssl-backport") &&
-      !allowReleaseException) ||
+    (args.length !== 4 && !(args.length === 5 && args[4] === "--allow-openssl-backport")) ||
     args[0] !== "--image" ||
     !args[1] ||
     args[2] !== "--output" ||
@@ -351,10 +291,5 @@ if (import.meta.main) {
     throw new Error(
       "Usage: node scripts/scan-container.ts --image LOCAL_IMAGE --output NEW_DIRECTORY",
     );
-  await scanContainer(
-    args[1],
-    args[3],
-    args[4] === "--allow-openssl-backport",
-    allowReleaseException,
-  );
+  await scanContainer(args[1], args[3], args[4] === "--allow-openssl-backport");
 }

@@ -3,9 +3,7 @@ import { createHash } from "node:crypto";
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { releaseOpenSslException } from "./scan-container.ts";
 
 const execute = promisify(execFile);
 export const repository = "ghcr.io/lhajoosten/release-log";
@@ -128,23 +126,6 @@ export async function publicationDecision(
 type Publication = Awaited<ReturnType<typeof readPublication>>;
 type Run = (file: string, args: string[], authenticated?: boolean) => Promise<string>;
 
-export function scanReleaseImage(
-  tag: string,
-  sha: string,
-  image: string,
-  output: string,
-  run: Run,
-) {
-  const args = ["--image", image, "--output", output, "--allow-openssl-backport"];
-  if (tag === releaseOpenSslException.tag && sha === releaseOpenSslException.landingSha)
-    return run(process.execPath, [
-      fileURLToPath(new URL("./scan-container.ts", import.meta.url)),
-      ...args,
-      "--allow-v0.6.0-openssl-exception",
-    ]);
-  return run("pnpm", ["container:scan", ...args]);
-}
-
 export async function reconcilePublication(
   tag: string,
   sha: string,
@@ -163,7 +144,14 @@ export async function reconcilePublication(
     await run("docker", ["pull", "--platform", "linux/amd64", pinned], true);
     // The retained image, rather than a fresh non-reproducible rebuild, must pass today's gates.
     await run("pnpm", ["check:container", "--image", pinned]);
-    await scanReleaseImage(tag, sha, pinned, reusedScan, run);
+    await run("pnpm", [
+      "container:scan",
+      "--image",
+      pinned,
+      "--output",
+      reusedScan,
+      "--allow-openssl-backport",
+    ]);
   } else {
     const local = "release-log-candidate:release";
     const id = await run("docker", ["image", "inspect", "--format", "{{.Id}}", local]);
