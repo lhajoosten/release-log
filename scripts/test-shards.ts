@@ -53,25 +53,25 @@ function plan(count: number, history?: string) {
   return shards;
 }
 
+function runCoverage(args: readonly string[]) {
+  const child = spawnSync(process.execPath, ["--test", "--experimental-test-coverage", ...args], {
+    stdio: "inherit",
+  });
+  if (child.error) throw child.error;
+  assert.equal(child.status, 0, `Test runner failed (${child.signal ?? child.status})`);
+}
+
 function record(selected: string[], output: string) {
   const directory = mkdtempSync(join(tmpdir(), "release-log-test-shard-"));
   try {
     const report = join(directory, "results.tsv");
-    const child = spawnSync(
-      process.execPath,
-      [
-        "--test",
-        "--experimental-test-coverage",
-        "--test-reporter=spec",
-        `--test-reporter=${resolve("scripts/test-file-reporter.ts")}`,
-        "--test-reporter-destination=stdout",
-        `--test-reporter-destination=${report}`,
-        ...selected,
-      ],
-      { stdio: "inherit" },
-    );
-    if (child.error) throw child.error;
-    assert.equal(child.status, 0, `Test runner failed (${child.signal ?? child.status})`);
+    runCoverage([
+      "--test-reporter=spec",
+      `--test-reporter=${resolve("scripts/test-file-reporter.ts")}`,
+      "--test-reporter-destination=stdout",
+      `--test-reporter-destination=${report}`,
+      ...selected,
+    ]);
 
     const { timings, tests } = readTimings(report);
     assert.deepEqual(
@@ -91,7 +91,10 @@ function sum(values: Iterable<number>) {
 }
 
 const [command, ...args] = process.argv.slice(2);
-if (command === "record") {
+if (command === "coverage") {
+  assert.ok(files.length, "No test files found in tests/");
+  runCoverage([...args, ...files]);
+} else if (command === "record") {
   const [output] = args;
   assert.ok(output, "Specify a timing output file");
   record(files, output);
@@ -133,5 +136,5 @@ if (command === "record") {
     `Verified ${files.length} files and ${sum(baseline.tests.values())} tests across ${reports.length} shards`,
   );
 } else {
-  throw new Error("Expected record, plan, run, or verify");
+  throw new Error("Expected coverage, record, plan, run, or verify");
 }

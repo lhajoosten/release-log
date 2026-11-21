@@ -6,6 +6,7 @@ on:
       - .github/workflows/ci-shard-pilot.yml
       - scripts/test-file-reporter.ts
       - scripts/test-shards.ts
+      - package.json
       - tests/file-timings.tsv
   workflow_dispatch:
 
@@ -50,9 +51,9 @@ jobs:
           PILOT_RUN: ${{ matrix.run }}
         run: |
           if [[ "$PILOT_RUN" == baseline ]]; then
-            node scripts/test-shards.ts record "$RUNNER_TEMP/shard-baseline.tsv"
+            pnpm test:shards record "$RUNNER_TEMP/shard-baseline.tsv"
           else
-            node scripts/test-shards.ts run "$PILOT_RUN" 4 tests/file-timings.tsv "$RUNNER_TEMP/shard-$PILOT_RUN.tsv"
+            pnpm test:shards run "$PILOT_RUN" 4 tests/file-timings.tsv "$RUNNER_TEMP/shard-$PILOT_RUN.tsv"
           fi
 
       - name: Save timing and test count evidence
@@ -80,6 +81,9 @@ jobs:
           node-version-file: .node-version
           package-manager-cache: false
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
+
       - name: Download this run's timing reports
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -88,4 +92,4 @@ jobs:
           merge-multiple: true
 
       - name: Verify each file and test count
-        run: node scripts/test-shards.ts verify "$RUNNER_TEMP/shard-pilot/shard-baseline.tsv" "$RUNNER_TEMP/shard-pilot"/shard-{1,2,3,4}.tsv
+        run: pnpm test:shards verify "$RUNNER_TEMP/shard-pilot/shard-baseline.tsv" "$RUNNER_TEMP/shard-pilot"/shard-{1,2,3,4}.tsv
