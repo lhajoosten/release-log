@@ -142,7 +142,7 @@ void test(
     await writeFile(configPath, JSON.stringify(fixtureConfiguration));
     await writeFile(snapshotPath, snapshot.serialized);
     const args = ["--config", configPath, "--snapshot", snapshotPath, "--current-version", "1.2.3"];
-    for (const command of ["plan", "render"]) {
+    for (const command of ["plan", "render", "notes"]) {
       await assert.rejects(
         run([command, "--config", configPath, "--snapshot", join(path, "missing.json")]),
         (error: unknown) =>
@@ -162,6 +162,20 @@ void test(
         plan.nextVersion === "1.2.4",
     );
     assert.match((await run(["render", ...args])).stdout, /^## v1\.2\.4/u);
+    const notes = await run(["notes", ...args]);
+    assert.equal(notes.stderr, "");
+    assert.match(notes.stdout, /^# Release notes for v1\.2\.4\n/u);
+    assert.ok(notes.stdout.includes(`Snapshot ID: ${snapshot.snapshot.snapshotId}\n`));
+    assert.ok(notes.stdout.includes("([#1](https://github.com/example/project/pull/1))"));
+    assert.equal((await run(["notes", ...args])).stdout, notes.stdout);
+    const maintenance = await releaseFixture([{ title: "chore(api): adjust tooling" }]);
+    const maintenancePath = join(path, "maintenance-snapshot.json");
+    await writeFile(maintenancePath, maintenance.serialized);
+    assert.equal(
+      (await run(["notes", ...args.map((arg) => (arg === snapshotPath ? maintenancePath : arg))]))
+        .stdout,
+      "",
+    );
     const invalidSnapshotPath = join(path, "invalid-metadata.json");
     const privateProse = "Private PR body text";
     await writeFile(
@@ -179,7 +193,7 @@ void test(
     );
     await assert.rejects(
       run([
-        "plan",
+        "notes",
         "--config",
         configPath,
         "--snapshot",
@@ -189,6 +203,8 @@ void test(
       ]),
       (error: unknown) =>
         error instanceof Error &&
+        "stdout" in error &&
+        error.stdout === "" &&
         "stderr" in error &&
         typeof error.stderr === "string" &&
         /PR #1 .*context\/field-invalid field "audience"/u.test(error.stderr) &&
@@ -384,6 +400,7 @@ void test(
       (await run(["render", ...bootstrapArgs])).stdout,
       /\[bootstrap commit\]: import historical exports/u,
     );
+    assert.match((await run(["notes", ...bootstrapArgs])).stdout, /^# Release notes for v0\.1\.0/u);
 
     const bootstrapRepository = join(path, "bootstrap-repository");
     await mkdir(bootstrapRepository);
