@@ -6,6 +6,7 @@ import { backfillChangelog, writeBackfilledChangelog } from "./changelog-backfil
 import { inspectPendingRelease } from "./git.ts";
 import { collectMergedPullRequests } from "./github-association.ts";
 import { GitHubReadError } from "./github.ts";
+import { verifyMetadataOnboarding } from "./metadata-onboarding.ts";
 import { planningCommands } from "./cli/planning.ts";
 import { readText, required, UsageError } from "./cli/input.ts";
 import { readVersionedInput, versionOptions } from "./cli/versioned-input.ts";
@@ -53,6 +54,7 @@ const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/ap
   release-log capture-review --config FILE --target FILE --policy FILE --repository DIR
   release-log finalize-approval --config FILE --review FILE --attestation FILE
       --policy FILE --repository DIR
+  release-log verify-onboarding --config FILE
   release-log verify-approval --config FILE --approval FILE --policy FILE --repository DIR
   release-log audit-exclusion --config FILE --approval FILE --policy FILE --repository DIR
       --source SHA (--baseline-tag TAG | --bootstrap-sha SHA)
@@ -65,6 +67,9 @@ const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/ap
 
 roll routes merged PR events through pre-collection cycle selection or exact-landing
 tagging. It requires RELEASE_LOG_APP_TOKEN; default dry-run.
+verify-onboarding uses GITHUB_TOKEN to inspect the installed metadata caller and
+required-check rules on the release branch. Exit 1 means setup is incomplete or
+GitHub evidence is insufficient.
 select-cycle makes read-only GitHub requests to select a verified release boundary.
 collect makes bounded read-only GitHub.com requests using GITHUB_TOKEN and emits
 snapshot JSON. Captures persist a UTC input-capture time, distinct from release time.
@@ -130,6 +135,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
   const command = args[0];
   const commandOptions = new Map<string, readonly string[]>([
     ["roll", ["config", "automation", "repository", "event", "dry-run", "write"]],
+    ["verify-onboarding", ["config"]],
     ["select-cycle", ["config", "automation", "source"]],
     ["collect", ["config", "repository", "source", "baseline-tag", "bootstrap-sha", "exclusions"]],
     ["backfill", ["config", "repository", "dry-run", "write"]],
@@ -183,6 +189,11 @@ async function runCLI(args: readonly string[]): Promise<string> {
   const configJSON: unknown = JSON.parse(await readText(required(options, "config"), 1024 * 1024));
   const config = parseReleaseInputConfiguration(configJSON);
   if (planningCommand) return planningCommand.run(options, config);
+  if (command === "verify-onboarding") {
+    const result = await verifyMetadataOnboarding(config, process.env.GITHUB_TOKEN ?? "");
+    if (result.status !== "verified") process.exitCode = 1;
+    return JSON.stringify(result, null, 2) + "\n";
+  }
   if (command === "backfill") {
     const repository = required(options, "repository");
     const token = process.env.GITHUB_TOKEN;
