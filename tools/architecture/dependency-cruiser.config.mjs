@@ -1,6 +1,9 @@
 const planning = "^src/(planning/|release-plan\\.ts$)";
 const configuration = "^src/config/";
 const cli = "^src/(cli\\.ts$|cli/)";
+const aiSdk = "(^|/)node_modules/(?:ai|@ai-sdk/[^/]+)(?:/|$)";
+const textGeneration = "^src/text-generation\\.ts$";
+const productionTypeScript = "^src/.*\\.(?:ts|tsx|mts|cts)$";
 const workflows =
   "^src/(release-(cycle|proposal|tag|approval|publication|roll|readiness|plan|snapshot|notes)|changelog\\.ts$|(?:cycle|proposal|tagging|approval|publication|planning|snapshot|changelog)/)";
 
@@ -14,11 +17,16 @@ const config = {
       to: {
         path: [
           "^src/(github(?:/|[-.]|\\.ts$)|publication/|release-publication\\.ts$|text-generation\\.ts$|ai-configuration\\.ts$)",
-          "(^|/)node_modules/@ai-sdk/",
-          "(^|/)node_modules/ai/",
+          aiSdk,
         ],
         reachable: true,
       },
+    },
+    {
+      name: "text-generation-owns-ai-sdk",
+      severity: "error",
+      from: { path: productionTypeScript, pathNot: textGeneration },
+      to: { path: aiSdk },
     },
     {
       name: "publication-planner-stays-pure",
