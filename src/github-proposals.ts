@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { GitHubReadError, requestGitHubJson } from "./github.ts";
 import type { GitHubRead } from "./github.ts";
-import { isCargoManifest, isProposalPath } from "./proposal-paths.ts";
+import { isCargoManifest, isProposalPath, isRootLockPath } from "./proposal-paths.ts";
 import { readReleaseContents } from "./version-file-inputs.ts";
 import type { ProposalFile, ReleaseFileContents } from "./proposal/prepare.ts";
 import type { ReleaseInputConfiguration } from "./config/repository.ts";
@@ -55,7 +55,7 @@ export class GitHubProposalRepository implements RepositoryEvidenceReader {
     botUserId: number,
     token: string,
     transport: GitHubRead = fetch,
-    timeoutMs = 300_000,
+    deadline: number | AbortSignal = 300_000,
   ) {
     if (!Number.isSafeInteger(botUserId) || botUserId <= 0 || !token.trim())
       throw new ProposalConflictError(
@@ -65,7 +65,7 @@ export class GitHubProposalRepository implements RepositoryEvidenceReader {
     this.botUserId = botUserId;
     this.token = token;
     this.transport = transport;
-    this.signal = AbortSignal.timeout(timeoutMs);
+    this.signal = typeof deadline === "number" ? AbortSignal.timeout(deadline) : deadline;
     this.headRef = `release-log/${config.releaseBranch}`;
     this.prefix = `https://api.github.com/repos/${config.repository}`;
   }
@@ -320,7 +320,9 @@ export class GitHubProposalRepository implements RepositoryEvidenceReader {
           tree: files.map((file) => {
             if (
               !isProposalPath(file.path) ||
-              ((file.path === "Cargo.lock" || isCargoManifest(file.path)) &&
+              ((isRootLockPath(file.path) ||
+                file.path === "Cargo.lock" ||
+                isCargoManifest(file.path)) &&
                 !source.entries.has(file.path))
             )
               throw new ProposalConflictError("Unexpected proposal output path.");

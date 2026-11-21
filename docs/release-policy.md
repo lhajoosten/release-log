@@ -150,7 +150,7 @@ Tag the actual release landing `M`, not a later main HEAD:
 - A release-PR merge enters only the tag path, never proposal generation. Matching existing tags are no-ops; conflicting tags fail and are never moved.
 - An ordinary merge while the merged release's version tag is absent stops with `release-tag-pending`. After tagging, the next ordinary merge starts a new cycle from that tag. Do not fall back to the old tag or bootstrap.
 
-The tag establishes the release boundary. GitHub Release objects, image/asset publication, IaC, and deployment are downstream repository responsibilities, not completion gates for this workflow. App provisioning, live writes, CI-trigger changes, and branch-protection settings still require separate authorization.
+The tag establishes the release boundary for reusable rolling-workflow callers. Those repositories own GitHub Releases, artifact publication, IaC and deployment. Release Log’s self-release workflow uses its [internal publication policy](adr/0005-internal-release-publication.md). It establishes the stable boundary after the verified version image, exact-landing tag and GitHub Release are all present. App provisioning, live writes, CI-trigger changes, and branch-protection settings still require separate authorization.
 
 ### Events, credentials, and artifact access
 

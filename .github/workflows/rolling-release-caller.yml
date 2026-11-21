@@ -1,28 +1,106 @@
-# Live proposal/tag/GitHub Release writes are enabled; release PRs require human merge.
-name: Rolling release caller
+name: Self-release publication
 
 on:
-  pull_request_target:
-    types: [closed]
+  push:
     branches: [main]
+  schedule:
+    - cron: "19 */4 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
-  pull-requests: read
+
+concurrency:
+  group: release-log-${{ github.repository }}-main
+  cancel-in-progress: false
+
+env:
+  RELEASE_PRODUCER_SHA: cc0161772f51b637cad637a6d4f4a0447c1e3a5e
+  CONFIGURATION: >-
+    {"schemaVersion":2,"repository":"lhajoosten/release-log","repositoryId":1449550207,"releaseBranch":"main","releasePolicy":"release-policy-v1","contextPolicy":"required","selfUpgrade":true,"githubRelease":true,"internalPublication":true,"changelog":{"verbosity":"concise","format":"compact"},"bootstrap":{"baselineSha":"bb0033fb274e69a8aabad6a17d71f18ec9292f60","onboardingSha":"c28fe6faa4d516847fbc725e9186cc80ac8873af"},"adoptedRelease":{"pullNumber":83,"headSha":"35363260d66053716354266d184b1b7bbec11f2a","landingSha":"bb9bf88a467e32e9532521737b53464706052f15","commitSha":"33e397fce7b4993a7e001966b612116beaae7520","tag":"v0.3.0"}}
+  VERIFICATION_RUNTIMES: >-
+    [{"sha":"e3f2d317370447f6608be17941ade53b099d8fd2","legacy":false},{"sha":"8828be515345d761a7375b5c00b1beff0cfabaeb","legacy":true}]
 
 jobs:
-  release:
-    if: github.event.pull_request.merged == true
-    uses: lhajoosten/release-log/.github/workflows/rolling-release.yml@cc0161772f51b637cad637a6d4f4a0447c1e3a5e
-    with:
-      tool-sha: cc0161772f51b637cad637a6d4f4a0447c1e3a5e
-      verification-runtimes: >-
-        [{"sha":"e3f2d317370447f6608be17941ade53b099d8fd2","legacy":false},{"sha":"8828be515345d761a7375b5c00b1beff0cfabaeb","legacy":true}]
-      release-branch: main
-      app-id: ${{ vars.RELEASE_APP_ID }}
-      bot-user-id: ${{ vars.RELEASE_BOT_USER_ID }}
-      write: true
-      configuration: >-
-        {"schemaVersion":2,"repository":"lhajoosten/release-log","repositoryId":1449550207,"releaseBranch":"main","releasePolicy":"release-policy-v1","contextPolicy":"required","selfUpgrade":true,"githubRelease":true,"changelog":{"verbosity":"concise","format":"compact"},"bootstrap":{"baselineSha":"bb0033fb274e69a8aabad6a17d71f18ec9292f60","onboardingSha":"c28fe6faa4d516847fbc725e9186cc80ac8873af"},"adoptedRelease":{"pullNumber":83,"headSha":"35363260d66053716354266d184b1b7bbec11f2a","landingSha":"bb9bf88a467e32e9532521737b53464706052f15","commitSha":"33e397fce7b4993a7e001966b612116beaae7520","tag":"v0.3.0"}}
-    secrets:
-      app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+  reconcile:
+    if: github.repository == 'lhajoosten/release-log' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    concurrency:
+      group: container-release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: read
+    steps:
+      - name: Check out reviewed main and complete tag history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/heads/main
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: source/.node-version
+          package-manager-cache: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
+        with:
+          package_json_file: source/package.json
+          cache: false
+
+      - name: Install without lifecycle scripts and resolve the reviewed producer
+        id: producer
+        working-directory: source
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          node scripts/self-release-runtime.ts
+
+      - name: Check out the immutable producer without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.producer.outputs.tool-sha }}
+          path: tool
+          persist-credentials: false
+
+      - name: Install the producer and approved verification runtimes
+        working-directory: tool
+        env:
+          TOOL_SHA: ${{ steps.producer.outputs.tool-sha }}
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          node scripts/install-producer-runtimes.ts
+
+      - name: Mint a short-lived release App token for this repository
+        id: app
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-actions: read
+          permission-workflows: write
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Reconcile the reviewed candidate and stable outputs
+        env:
+          BOT_USER_ID: ${{ vars.RELEASE_BOT_USER_ID }}
+          RELEASE_LOG_APP_TOKEN: ${{ steps.app.outputs.token }}
+          GHCR_ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          RELEASE_PRODUCER_RUNTIMES="$RUNNER_TEMP/release-producer-runtimes.json" node tool/scripts/self-release.ts
+
+      - name: Preserve candidate identity, inventory and policy evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: container-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: reports/container-release/
+          if-no-files-found: warn
+          retention-days: 90

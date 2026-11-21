@@ -2,8 +2,7 @@ import { readCargoContents } from "./cargo-version.ts";
 import type { CargoContents } from "./cargo-version.ts";
 import { proposalPaths, workflowPath } from "./proposal-paths.ts";
 
-export const unsupportedLocks = ["package-lock.json", "npm-shrinkwrap.json", "uv.lock"] as const;
-export const releaseInputPaths = [...proposalPaths, ...unsupportedLocks] as const;
+export const releaseInputPaths = proposalPaths;
 export type ReleaseFileContents = Readonly<
   Record<Exclude<(typeof releaseInputPaths)[number], typeof workflowPath>, string | null> &
     Partial<Record<typeof workflowPath, string | null>> &

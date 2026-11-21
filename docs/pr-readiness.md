@@ -12,7 +12,7 @@ Under the default/required context policy, every ordinary PR, including draft, f
 - A title marked `!` when any PR commit declares breaking through `!`, `BREAKING CHANGE`, or `BREAKING-CHANGE`.
 - Nonempty `required_action` for a breaking PR. The underlying context parser still accepts explicit null; the gate adds this policy rule above it.
 
-Consumers may select the [optional context policy](release-context.md#consumer-context-policy) through the trusted caller: `validatePullRequestMetadata(title, body, commits, contextPolicy)` or `checkGitHubPullRequest({ ..., contextPolicy })`. Omission selects `required`; unknown policy values fail before GitHub reads. The command accepts `RELEASE_LOG_CONTEXT_POLICY=required|optional` from its trusted workflow environment, with omission retaining `required`. Set this to match `contextPolicy` in the release configuration; neither API responses nor PR text choose the policy. This repository explicitly pins both to `required`.
+Consumers may select the [optional context policy](release-context.md#consumer-context-policy) through the trusted caller: `validatePullRequestMetadata(title, body, commits, contextPolicy)` or `checkGitHubPullRequest({ ..., contextPolicy })`. Omission selects `required`; unknown policy values fail before GitHub reads. The reusable workflow selects policy from its trusted release configuration. The repository-local command accepts `RELEASE_LOG_CONTEXT_POLICY=required|optional`, defaulting to `required`. This repository explicitly selects `required` in both its rolling-release configuration and its local metadata workflow.
 
 With `optional`, absent context becomes a warning and a null context result, including for breaking PRs (which also warn about missing migration instructions). A supplied block remains fully validated, including required actions for breaking changes. Title/commit checks, pagination, permissions and mutation checks stay enforced. The command still exits successfully with warning diagnostics for accepted missing context.
 
@@ -37,7 +37,28 @@ Diagnostics are single-line JSON, not raw PR text or workflow commands. Tokens, 
 
 A final read detects mutations during validation, not edits after it finishes. The workflow reruns on `opened`, `synchronize`, `reopened`, `edited`, and `ready_for_review`, cancelling older runs per PR. This is a readiness check, not an immutable metadata attestation: later planning captures/validates current inputs and publication must independently verify freshness. Successful ordinary/generated-PR checks have been observed; comprehensive edit-trigger, stale-head and fork behavior remain controlled-run gaps.
 
-## Trusted workflow boundary and rollout
+## Consumer setup and migration
+
+Rolling-release consumers use the [metadata caller template](https://github.com/lhajoosten/release-log/blob/main/examples/release-metadata-caller.yml) from [issue #137](https://github.com/lhajoosten/release-log/issues/137). The required check is **`release-log / metadata`**, supplied by GitHub Actions. Keep this job identity unique in the repository.
+
+1. Copy the template to `.github/workflows/release-metadata-caller.yml` on the release branch. Replace both placeholders with the same reviewed full Release Log commit SHA containing the reusable workflow and validator. Use the branch from your rolling-release caller as the literal `branches` filter, escaping GitHub glob characters where necessary. Copy the trusted `configuration` JSON from `.github/workflows/rolling-release-caller.yml`. Keep both callers aligned when changing the branch or context policy. Existing consumers retain their release tags and fixed onboarding boundaries.
+2. Land the caller and observe a successful check on an ordinary PR, then confirm that the release App's generated proposal receives the same check. The workflow runs for fork contributions and consumes only pinned Release Log source and its locked dependencies. It uses read-only repository and PR permissions and needs no App credentials.
+3. In GitHub branch protection or an active ruleset for the configured release branch, require `release-log / metadata` and choose **GitHub Actions** as its source. With classic branch protection, enable **Do not allow bypassing the above settings**. With a ruleset, inspect its bypass list. Preserve existing merge requirements. This caller covers ordinary PR merges. GitHub merge queues require a separate check on `merge_group`.
+4. Use a controlled PR to confirm GitHub blocks an invalid title or context. Fix the metadata without pushing, wait for the new result, and confirm GitHub allows the merge once other requirements pass. Make a subsequent invalid edit and confirm the merge is blocked again. Check the same gate on a generated release proposal before relying on the policy in production.
+
+GitHub cancels superseded runs per PR. Checks read current metadata at the event head and fail if that head is stale or the metadata changes during validation. Rerun against the current PR if GitHub cancels a run or the API changes mid-check. Snapshot capture independently validates live metadata after merge, including edits that race with check results. The check does not authenticate generated release proposals.
+
+### Read-only onboarding verification
+
+Run the CLI with a trusted JSON file containing the rolling-release configuration. Provide `GITHUB_TOKEN` via the environment. An authorized administrator can use a fine-grained token with repository Contents, Actions, and Administration read permissions. GitHub only exposes ruleset bypass actors to callers with authority to manage that ruleset. Inherited rules may require an organization administrator to inspect them.
+
+```sh
+release-log verify-onboarding --config release-log.config.json
+```
+
+The command checks the installed callers on the release branch, the metadata workflow's Actions state, and the branch's effective status-check rules. `verified` means the expected GitHub Actions check is required by at least one enforcing rule without configured bypasses. `incomplete` identifies a setup change, and `insufficient-evidence` identifies evidence GitHub did not supply, such as unreadable protection or bypass settings. Both latter outcomes exit with status 1. The report identifies the exact branch and check and makes no changes to GitHub settings. Use the controlled PR exercise above to confirm event delivery and actual merge behavior for your repository. [GitHub required-check troubleshooting](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks) · [GitHub ruleset API](https://docs.github.com/en/rest/repos/rules#get-a-repository-ruleset)
+
+## Repository-local workflow
 
 `.github/workflows/pr-metadata.yml` uses `pull_request_target` solely to execute the validator from the target repository's **base SHA**. It explicitly grants only `contents: read` and `pull-requests: read`. It never checks out a PR head or merge ref, interpolates PR text into shell source, consumes PR artifacts/caches, or supplies App/publication credentials. External Actions are SHA-pinned, checkout credentials are not persisted, caches are disabled, and the trusted lockfile is installed with lifecycle scripts disabled. The token is supplied only to the metadata-check step.
 

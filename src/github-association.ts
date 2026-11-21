@@ -19,6 +19,7 @@ export type {
   PullRequestCommitEvidence,
 } from "./snapshot/association.ts";
 
+import type { CandidateLandingPin } from "./config/repository.ts";
 import type { StackBase } from "./snapshot/association.ts";
 import { stackedLandingOwners } from "./snapshot/stacked-landing.ts";
 
@@ -203,6 +204,7 @@ export async function collectMergedPullRequests(
     readonly token: string;
     readonly onboardingSha?: string;
     readonly automation?: readonly ReleaseExclusionAuthority[];
+    readonly candidateLandings?: readonly CandidateLandingPin[];
   },
   read: GitHubRead = fetch,
 ): Promise<PullRequestAssociation> {
@@ -408,6 +410,13 @@ export async function collectMergedPullRequests(
 
         if (
           !proof &&
+          !request.candidateLandings?.some(
+            (pin) =>
+              pin.pullNumber === pull.number &&
+              pin.botUserId === pull.authorId &&
+              pin.headSha === pull.headSha &&
+              pin.landingSha === pull.mergeCommitSha,
+          ) &&
           pull.authorType === "Bot" &&
           pull.headRepositoryId === pull.baseRepositoryId &&
           pull.headRef === `release-log/${request.releaseBranch}`

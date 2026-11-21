@@ -880,13 +880,19 @@ void test("initialization reports missing and candidate version files, ancestry 
   f.git(["rm", "package.json"]);
   f.git(["commit", "-m", "chore: plan Python project"]);
   const planning = f.git(["rev-parse", "HEAD"]).trim();
-  await writeFile(join(f.directory, "pyproject.toml"), '[project]\nversion = "0.0.0"\n');
-  await writeFile(join(f.directory, "uv.lock"), "version = 1\n");
+  await writeFile(
+    join(f.directory, "pyproject.toml"),
+    '[project]\nname = "fixture-project"\nversion = "0.0.0"\n',
+  );
+  const uvLock =
+    'version = 1\nrevision = 5\n\n[[package]]\nname = "fixture-project"\nversion = "0.0.0"\nsource = { virtual = "." }\n';
+  await writeFile(join(f.directory, "uv.lock"), uvLock.replace("revision = 5", "revision = 99"));
   f.git(["add", "pyproject.toml", "uv.lock"]);
   f.git(["commit", "-m", "chore: prepare candidate files"]);
   const unsupported = f.git(["rev-parse", "HEAD"]).trim();
-  f.git(["rm", "uv.lock"]);
-  f.git(["commit", "-m", "chore: defer unsupported lockfile"]);
+  await writeFile(join(f.directory, "uv.lock"), uvLock);
+  f.git(["add", "uv.lock"]);
+  f.git(["commit", "-m", "chore: use a supported lockfile revision"]);
   const compatible = f.git(["rev-parse", "HEAD"]).trim();
   f.git(["reset", "--hard", planning]);
 
@@ -898,7 +904,7 @@ void test("initialization reports missing and candidate version files, ancestry 
     missing.findings.sourceFiles?.message ?? "",
     /root package.json, pyproject.toml, or Cargo.toml/u,
   );
-  assert.match(missing.findings.candidateFiles?.message ?? "", /uv\.lock.*compatible producer/u);
+  assert.match(missing.findings.candidateFiles?.message ?? "", /Unsupported uv\.lock format/u);
   assert.equal(missing.findings.history?.status, "blocked");
   assert.equal(missing.caller, null);
   const candidate = await preflightRelease(
@@ -906,6 +912,7 @@ void test("initialization reports missing and candidate version files, ancestry 
     read,
   );
   assert.equal(candidate.findings.candidateFiles?.status, "passed");
+  assert.match(candidate.findings.candidateFiles?.message ?? "", /pyproject\.toml, uv\.lock/u);
   assert.equal(candidate.findings.sourceFiles?.status, "blocked");
 
   f.git(["reset", "--hard", unsupported]);
