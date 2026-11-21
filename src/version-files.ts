@@ -32,6 +32,44 @@ export function expectedVersion(
     );
 }
 
+export function jsonPropertyRange(
+  source: string,
+  key: string,
+  label: string,
+): { start: number; end: number } | null {
+  const tokens = [
+    ...source.matchAll(
+      /"(?:[^"\\]|\\.)*"|[{}[\]:,]|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/gu,
+    ),
+  ];
+  let depth = 0;
+  let start: number | undefined;
+  let found: { start: number; end: number } | null = null;
+  for (const [index, token] of tokens.entries()) {
+    const value = token[0];
+    if (depth === 1 && start !== undefined && (value === "," || value === "}")) {
+      const last = tokens[index - 1];
+      if (found || !last)
+        throw new VersionFilesError(
+          `${label} must have exactly one ${key || "root package"} property.`,
+        );
+      found = { start, end: last.index + last[0].length };
+      start = undefined;
+    }
+    if (value === "{" || value === "[") depth++;
+    else if (value === "}" || value === "]") depth--;
+    else if (
+      depth === 1 &&
+      value.startsWith('"') &&
+      tokens[index + 1]?.[0] === ":" &&
+      JSON.parse(value) === key
+    ) {
+      start = tokens[index + 2]?.index;
+    }
+  }
+  return found;
+}
+
 export function updatePackageVersion(source: string, plan: VersionPlan): VersionFileUpdate {
   let manifest: unknown;
   try {
@@ -42,31 +80,8 @@ export function updatePackageVersion(source: string, plan: VersionPlan): Version
   if (typeof manifest !== "object" || manifest === null || !("version" in manifest))
     throw new VersionFilesError("The root package.json requires a string version.");
   expectedVersion(manifest.version, plan, "package.json version");
-  const tokens = [
-    ...source.matchAll(
-      /"(?:[^"\\]|\\.)*"|[{}[\]:,]|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/gu,
-    ),
-  ];
-  let depth = 0;
-  const versions: { start: number; end: number }[] = [];
-  for (const [index, token] of tokens.entries()) {
-    const value = token[0];
-    if (value === "{" || value === "[") depth++;
-    else if (value === "}" || value === "]") depth--;
-    else if (
-      depth === 1 &&
-      value.startsWith('"') &&
-      JSON.parse(value) === "version" &&
-      tokens[index + 1]?.[0] === ":"
-    ) {
-      const version = tokens[index + 2];
-      if (!version) throw new VersionFilesError("Missing package version token.");
-      versions.push({ start: version.index, end: version.index + version[0].length });
-    }
-  }
-  const target = versions[0];
-  if (versions.length !== 1 || !target)
-    throw new VersionFilesError("The root package.json must have exactly one version property.");
+  const target = jsonPropertyRange(source, "version", "The root package.json");
+  if (!target) throw new VersionFilesError("Missing package.json version token.");
   return {
     version: manifest.version,
     content:

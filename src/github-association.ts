@@ -1,4 +1,4 @@
-import { inspectCommit, inspectPendingRelease } from "./git.ts";
+import { inspectCommit, inspectOnboardingRange, inspectPendingRelease } from "./git.ts";
 import type { GitCommitEvidence, PendingReleaseInspection } from "./git.ts";
 import { GitHubReadError, readGitHubJson } from "./github.ts";
 import type { GitHubRead } from "./github.ts";
@@ -257,18 +257,11 @@ export async function collectMergedPullRequests(
         "An onboarding SHA applies only to an explicit bootstrap range.",
       );
 
-    const legacy = await inspectPendingRelease(
+    const legacy = await inspectOnboardingRange(
       request.localRepository,
-      { kind: "bootstrap", commitSha: request.range.baseline.commitSha },
+      verified,
       request.onboardingSha,
     );
-
-    await inspectPendingRelease(
-      request.localRepository,
-      { kind: "bootstrap", commitSha: request.onboardingSha },
-      request.range.sourceCommitSha,
-    );
-
     historical = new Set(legacy.commitShas);
   }
 
@@ -380,8 +373,7 @@ export async function collectMergedPullRequests(
           !inRange.has(item.mergeCommitSha)
         )
           continue;
-        if (request.range.baseline.kind === "tag")
-          shared.push({ number: item.number, branch: item.branch, landing: item.mergeCommitSha });
+        shared.push({ number: item.number, branch: item.branch, landing: item.mergeCommitSha });
         if (item.branch !== request.releaseBranch) continue;
         let pull = pulls.get(item.number);
         if (!pull) {
@@ -509,7 +501,7 @@ export async function collectMergedPullRequests(
         if (!inRange.has(sha))
           throw new PullRequestAssociationError(
             "partial-membership",
-            `Git footprint crosses the tagged baseline at commit ${sha}.`,
+            `Git footprint crosses the ${verified.baseline.kind === "tag" ? "tagged" : "bootstrap"} baseline at commit ${sha}.`,
           );
         graph.set(sha, await local(sha));
       }
@@ -637,7 +629,6 @@ export async function collectMergedPullRequests(
     let landed: readonly GitCommitEvidence[];
     let landingKind: "merge" | "linear";
     if (
-      request.range.baseline.kind === "tag" &&
       landing.parentShas.length === 2 &&
       landing.parentShas[1] !== pull.headSha &&
       !verifiedAutomation.some((proof) => proof.pullNumber === pull.number)
@@ -780,7 +771,7 @@ export async function collectMergedPullRequests(
 
     throw new PullRequestAssociationError(
       "unassociated-commit",
-      `Commit ${commitSha} has no verified merged-PR landing footprint. Only unassociated single-parent commits in an explicit bootstrap range may use commit-only evidence.`,
+      `Commit ${commitSha} has no verified merged-PR landing footprint. ${request.onboardingSha ? `Review the fixed onboarding cutoff ${request.onboardingSha} or supply missing PR evidence.` : "Only unassociated single-parent commits in an explicit bootstrap range may use commit-only evidence."}`,
     );
   }
 

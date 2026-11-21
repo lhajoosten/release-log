@@ -1,8 +1,8 @@
-import { readCargoContents } from "./cargo-version.ts";
 import { createHash } from "node:crypto";
 import { GitHubReadError, requestGitHubJson } from "./github.ts";
 import type { GitHubRead } from "./github.ts";
-import { isCargoManifest, isProposalPath } from "./proposal-paths.ts";
+import { isCargoManifest, isProposalPath, isRootLockPath } from "./proposal-paths.ts";
+import { readReleaseContents } from "./version-file-inputs.ts";
 import type { ProposalFile, ReleaseFileContents } from "./proposal/prepare.ts";
 import type { ReleaseInputConfiguration } from "./config/repository.ts";
 import { ProposalConflictError, proposalObject } from "./evidence/proposal.ts";
@@ -226,19 +226,7 @@ export class GitHubProposalRepository implements RepositoryEvidenceReader {
         );
       return text;
     };
-    return {
-      ".github/workflows/rolling-release-caller.yml": this.config.selfUpgrade
-        ? await get(".github/workflows/rolling-release-caller.yml")
-        : null,
-      ...(await readCargoContents(get)),
-      "package.json": await get("package.json"),
-      "pyproject.toml": await get("pyproject.toml"),
-      "CHANGELOG.md": await get("CHANGELOG.md"),
-      ".release-log/inputs.json": await get(".release-log/inputs.json"),
-      "package-lock.json": await get("package-lock.json"),
-      "npm-shrinkwrap.json": await get("npm-shrinkwrap.json"),
-      "uv.lock": await get("uv.lock"),
-    };
+    return readReleaseContents(get, this.config.selfUpgrade);
   }
   pull(value: unknown, requireMerger = true): ProposalPullRequest {
     const raw = proposalObject(value);
@@ -332,7 +320,9 @@ export class GitHubProposalRepository implements RepositoryEvidenceReader {
           tree: files.map((file) => {
             if (
               !isProposalPath(file.path) ||
-              ((file.path === "Cargo.lock" || isCargoManifest(file.path)) &&
+              ((isRootLockPath(file.path) ||
+                file.path === "Cargo.lock" ||
+                isCargoManifest(file.path)) &&
                 !source.entries.has(file.path))
             )
               throw new ProposalConflictError("Unexpected proposal output path.");

@@ -6,6 +6,7 @@
 # Self-use additionally requires App Actions read and Workflows write.
 name: Rolling release caller
 on:
+  workflow_dispatch:
   pull_request_target:
     types: [closed]
     branches: [main]
@@ -14,7 +15,7 @@ permissions:
   pull-requests: read
 jobs:
   release:
-    if: github.event.pull_request.merged == true
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     uses: lhajoosten/release-log/.github/workflows/rolling-release.yml@REVIEWED_FULL_COMMIT_SHA
     with:
       tool-sha: REVIEWED_FULL_COMMIT_SHA

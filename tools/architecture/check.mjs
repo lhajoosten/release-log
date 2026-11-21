@@ -61,14 +61,17 @@ if (
   console.error("Runtime graph is missing the planning import");
   process.exitCode = 1;
 }
-const provider = graph.modules.find((entry) => entry.source === "src/text-generation.ts");
-if (
-  !provider?.dependencies.some((dependency) =>
-    /(?:^|\/)node_modules\/@ai-sdk\/openai\//.test(dependency.resolved),
-  )
-) {
-  console.error("Architecture graph is missing the pnpm-resolved OpenAI provider import");
-  process.exitCode = 1;
+const textGeneration = graph.modules.find((entry) => entry.source === "src/text-generation.ts");
+/** @type {Array<[string, RegExp]>} */
+const sdkEdges = [
+  ["AI SDK Core", /(?:^|\/)node_modules\/ai\//],
+  ["OpenAI provider", /(?:^|\/)node_modules\/@ai-sdk\/openai\//],
+];
+for (const [name, resolved] of sdkEdges) {
+  if (!textGeneration?.dependencies.some((dependency) => resolved.test(dependency.resolved))) {
+    console.error(`Architecture graph is missing the pnpm-resolved ${name} import`);
+    process.exitCode = 1;
+  }
 }
 for (const violation of [...graph.summary.violations, ...runtime.summary.violations]) {
   console.error(`${violation.rule.name}: ${violation.from} -> ${violation.to}`);

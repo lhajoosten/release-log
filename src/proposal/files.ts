@@ -1,18 +1,23 @@
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { isCargoManifest, isProposalPath, proposalPaths, workflowPath } from "../proposal-paths.ts";
-import { cargoMemberPaths, readCargoContents } from "../cargo-version.ts";
-import { prepareReleaseFileContents, ProposalFilesError, releaseInputPaths } from "./prepare.ts";
+import {
+  isCargoManifest,
+  isProposalPath,
+  isRootLockPath,
+  proposalPaths,
+} from "../proposal-paths.ts";
+import { cargoMemberPaths } from "../cargo-version.ts";
+import { prepareReleaseFileContents, ProposalFilesError } from "./prepare.ts";
+import { readReleaseContents } from "../version-file-inputs.ts";
 import type { PreparedRelease } from "./prepare.ts";
 import type { ReleaseVersionConfiguration } from "../planning/derive-release-plan.ts";
 import type { ReleaseInputConfiguration } from "../config/repository.ts";
 
 const allowed: ReadonlySet<string> = new Set(proposalPaths);
-const readable: ReadonlySet<string> = new Set(releaseInputPaths);
 
 async function inspectPath(root: string, relative: string): Promise<string> {
-  if (!readable.has(relative) && !isProposalPath(relative))
+  if (!isProposalPath(relative))
     throw new ProposalFilesError("Only supported proposal paths are permitted.");
   let target = root;
   const parts = relative.split("/");
@@ -46,7 +51,14 @@ async function rootPath(repository: string): Promise<string> {
 async function currentFile(root: string, relative: string): Promise<string | null> {
   const path = await inspectPath(root, relative);
   try {
-    return await readFile(path, "utf8");
+    if (!isRootLockPath(relative)) return await readFile(path, "utf8");
+    const bytes = await readFile(path);
+    const text = bytes.toString("utf8");
+    if (!Buffer.from(text).equals(bytes))
+      throw new ProposalFilesError(
+        `${relative} must be UTF-8 text. Regenerate and commit the lockfile before retrying.`,
+      );
+    return text;
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
     throw error;
@@ -60,17 +72,12 @@ export async function prepareReleaseFiles(
   version: ReleaseVersionConfiguration,
 ): Promise<PreparedRelease> {
   const root = await rootPath(repository);
-  return prepareReleaseFileContents(snapshotJSON, expected, version, {
-    ...(await readCargoContents((path) => currentFile(root, path))),
-    [workflowPath]: expected.selfUpgrade ? await currentFile(root, workflowPath) : null,
-    "package.json": await currentFile(root, "package.json"),
-    "pyproject.toml": await currentFile(root, "pyproject.toml"),
-    "CHANGELOG.md": await currentFile(root, "CHANGELOG.md"),
-    ".release-log/inputs.json": await currentFile(root, ".release-log/inputs.json"),
-    "package-lock.json": await currentFile(root, "package-lock.json"),
-    "npm-shrinkwrap.json": await currentFile(root, "npm-shrinkwrap.json"),
-    "uv.lock": await currentFile(root, "uv.lock"),
-  });
+  return prepareReleaseFileContents(
+    snapshotJSON,
+    expected,
+    version,
+    await readReleaseContents((path) => currentFile(root, path), expected.selfUpgrade),
+  );
 }
 
 export async function writeReleaseFiles(
@@ -93,6 +100,8 @@ export async function writeReleaseFiles(
   for (const file of prepared.files) {
     if (!allowed.has(file.path) && (!cargoOutputs.has(file.path) || file.before === null))
       throw new ProposalFilesError("Only supported proposal paths are permitted.");
+    if (isRootLockPath(file.path) && file.before === null)
+      throw new ProposalFilesError(`Release preparation can only update an existing ${file.path}.`);
     if (Buffer.byteLength(file.after, "utf8") > 16 * 1024 * 1024)
       throw new ProposalFilesError("A proposal output exceeds 16 MiB.");
     if ((await currentFile(root, file.path)) !== file.before)

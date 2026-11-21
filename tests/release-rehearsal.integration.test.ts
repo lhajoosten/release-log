@@ -319,3 +319,133 @@ void test("rehearsal workflow is manual, read-only, trusted-main-only, and pins 
   assert.equal(record(upload.with)["retention-days"], 7);
   assert.equal(record(upload.with).path, "${{ runner.temp }}/release-preview/");
 });
+
+void test("preflight CLI checks a disposable consumer without writing and distinguishes local App evidence", async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "consumer-preflight-"));
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const git = async (...args: string[]) =>
+    (
+      await execute(
+        "git",
+        [
+          "-c",
+          "user.name=Preflight Fixture",
+          "-c",
+          "user.email=fixture@example.invalid",
+          "-c",
+          "commit.gpgSign=false",
+          "-c",
+          "core.hooksPath=/dev/null",
+          ...args,
+        ],
+        { cwd: directory, timeout: 10_000 },
+      )
+    ).stdout.trim();
+  await git("init", "--initial-branch=main");
+  const args = [
+    cli,
+    "preflight",
+    "--repository",
+    directory,
+    "--target",
+    "example/project",
+    "--repository-id",
+    "17",
+    "--release-branch",
+    "main",
+    "--initial-version",
+    "0.1.0",
+    "--producer-sha",
+    (await execute("git", ["rev-parse", "HEAD"])).stdout.trim(),
+  ];
+  const env = { PATH: process.env.PATH };
+  await assert.rejects(execute(process.execPath, args, { env }), (error: unknown) => {
+    assert.ok(error instanceof Error && "stderr" in error && typeof error.stderr === "string");
+    assert.match(error.stderr, /first commit with a root package.json/u);
+    return true;
+  });
+
+  const manifest = '{"version":"0.0.0","scripts":{"prepare":"exit 89"}}\n';
+  await writeFile(join(directory, "package.json"), manifest);
+  await git("add", "package.json");
+  await git("commit", "-m", "Plan the initial application");
+  const source = await git("rev-parse", "HEAD");
+
+  await assert.rejects(execute(process.execPath, args, { env }), (error: unknown) => {
+    assert.ok(error instanceof Error && "stdout" in error && typeof error.stdout === "string");
+    const output = record(JSON.parse(error.stdout) as unknown);
+    assert.equal(output.status, "unverified");
+    assert.equal(record(record(output.findings).sourceFiles).status, "passed");
+    assert.equal(record(record(output.findings).history).status, "unverified");
+    assert.equal(output.caller, null);
+    return true;
+  });
+
+  const mock = join(directory, "mock-github.mjs");
+  await writeFile(
+    mock,
+    [
+      'import assert from "node:assert/strict";',
+      "globalThis.fetch = (url, init) => {",
+      '  assert.equal(init.method, "GET");',
+      "  const target = new URL(url);",
+      '  assert.equal(target.origin, "https://api.github.com");',
+      "  switch (target.pathname) {",
+      '    case "/repos/example/project": return Response.json({ id: 17, full_name: "example/project" });',
+      '    case "/repos/example/project/tags":',
+      '    case "/repos/example/project/pulls": return Response.json([]);',
+      '    case "/repos/example/project/git/ref/heads/main":',
+      '      return Response.json({ ref: "refs/heads/main", object: { sha: ' +
+        JSON.stringify(source) +
+        " } });",
+      '    case "/repos/example/project/git/ref/heads/release-log%2Fmain":',
+      "      return Response.json({}, { status: 404 });",
+      '    default: throw new Error("Unexpected repository read");',
+      "  }",
+      "};",
+    ].join("\n"),
+  );
+  const result = await execute(process.execPath, ["--import", mock, ...args], {
+    env: { ...env, GITHUB_TOKEN: "synthetic-read-token" },
+    timeout: 20_000,
+  });
+  const report = record(JSON.parse(result.stdout) as unknown);
+  assert.equal(report.status, "unverified");
+  assert.equal(report.sourceSha, source);
+  assert.equal(record(record(report.findings).history).status, "passed");
+  assert.equal(record(record(report.findings).appDryRun).status, "unverified");
+  assert.doesNotMatch(result.stdout, /synthetic-read-token|originalCommits|exit 89/u);
+  assert.equal(await readFile(join(directory, "package.json"), "utf8"), manifest);
+  assert.deepEqual((await readdir(directory)).toSorted(), [
+    ".git",
+    "mock-github.mjs",
+    "package.json",
+  ]);
+});
+
+void test("manual initialization uses the immutable dispatch source, scoped App probes and the CLI without write inputs", async () => {
+  const workflow = record(
+    parse(
+      await readFile(new URL("../.github/workflows/rolling-release.yml", import.meta.url), "utf8"),
+    ) as unknown,
+  );
+  const job = record(record(workflow.jobs).roll);
+  assert.match(String(job.if), /workflow_dispatch[\s\S]*github\.ref == format/u);
+  const steps: unknown = job.steps;
+  assert.ok(Array.isArray(steps));
+  const config = steps.map(record).find((step) => step.id === "configuration");
+  const probe = steps.map(record).find((step) => step.id === "installation");
+  const mint = steps.map(record).find((step) => step.id === "app");
+  const preflight = steps
+    .map(record)
+    .find((step) => typeof step.run === "string" && step.run.includes('cli.js" preflight '));
+  assert.ok(config && probe && mint && preflight);
+  assert.equal(record(probe.with)["permission-metadata"], "read");
+  assert.equal(record(mint.with)["permission-contents"], "write");
+  assert.equal(record(mint.with)["permission-pull-requests"], "write");
+  assert.match(String(mint.if), /steps\.installation\.outcome == 'success'/u);
+  assert.match(String(preflight.run), /--source "\$GITHUB_SHA"/u);
+  assert.doesNotMatch(String(preflight.run), /--write|inputs\.write/u);
+  for (const step of steps.map(record))
+    if ("uses" in step) assert.match(String(step.uses), /@[a-f0-9]{40}$/u);
+});

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { taggedReleaseNotes } from "../github-release.ts";
 import { updateChangelog } from "../changelog/history.ts";
 import { updateToolPins } from "./tool-pins.ts";
-import { proposalPaths, workflowPath } from "../proposal-paths.ts";
+import { npmLockPaths, workflowPath } from "../proposal-paths.ts";
 import type { ProposalPath } from "../proposal-paths.ts";
 import { renderPlannedChangelog } from "../changelog/render.ts";
 import { deriveReleasePlan } from "../planning/derive-release-plan.ts";
@@ -12,8 +12,13 @@ import type { ReleaseSnapshot } from "../snapshot/model.ts";
 import { replayReleaseSnapshot } from "../snapshot/replay.ts";
 import type { ReleaseInputConfiguration } from "../config/repository.ts";
 import { updateCargoVersions } from "../cargo-version.ts";
-import type { CargoContents } from "../cargo-version.ts";
+import { updateNpmLockVersion } from "../npm-version.ts";
+import { updateUvLockVersion } from "../uv-version.ts";
 import { updatePackageVersion, updatePyprojectVersion } from "../version-files.ts";
+import type { VersionPlan } from "../version-files.ts";
+import type { ReleaseFileContents } from "../version-file-inputs.ts";
+
+export type { ReleaseFileContents } from "../version-file-inputs.ts";
 
 export class ProposalFilesError extends Error {
   constructor(message: string) {
@@ -32,13 +37,6 @@ export interface PreparedRelease {
   readonly pendingChangelog?: string;
   readonly files: readonly ProposalFile[];
 }
-const unsupportedLocks = ["package-lock.json", "npm-shrinkwrap.json", "uv.lock"] as const;
-export const releaseInputPaths = [...proposalPaths, ...unsupportedLocks] as const;
-export type ReleaseFileContents = Readonly<
-  Record<Exclude<(typeof releaseInputPaths)[number], typeof workflowPath>, string | null> &
-    Partial<Record<typeof workflowPath, string | null>> &
-    CargoContents
->;
 
 export function validateReleaseFileContents(contents: ReleaseFileContents): void {
   for (const value of Object.values(contents)) {
@@ -50,6 +48,68 @@ export function validateReleaseFileContents(contents: ReleaseFileContents): void
         "Proposal input files require bounded UTF-8 text or explicit null.",
       );
   }
+}
+
+export function prepareVersionFiles(
+  contents: ReleaseFileContents,
+  plan: VersionPlan,
+): readonly ProposalFile[] {
+  const packageJSON = contents["package.json"];
+  const npmLocks = npmLockPaths.filter((path) => contents[path] !== null);
+  const [npmPath] = npmLocks;
+  if (npmLocks.length > 1)
+    throw new ProposalFilesError(
+      "Keep one authoritative npm lockfile. Remove the unused package-lock.json or npm-shrinkwrap.json before retrying.",
+    );
+  if (npmPath && packageJSON === null)
+    throw new ProposalFilesError(
+      `${npmPath} requires a root package.json. Restore and commit the manifest before retrying.`,
+    );
+  const pyprojectTOML = contents["pyproject.toml"];
+  const uvLock = contents["uv.lock"];
+  if (uvLock !== null && pyprojectTOML === null)
+    throw new ProposalFilesError(
+      "uv.lock requires a root pyproject.toml; restore and commit the manifest before retrying.",
+    );
+  const cargo = updateCargoVersions(contents, plan);
+  if (packageJSON === null && pyprojectTOML === null && cargo === null)
+    throw new ProposalFilesError(
+      "A root package.json, pyproject.toml, or Cargo.toml with a static release version is required.",
+    );
+  const manifests: ProposalFile[] = [];
+  const packageUpdate = packageJSON === null ? null : updatePackageVersion(packageJSON, plan);
+  const pythonUpdate = pyprojectTOML === null ? null : updatePyprojectVersion(pyprojectTOML, plan);
+  if (packageUpdate && pythonUpdate && packageUpdate.version !== pythonUpdate.version)
+    throw new ProposalFilesError(
+      "Node and Python manifest versions disagree; align them before planning.",
+    );
+  if (cargo) {
+    if ([packageUpdate, pythonUpdate].some((update) => update && update.version !== cargo.version))
+      throw new ProposalFilesError(
+        "Cargo and other manifest versions disagree; align them before planning.",
+      );
+    manifests.push(...cargo.files);
+  }
+  if (packageJSON !== null && packageUpdate)
+    manifests.push({ path: "package.json", before: packageJSON, after: packageUpdate.content });
+  if (npmPath && packageUpdate) {
+    const npmLock = contents[npmPath];
+    if (npmLock !== null)
+      manifests.push({
+        path: npmPath,
+        before: npmLock,
+        after: updateNpmLockVersion(npmLock, npmPath, packageUpdate.version, plan),
+      });
+  }
+  if (pyprojectTOML !== null && pythonUpdate)
+    manifests.push({ path: "pyproject.toml", before: pyprojectTOML, after: pythonUpdate.content });
+  if (uvLock !== null && pyprojectTOML !== null && pythonUpdate)
+    manifests.push({
+      path: "uv.lock",
+      before: uvLock,
+      after: updateUvLockVersion(pyprojectTOML, uvLock, pythonUpdate, plan),
+    });
+  return manifests;
 }
 
 export function prepareVerifiedRelease(
@@ -65,39 +125,7 @@ export function prepareVerifiedRelease(
     if (createHash("sha256").update(notes).digest("hex") !== pending.changelogDigest)
       throw new ProposalFilesError("The source changelog differs from the verified candidate.");
   }
-  for (const lock of unsupportedLocks) {
-    if (contents[lock] !== null)
-      throw new ProposalFilesError(
-        `${lock} needs a root-version mirror adapter before preparing a release; no files were written.`,
-      );
-  }
-  const packageJSON = contents["package.json"];
-  const pyprojectTOML = contents["pyproject.toml"];
-  const cargo = updateCargoVersions(contents, fileVersion);
-  if (packageJSON === null && pyprojectTOML === null && cargo === null)
-    throw new ProposalFilesError(
-      "A root package.json, pyproject.toml, or Cargo.toml with a static release version is required.",
-    );
-  const manifests: ProposalFile[] = [];
-  const packageUpdate =
-    packageJSON === null ? null : updatePackageVersion(packageJSON, fileVersion);
-  const pythonUpdate =
-    pyprojectTOML === null ? null : updatePyprojectVersion(pyprojectTOML, fileVersion);
-  if (packageUpdate && pythonUpdate && packageUpdate.version !== pythonUpdate.version)
-    throw new ProposalFilesError(
-      "Node and Python manifest versions disagree; align them before planning.",
-    );
-  if (cargo) {
-    if ([packageUpdate, pythonUpdate].some((update) => update && update.version !== cargo.version))
-      throw new ProposalFilesError(
-        "Cargo and other manifest versions disagree; align them before planning.",
-      );
-    manifests.push(...cargo.files);
-  }
-  if (packageJSON !== null && packageUpdate)
-    manifests.push({ path: "package.json", before: packageJSON, after: packageUpdate.content });
-  if (pyprojectTOML !== null && pythonUpdate)
-    manifests.push({ path: "pyproject.toml", before: pyprojectTOML, after: pythonUpdate.content });
+  const manifests = prepareVersionFiles(contents, fileVersion);
   const changelog = contents["CHANGELOG.md"];
   const rendered = renderPlannedChangelog(snapshot, plan);
   if (pending && !plan.release) return { plan, files: [] };

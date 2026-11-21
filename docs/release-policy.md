@@ -66,13 +66,13 @@ Define the candidate commit set as every commit reachable from the captured sour
 
 API collection must be explicit and bounded, with complete pagination or failure, actionable rate-limit/timeout errors, and no partial-success snapshot. The [association](github-association.md) and [snapshot](release-snapshot.md) guides define exact schemas and retry limits; callers must reuse those implementations.
 
-### Stacked PRs in tagged cycles
+### Stacked PRs
 
-A shared GitHub landing SHA can represent a same-repository stack. The PR targeting the release branch starts the chain. Each subsequent PR targets the preceding PR's head branch and names its captured head SHA as the base. The actual two-parent landing must be on the release branch's first-parent history at the captured source. Its first parent must match the release-branch PR's captured base and its second parent must match the final PR's head. Each PR's complete commit list must match its part of the Git graph. The shared landing belongs to the release-branch PR, and other structural merges belong to the PR whose footprint introduced them. Missing or competing claims and stacks split by the tagged baseline block capture.
+A shared GitHub landing SHA can represent a same-repository stack. The PR targeting the release branch starts the chain. Each subsequent PR targets the preceding PR's head branch and names its captured head SHA as the base. The actual two-parent landing must be on the release branch's first-parent history at the captured source. Its first parent must match the release-branch PR's captured base and its second parent must match the final PR's head. Each PR's complete commit list must match its part of the Git graph. The shared landing belongs to the release-branch PR, and other structural merges belong to the PR whose footprint introduced them. Missing or competing claims and stacks split by the captured baseline block capture.
 
 Each verified PR contributes its own conventional title, release context, and owned commits. An inner fix or feature contributes its normal patch or minor bump even when the release-branch PR is a refactor. An explicit breaking commit must agree with its owning PR's breaking title, and every breaking PR must supply its own `required_action`. An all-nonbreaking refactor stack leaves the release tag in place. Its changes appear in the next releasable batch from that tag.
 
-This attribution applies to verified tagged stacks. Initial adoption retains its historical association policy. See [issue #119](https://github.com/lhajoosten/release-log/issues/119).
+Shared landings use the same ownership checks in tagged cycles and during bootstrap. In a configured initial adoption, a stack member can use historical metadata handling when all of its owned landed commits are within the fixed onboarding history. See [issue #119](https://github.com/lhajoosten/release-log/issues/119) and [issue #141](https://github.com/lhajoosten/release-log/issues/141).
 
 ### Conventional metadata and breaking conflicts
 

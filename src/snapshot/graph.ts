@@ -64,9 +64,9 @@ export function validateCommitGraph(
     )
       return invalid("Unverified release automation cannot enter a usable snapshot.");
     if (pull.stackBase) {
-      if (range.baseline.kind !== "tag" || pull.landingKind !== "merge" || proof)
+      if (pull.landingKind !== "merge" || proof)
         return invalid(
-          `PR #${pull.number} shared landing ${pull.mergeCommitSha} requires tagged ordinary merge evidence.`,
+          `PR #${pull.number} shared landing ${pull.mergeCommitSha} requires ordinary merge evidence.`,
         );
       const members = stacks.get(pull.mergeCommitSha) ?? [];
       members.push({ ...pull, stackBase: pull.stackBase });

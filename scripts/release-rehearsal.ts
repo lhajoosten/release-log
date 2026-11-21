@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { isProposalPath } from "../src/proposal-paths.ts";
 import { parseReleaseInputConfiguration } from "../src/config/repository.ts";
 import type { ReleaseInputConfiguration } from "../src/config/repository.ts";
 
@@ -109,9 +110,7 @@ export async function rehearseRelease(
         typeof file.path !== "string" ||
         !("after" in file) ||
         typeof file.after !== "string" ||
-        !["package.json", "pyproject.toml", "CHANGELOG.md", ".release-log/inputs.json"].includes(
-          file.path,
-        )
+        !isProposalPath(file.path)
       )
         throw new Error("Rehearsal returned an unsupported proposal output.");
       return { path: file.path, sha256: digest(file.after) };
