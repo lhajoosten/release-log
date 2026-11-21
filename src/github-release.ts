@@ -73,12 +73,15 @@ export async function reconcileTaggedGitHubRelease(
   notes: string,
   write: boolean,
   beforeWrite: () => Promise<void>,
+  verifyNotes = false,
 ): Promise<TaggedGitHubReleaseResult> {
   const path = `/releases/tags/${encodeURIComponent(tag)}`;
   const url = `https://github.com/${repository}/releases/tag/${tag}`;
   const existing = await optionalRelease(api, path);
   if (existing) {
     published(existing, tag);
+    if (verifyNotes && (existing.body !== notes || existing.name !== tag))
+      throw new ProposalConflictError("Existing GitHub Release differs from verified notes.");
     return { outcome: "unchanged", url };
   }
   if (!write) return { outcome: "would-create", url };
@@ -86,6 +89,8 @@ export async function reconcileTaggedGitHubRelease(
   const raced = await optionalRelease(api, path);
   if (raced) {
     published(raced, tag);
+    if (verifyNotes && (raced.body !== notes || raced.name !== tag))
+      throw new ProposalConflictError("Existing GitHub Release differs from verified notes.");
     return { outcome: "unchanged", url };
   }
   const latest = await optionalRelease(api, "/releases/latest");
@@ -99,7 +104,7 @@ export async function reconcileTaggedGitHubRelease(
       );
   }
   // A delayed older event must not displace an already newer stable release.
-  const makeLatest = !latest || compareTags(tag, String(latest.tag_name)) > 0;
+  const makeLatest = !verifyNotes && (!latest || compareTags(tag, String(latest.tag_name)) > 0);
   await beforeWrite();
   const created = proposalObject(
     (
@@ -142,4 +147,51 @@ export async function reconcileTaggedGitHubRelease(
       );
   }
   return { outcome: "created", url };
+}
+
+export async function reconcileGitHubLatest(
+  api: GitHubProposalRepository,
+  tag: string,
+  notes: string,
+  beforeWrite: () => Promise<void>,
+) {
+  const path = `/releases/tags/${encodeURIComponent(tag)}`;
+  const version = await optionalRelease(api, path);
+  if (!version) throw new ProposalConflictError("The verified stable GitHub Release is missing.");
+  published(version, tag);
+  if (version.body !== notes || version.name !== tag)
+    throw new ProposalConflictError("GitHub Release notes differ before latest promotion.");
+
+  async function decision() {
+    const latest = await optionalRelease(api, "/releases/latest");
+    if (!latest) return "update";
+    if (typeof latest.tag_name !== "string")
+      throw new ProposalConflictError("GitHub returned an incomplete latest release.");
+    published(latest, latest.tag_name);
+    const order = compareTags(latest.tag_name, tag);
+    if (order > 0) return "retained-newer";
+    if (order < 0) return "update";
+    if (latest.id !== version?.id || latest.body !== notes || latest.name !== tag)
+      throw new ProposalConflictError("GitHub latest conflicts with the verified release.");
+    return "unchanged";
+  }
+  let outcome = await decision();
+  if (outcome !== "update") return outcome;
+  await beforeWrite();
+  const current = await optionalRelease(api, path);
+  if (!current || current.id !== version.id || current.body !== notes || current.name !== tag)
+    throw new ProposalConflictError("Stable GitHub Release changed before latest promotion.");
+  published(current, tag);
+  outcome = await decision();
+  if (outcome !== "update") return outcome;
+  const updated = proposalObject(
+    (await api.request(`/releases/${String(version.id)}`, "PATCH", { make_latest: "true" })).data,
+  );
+  published(updated, tag);
+  if (updated.id !== version.id || updated.body !== notes || updated.name !== tag)
+    throw new ProposalConflictError("GitHub returned a different release after latest promotion.");
+  outcome = await decision();
+  if (outcome === "update")
+    throw new ProposalConflictError("GitHub did not retain the latest release promotion.");
+  return outcome === "unchanged" ? "updated" : outcome;
 }

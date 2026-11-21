@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+import { candidateLandingPin } from "./candidate.ts";
 import { reconcileTaggedGitHubRelease, taggedReleaseNotes } from "../github-release.ts";
 import {
   GitHubProposalRepository,
@@ -18,10 +20,10 @@ import {
 } from "./evidence.ts";
 import type { ReleaseTagRequest, ReleaseTagResult } from "./types.ts";
 
-export async function reconcileReleaseTag(
+export async function verifyReleaseLanding(
   request: ReleaseTagRequest,
   transport: GitHubRead = fetch,
-): Promise<ReleaseTagResult> {
+) {
   const configuration = parseReleaseInputConfiguration(structuredClone(request.configuration));
   const automation = parseReleaseAutomation(structuredClone(request.automation));
   const pullNumber = request.pullNumber;
@@ -76,6 +78,59 @@ export async function reconcileReleaseTag(
   await requireBaselineUnchanged(api, baseline);
   await requireLandingOnCurrentMain(api, configuration, landingSha);
 
+  const captured = verified.snapshot.configuration;
+  if (captured.candidateStableNotes !== undefined) {
+    if (baseline.kind !== "tag")
+      throw new ProposalConflictError("Stable notes recovery requires a verified stable tag.");
+    const contents = await api.contents(await api.tree(baseline.commitSha));
+    if (
+      taggedReleaseNotes(contents["CHANGELOG.md"] ?? "", baseline.name.slice(1)) !==
+      captured.candidateStableNotes
+    )
+      throw new ProposalConflictError("Recovered stable notes differ from the verified baseline.");
+  }
+  if (captured.candidateLandings) {
+    let previous = baseline.commitSha;
+    for (const pin of captured.candidateLandings) {
+      const earlierPull = await api.readPull(pin.pullNumber);
+      const earlier = await verifyPrevious(api, earlierPull, configuration, automation.botUserId);
+      const earlierLanding = await api.tree(pin.landingSha);
+      if (
+        earlierPull.state !== "closed" ||
+        !earlierPull.merged ||
+        earlierPull.mergeCommitSha !== pin.landingSha ||
+        !sameTree(earlierLanding, earlier.head) ||
+        (JSON.stringify(earlierLanding.parents) !== JSON.stringify([earlier.source.commitSha]) &&
+          JSON.stringify(earlierLanding.parents) !==
+            JSON.stringify([earlier.source.commitSha, earlier.head.commitSha])) ||
+        !isDeepStrictEqual(pin, candidateLandingPin(earlierPull, pin.landingSha, earlier))
+      )
+        throw new ProposalConflictError(
+          "A prior candidate exclusion no longer matches its merged proposal.",
+        );
+      if (previous === pin.landingSha)
+        throw new ProposalConflictError("Candidate exclusion repeats the stable baseline.");
+      await api.requireDescendant(previous, pin.landingSha);
+      previous = pin.landingSha;
+    }
+    await api.requireDescendant(previous, sourceSha);
+  }
+
+  return { api, configuration, verified, baseline, pull, landingSha, pullNumber, write };
+}
+
+export async function reconcileReleaseTag(
+  request: ReleaseTagRequest,
+  transport: GitHubRead = fetch,
+  beforePublication?: () => Promise<void>,
+): Promise<ReleaseTagResult> {
+  const { api, configuration, verified, baseline, pull, landingSha, pullNumber, write } =
+    await verifyReleaseLanding(request, transport);
+  if (configuration.internalPublication && write && !beforePublication)
+    throw new ProposalConflictError(
+      "Internal stable publication requires the container publisher.",
+    );
+
   const tag = `v${verified.nextVersion}`;
   const finish = async (outcome: ReleaseTagResult["outcome"]): Promise<ReleaseTagResult> => {
     const result = { outcome, tag, landingSha, pullNumber };
@@ -97,7 +152,9 @@ export async function reconcileReleaseTag(
           );
         await requireBaselineUnchanged(api, baseline);
         await requireLandingOnCurrentMain(api, configuration, landingSha);
+        await beforePublication?.();
       },
+      configuration.internalPublication === true,
     );
     return { ...result, release };
   };
@@ -129,6 +186,7 @@ export async function reconcileReleaseTag(
     return finish("unchanged");
   }
 
+  await beforePublication?.();
   const created = proposalObject(
     (
       await api.request("/git/refs", "POST", {
