@@ -34,7 +34,7 @@ The workflow captures `github.sha` at dispatch, checks out that immutable revisi
 3. Run offline `plan`, `render`, and `prepare --dry-run` without credentials or network access. Repeat plan and render and require byte-identical output.
 4. Delete temporary raw snapshots and configuration. Upload only `plan.json`, `changelog.md`, and `evidence.json` for seven days.
 
-The rehearsal leaves repository files and GitHub release state untouched. The self-publication workflow separately builds and verifies the exact candidate before publishing it. Every external Action is SHA-pinned, and runs serialize by branch without canceling an earlier rehearsal.
+The rehearsal leaves repository files and GitHub release state untouched. The self-publication workflow separately builds and verifies the exact candidate before publishing it. Set the repository Actions variable `RELEASE_LOG_WRITE_ENABLED` to `false` to pause self-publication while keeping manual rehearsals available. Every external Action is SHA-pinned, and runs serialize by branch without canceling an earlier rehearsal.
 
 ## Evidence, failure, and recovery
 
