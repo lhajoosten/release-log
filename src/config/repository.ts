@@ -17,6 +17,11 @@ export function isReleaseContextPolicy(value: unknown): value is ReleaseContextP
 
 export type ChangelogVerbosity = "detailed" | "concise" | "one-liner";
 
+type CommitMessageRepair = { readonly pullNumber: number; readonly commitSha: string } & (
+  | { readonly subject: string }
+  | { readonly wrapBody: true }
+);
+
 interface ReleaseRepositoryConfiguration {
   readonly repository: string;
   readonly repositoryId: number;
@@ -36,6 +41,7 @@ interface ReleaseRepositoryConfiguration {
     readonly verbosity: ChangelogVerbosity;
     readonly format?: "classic" | "compact";
   };
+  readonly commitMessageRepairs?: readonly CommitMessageRepair[];
   readonly automationExclusions?: readonly {
     readonly pullNumber: number;
     readonly verificationId: string;
@@ -69,6 +75,9 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
       ...(isObject(value) && Object.hasOwn(value, "adoptedRelease") ? ["adoptedRelease"] : []),
       ...(isObject(value) && Object.hasOwn(value, "githubRelease") ? ["githubRelease"] : []),
       ...(isObject(value) && Object.hasOwn(value, "changelog") ? ["changelog"] : []),
+      ...(isObject(value) && Object.hasOwn(value, "commitMessageRepairs")
+        ? ["commitMessageRepairs"]
+        : []),
       ...(isObject(value) && Object.hasOwn(value, "automationExclusions")
         ? ["automationExclusions"]
         : []),
@@ -161,6 +170,41 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
     );
   }
 
+  let commitMessageRepairs: ReleaseRepositoryConfiguration["commitMessageRepairs"];
+  if (Object.hasOwn(item, "commitMessageRepairs")) {
+    commitMessageRepairs = array(item.commitMessageRepairs, 100, "trusted commit message repairs")
+      .map((entry) => {
+        const wrapBody = isObject(entry) && Object.hasOwn(entry, "wrapBody");
+        const repair = object(
+          entry,
+          ["pullNumber", "commitSha", wrapBody ? "wrapBody" : "subject"],
+          "commit message repair",
+        );
+        const target = {
+          pullNumber: positive(repair.pullNumber, "repair PR number"),
+          commitSha: sha(repair.commitSha),
+        };
+        if (wrapBody) {
+          if (repair.wrapBody !== true) return invalid("A body wrap must explicitly be true.");
+          return { ...target, wrapBody: true } as const;
+        }
+        const subject = text(repair.subject, "replacement commit subject", 100);
+        if (subject.trim() !== subject || !/^docs: [^\r\n\0]+$/u.test(subject))
+          return invalid("A commit message repair requires a single non-breaking docs subject.");
+        return { ...target, subject };
+      })
+      .toSorted((left, right) =>
+        left.commitSha < right.commitSha ? -1 : left.commitSha === right.commitSha ? 0 : 1,
+      );
+
+    if (commitMessageRepairs.length === 0)
+      return invalid("Omit commitMessageRepairs rather than supply an empty repair list.");
+    unique(
+      commitMessageRepairs.map(({ commitSha }) => commitSha),
+      "repair commit IDs",
+    );
+  }
+
   let adoptedRelease: ReleaseRepositoryConfiguration["adoptedRelease"];
   if (Object.hasOwn(item, "adoptedRelease")) {
     const pin = object(
@@ -194,6 +238,7 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
     ...(item.githubRelease === true ? { githubRelease: true } : {}),
     ...(adoptedRelease === undefined ? {} : { adoptedRelease }),
     ...(changelog === undefined ? {} : { changelog }),
+    ...(commitMessageRepairs === undefined ? {} : { commitMessageRepairs }),
     ...(automationExclusions === undefined ? {} : { automationExclusions }),
   };
 
