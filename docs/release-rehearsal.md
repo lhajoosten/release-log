@@ -1,6 +1,6 @@
 # Read-only self-release rehearsal
 
-The manual **Read-only release rehearsal** workflow in `.github/workflows/release-rehearsal.yml` exercises the packaged CLI against this repository's captured main revision. It is an early planning rehearsal, not the complete publication lifecycle in [#25](https://github.com/lhajoosten/release-log/issues/25) or a general consumer CI integration completing [#24](https://github.com/lhajoosten/release-log/issues/24).
+The manual **Read-only release rehearsal** workflow in `.github/workflows/release-rehearsal.yml` exercises the latest published stable CLI against this repository's captured main revision. It is an early planning rehearsal, not the complete publication lifecycle in [#25](https://github.com/lhajoosten/release-log/issues/25) or a general consumer CI integration completing [#24](https://github.com/lhajoosten/release-log/issues/24).
 
 ## Prerequisites and historical bootstrap runs
 
@@ -29,19 +29,18 @@ The workflow captures `github.sha` at dispatch, checks out that immutable revisi
 
 ## What runs
 
-1. Install the checkout's frozen toolchain dependencies with lifecycle scripts disabled.
-2. Build and pack the CLI at the captured source revision. Unpack the real tarball in a temporary consumer, restore its preserved lock bytes, and install only production dependencies with offline/frozen/no-script flags. This does not re-resolve registry versions or depend on a warmed registry-metadata cache.
-3. Invoke installed `collect` exactly once with explicit baseline/source/repository identity, using only the repository's read-only `GITHUB_TOKEN` permissions (`contents: read`, `pull-requests: read`). No PAT, App installation, OIDC, or package-write access is introduced.
-4. Remove credentials from subsequent CLI subprocesses and invoke offline `plan`, `render`, and `prepare --dry-run`. Replay plan/render a second time and require byte-identical output. The wrapper does not duplicate membership, version, or changelog policy.
-5. Delete temporary raw snapshots/configuration in `finally`. Upload only `plan.json`, `changelog.md`, and `evidence.json` with snapshot/source/baseline identities and proposed-file digests, retained for seven days. Raw snapshots, before/after file bodies, package archives, and credentials are not uploaded. No success artifact is uploaded after a failed step.
+1. Pull `ghcr.io/lhajoosten/release-log:latest` for Linux/amd64. Use the resulting local image ID for the whole rehearsal so every command runs the same CLI.
+2. Run `collect` once with the explicit baseline and source, complete Git history mounted read-only, and the repository's read-only `GITHUB_TOKEN` permissions (`contents: read`, `pull-requests: read`).
+3. Run offline `plan`, `render`, and `prepare --dry-run` without credentials or network access. Repeat plan and render and require byte-identical output.
+4. Delete temporary raw snapshots and configuration. Upload only `plan.json`, `changelog.md`, and `evidence.json` for seven days.
 
-No repository files are written by preparation, no branches/PRs/commits/tags are created, no GitHub Release or package is published, and no model is called. Build output is ignored checkout tooling output; temporary installation/preview files live on the runner. Every external Action is SHA-pinned. Runs serialize by branch without canceling an earlier rehearsal. This is Linux CI, not a claim of container or every-platform support.
+The rehearsal leaves repository files and GitHub release state untouched. The self-publication workflow separately builds and verifies the exact candidate before publishing it. Every external Action is SHA-pinned, and runs serialize by branch without canceling an earlier rehearsal.
 
 ## Evidence, failure, and recovery
 
 A successful run proves the chosen source range passed collection/readiness, installed-artifact execution, version/changelog generation, dry-run version-file preparation, and repeated offline replay for that run. A no-release batch succeeds with an explicit no-release preview; it does not advance a baseline or approve publication.
 
-If collection fails, review the explicit boundary, historical metadata/association evidence, token read access, and documented resource limits. Repair legitimate metadata or configuration through review; do not bypass a failing PR or fabricate context. If manifest/generated-section checks fail, resolve version conflicts, unsupported dynamic/lockfile adapters, or human edits explicitly. Dependency/build failures are not release evidence. There is no remote mutation to roll back; a later dispatch creates independent evidence. Do not publish from this preview.
+If collection fails, review the explicit boundary, historical metadata/association evidence, token read access, and documented resource limits. Repair legitimate metadata or configuration through review; do not bypass a failing PR or fabricate context. If manifest/generated-section checks fail, resolve version conflicts, unsupported dynamic/lockfile adapters, or human edits explicitly. An image pull failure stops the rehearsal. There is no remote mutation to roll back; a later dispatch creates independent evidence. Do not publish from this preview.
 
 The earlier live runs above reached collection and failed before planning. They predate the general initial-adoption mode. Local tests use captured synthetic inputs and real offline CLI subprocesses (only collection replaced), verify no repository writes/temporary input retention, propagate failures and replay differences, verify safe diagnostics without leaking tokens/raw subprocess output, and inspect manual events, read permissions, trusted immutable checkout, and Action pins. Existing artifact smoke tests exercise the packed production installation. These checks are not a live GitHub API or full lifecycle proof.
 
