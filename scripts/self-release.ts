@@ -15,7 +15,7 @@ import { loadProducerRuntimes, withProducerRuntimes } from "../src/producer-runt
 import { proposeReleaseForCycle } from "../src/release-roll.ts";
 import { candidateLandingPin } from "../src/tagging/candidate.ts";
 import { readTagTarget } from "../src/tagging/evidence.ts";
-import { reconcileReleaseTag, verifyReleaseLanding } from "../src/tagging/reconcile.ts";
+import { createReleaseLandingVerifier, reconcileReleaseTag } from "../src/tagging/reconcile.ts";
 import {
   checkImage,
   ContainerPublicationConflict,
@@ -101,8 +101,9 @@ async function main() {
     pullNumber,
     landingSha,
   });
+  const verifyLanding = createReleaseLandingVerifier({ configuration, automation });
   const load = async (pullNumber: number, landingSha: string) => {
-    const result = await verifyReleaseLanding(request(pullNumber, landingSha));
+    const result = await verifyLanding({ token, pullNumber, landingSha });
     if (result.baseline.kind !== "tag")
       throw new ProposalConflictError("Self-publication requires a verified stable baseline.");
     const pin = candidateLandingPin(result.pull, landingSha, result.verified);

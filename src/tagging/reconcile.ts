@@ -11,6 +11,8 @@ import type { GitHubRead } from "../github.ts";
 import { parseReleaseAutomation } from "../config/automation.ts";
 import { verifyPrevious } from "../proposal/verification.ts";
 import { parseReleaseInputConfiguration } from "../config/repository.ts";
+import type { CandidateLandingPin } from "../config/repository.ts";
+import type { ProposalPullRequest } from "../github-proposals.ts";
 import {
   samePull,
   sameTree,
@@ -20,9 +22,29 @@ import {
 } from "./evidence.ts";
 import type { ReleaseTagRequest, ReleaseTagResult } from "./types.ts";
 
-export async function verifyReleaseLanding(
-  request: ReleaseTagRequest,
+type CandidateEvidence = Map<
+  number,
+  { readonly pull: ProposalPullRequest; readonly pin: CandidateLandingPin }
+>;
+
+export function createReleaseLandingVerifier(
+  scope: Pick<ReleaseTagRequest, "configuration" | "automation">,
   transport: GitHubRead = fetch,
+) {
+  const { configuration, automation } = structuredClone(scope);
+  const candidates: CandidateEvidence = new Map();
+  return (request: Omit<ReleaseTagRequest, "configuration" | "automation">) =>
+    verifyLanding({ ...request, configuration, automation }, transport, candidates);
+}
+
+export function verifyReleaseLanding(request: ReleaseTagRequest, transport: GitHubRead = fetch) {
+  return verifyLanding(request, transport);
+}
+
+async function verifyLanding(
+  request: ReleaseTagRequest,
+  transport: GitHubRead,
+  candidates?: CandidateEvidence,
 ) {
   const configuration = parseReleaseInputConfiguration(structuredClone(request.configuration));
   const automation = parseReleaseAutomation(structuredClone(request.automation));
@@ -40,7 +62,10 @@ export async function verifyReleaseLanding(
   if (requestedWrite !== undefined && typeof requestedWrite !== "boolean")
     throw new ProposalConflictError("An explicit boolean write option is required.");
 
-  const api = new GitHubProposalRepository(configuration, automation.botUserId, token, transport);
+  const deadline = AbortSignal.timeout(300_000);
+  const repository = () =>
+    new GitHubProposalRepository(configuration, automation.botUserId, token, transport, deadline);
+  const api = repository();
   await api.verifyRepository();
 
   const pull = await api.readPull(pullNumber);
@@ -93,28 +118,58 @@ export async function verifyReleaseLanding(
     let previous = baseline.commitSha;
     for (const pin of captured.candidateLandings) {
       const earlierPull = await api.readPull(pin.pullNumber);
-      const earlier = await verifyPrevious(api, earlierPull, configuration, automation.botUserId);
-      const earlierLanding = await api.tree(pin.landingSha);
       if (
         earlierPull.state !== "closed" ||
         !earlierPull.merged ||
-        earlierPull.mergeCommitSha !== pin.landingSha ||
-        !sameTree(earlierLanding, earlier.head) ||
-        (JSON.stringify(earlierLanding.parents) !== JSON.stringify([earlier.source.commitSha]) &&
-          JSON.stringify(earlierLanding.parents) !==
-            JSON.stringify([earlier.source.commitSha, earlier.head.commitSha])) ||
-        !isDeepStrictEqual(pin, candidateLandingPin(earlierPull, pin.landingSha, earlier))
+        earlierPull.mergeCommitSha !== pin.landingSha
       )
         throw new ProposalConflictError(
           "A prior candidate exclusion no longer matches its merged proposal.",
         );
+
+      const cached = candidates?.get(pin.pullNumber);
+      let earlierPin: CandidateLandingPin;
+      if (cached && samePull(cached.pull, earlierPull)) {
+        earlierPin = cached.pin;
+      } else {
+        // Each replay has its own request cap under the shared reconciliation deadline.
+        const history = repository();
+        const earlier = await verifyPrevious(
+          history,
+          earlierPull,
+          configuration,
+          automation.botUserId,
+        );
+        const earlierLanding = await history.tree(pin.landingSha);
+        if (
+          !sameTree(earlierLanding, earlier.head) ||
+          (JSON.stringify(earlierLanding.parents) !== JSON.stringify([earlier.source.commitSha]) &&
+            JSON.stringify(earlierLanding.parents) !==
+              JSON.stringify([earlier.source.commitSha, earlier.head.commitSha]))
+        )
+          throw new ProposalConflictError(
+            "A prior candidate exclusion no longer matches its merged proposal.",
+          );
+        earlierPin = candidateLandingPin(earlierPull, pin.landingSha, earlier);
+      }
+      if (!isDeepStrictEqual(pin, earlierPin))
+        throw new ProposalConflictError(
+          "A prior candidate exclusion no longer matches its merged proposal.",
+        );
+
       if (previous === pin.landingSha)
         throw new ProposalConflictError("Candidate exclusion repeats the stable baseline.");
       await api.requireDescendant(previous, pin.landingSha);
+      candidates?.set(pin.pullNumber, { pull: earlierPull, pin: earlierPin });
       previous = pin.landingSha;
     }
     await api.requireDescendant(previous, sourceSha);
   }
+
+  candidates?.set(pullNumber, {
+    pull: { ...pull },
+    pin: candidateLandingPin(pull, landingSha, verified),
+  });
 
   return { api, configuration, verified, baseline, pull, landingSha, pullNumber, write };
 }

@@ -11,14 +11,19 @@ import { prepareVerifiedRelease } from "../src/proposal/prepare.ts";
 import { withProducerRuntimes } from "../src/producer-runtime.ts";
 import { captureReleaseSnapshot } from "../src/snapshot/capture.ts";
 import { candidateLandingPin } from "../src/tagging/candidate.ts";
-import { reconcileReleaseTag, verifyReleaseLanding } from "../src/tagging/reconcile.ts";
+import {
+  createReleaseLandingVerifier,
+  reconcileReleaseTag,
+  verifyReleaseLanding,
+} from "../src/tagging/reconcile.ts";
 import { fixture, json, object, text } from "./proposal-fixture.ts";
 
-for (const { title, version, squash } of [
+for (const { title, version, squash, replacements = 1 } of [
   { title: "fix(api): complete APK refresh", version: "1.2.4", squash: false },
   { title: "feat(api): include a new capability", version: "1.3.0", squash: true },
+  { title: "fix(api): refresh pinned inputs", version: "1.2.4", squash: false, replacements: 30 },
 ]) {
-  void test(`replacement at v${version} keeps the full stable range and verifies the candidate footprint`, async (context) => {
+  void test(`v${version} with ${replacements} replacement(s) keeps the full stable range and verifies the candidate footprint`, async (context) => {
     const f = await fixture(context, "node", "fix(api): retain selected rows", {
       selfUse: true,
       caller: `env:\n  RELEASE_PRODUCER_SHA: ${"a".repeat(40)}\n`,
@@ -105,13 +110,18 @@ for (const { title, version, squash } of [
       ),
       configuration,
     );
-    const api = new GitHubProposalRepository(configuration, automation.botUserId, token, transport);
     async function land(
       snapshot: typeof first,
       historyHead: string | null,
       merge: boolean,
       currentVersion: string = released.currentVersion,
     ) {
+      const api = new GitHubProposalRepository(
+        configuration,
+        automation.botUserId,
+        token,
+        transport,
+      );
       const source = await api.tree(snapshot.input.range.sourceCommitSha);
       const prepared = prepareVerifiedRelease(
         snapshot,
@@ -180,25 +190,56 @@ for (const { title, version, squash } of [
         /requires the container publisher/u,
       );
 
-      await f.advance(title);
-      const sourceSha = f.git(["rev-parse", "HEAD"]).trim();
-      const range = await inspectPendingRelease(f.directory, base, sourceSha);
       const pin = candidateLandingPin(initial.pull, candidate.landing, initial.verified);
-      const association = await collectMergedPullRequests(
-        {
-          repository,
-          releaseBranch: "main",
-          localRepository: f.directory,
-          token,
-          range,
-          candidateLandings: [pin],
-        },
-        transport,
-      );
-      const captured = await captureReleaseSnapshot(association, {
-        ...configuration,
-        candidateLandings: [pin],
-      });
+      const pins = [pin];
+      let historyHead = candidate.head;
+      async function captureReplacement() {
+        await f.advance(title);
+        const sourceSha = f.git(["rev-parse", "HEAD"]).trim();
+        const range = await inspectPendingRelease(f.directory, base, sourceSha);
+        const association = await collectMergedPullRequests(
+          {
+            repository,
+            releaseBranch: "main",
+            localRepository: f.directory,
+            token,
+            range,
+            candidateLandings: pins,
+          },
+          transport,
+        );
+        return captureReleaseSnapshot(association, { ...configuration, candidateLandings: pins });
+      }
+
+      if (replacements > 1) {
+        const verifyLanding = createReleaseLandingVerifier(
+          { configuration, automation },
+          transport,
+        );
+        for (let index = 0; index < replacements; index++) {
+          const next = await land(await captureReplacement(), historyHead, false);
+          historyHead = next.head;
+          const nextInput = { ...input, pullNumber: next.pullNumber, landingSha: next.landing };
+          const verified = await verifyLanding(nextInput);
+          if (index + 1 === replacements) {
+            assert.equal(
+              verified.verified.snapshot.configuration.candidateLandings?.length,
+              replacements,
+            );
+            assert.equal((await reconcileReleaseTag(nextInput, transport)).outcome, "would-create");
+            assert.equal(f.ref("tags/v1.2.4"), null);
+            const previous = reserved[0];
+            assert.ok(previous);
+            previous.body = "tampered";
+            await assert.rejects(verifyLanding(nextInput), /identity was edited/u);
+          } else {
+            pins.push(candidateLandingPin(verified.pull, next.landing, verified.verified));
+          }
+        }
+        return;
+      }
+
+      const captured = await captureReplacement();
       assert.deepEqual(
         captured.normalized.pullRequests.map((pull) => pull.number),
         [101, 102],
@@ -224,7 +265,9 @@ for (const { title, version, squash } of [
       if (version === "1.2.4") {
         // The first candidate published just before the replacement landed. Use
         // the actual stable tag and retain its released notes while rebasing.
-        const journal = new SelfReleaseState(api);
+        const journal = new SelfReleaseState(
+          new GitHubProposalRepository(configuration, automation.botUserId, token, transport),
+        );
         const claim = {
           pullNumber: pin.pullNumber,
           landingSha: pin.landingSha,
