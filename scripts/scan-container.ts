@@ -67,6 +67,28 @@ export function archiveConfigPath(value: unknown) {
   return path;
 }
 
+export async function readArchiveConfigDigest(archive: string) {
+  async function readEntry(path: string) {
+    const { stdout } = await execute("tar", ["-xOf", archive, path], {
+      encoding: "buffer",
+      env: { PATH: process.env.PATH },
+      timeout: 120_000,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    return stdout;
+  }
+  // The Docker image ID can name a config, platform manifest, or index.
+  const configPath = archiveConfigPath(JSON.parse((await readEntry("manifest.json")).toString()));
+  const configDigest = createHash("sha256")
+    .update(await readEntry(configPath))
+    .digest("hex");
+  const expectedConfig = configPath.startsWith("blobs/")
+    ? configPath.slice("blobs/sha256/".length)
+    : configPath.slice(0, -5);
+  if (configDigest !== expectedConfig) throw new Error("Docker archive config digest mismatch.");
+  return `sha256:${configDigest}`;
+}
+
 const backportedOpenSslCves = new Set([
   "CVE-2026-95692",
   "CVE-2026-107496",
@@ -174,18 +196,7 @@ export async function scanContainer(image: string, output: string, allowBackport
     const archive = join(directory, "image.tar");
     await run("docker", ["image", "save", "--output", archive, metadata.Id]);
     const archiveSha256 = await digest(archive);
-    // Docker's local Id may name a config, platform manifest or index, depending on the image store.
-    // The saved runtime config binds this exact scanned archive to the registry's config descriptor.
-    const configPath = archiveConfigPath(
-      JSON.parse((await run("tar", ["-xOf", archive, "manifest.json"])).stdout),
-    );
-    const configBytes = (await run("tar", ["-xOf", archive, configPath])).stdout;
-    const configDigest = `sha256:${createHash("sha256").update(configBytes).digest("hex")}`;
-    const expectedConfig = configPath.startsWith("blobs/")
-      ? configPath.slice("blobs/sha256/".length)
-      : configPath.slice(0, -5);
-    if (configDigest !== `sha256:${expectedConfig}`)
-      throw new Error("Docker archive config digest mismatch.");
+    const configDigest = await readArchiveConfigDigest(archive);
     const [syft, grype] = await Promise.all([
       installScanner("syft", directory),
       installScanner("grype", directory),
