@@ -8,6 +8,11 @@ import type { ReleaseAutomationConfiguration } from "../config/automation.ts";
 import type { ReleaseVersionConfiguration } from "../planning/derive-release-plan.ts";
 import type { ReleaseSnapshot } from "../snapshot/model.ts";
 
+export interface CandidateProposalHistory {
+  readonly latestLanding: ProposalPullRequest;
+  readonly assertCurrent: () => Promise<void>;
+}
+
 interface HistoryInput {
   readonly api: Pick<
     GitHubProposalRepository,
@@ -20,6 +25,7 @@ interface HistoryInput {
   readonly baseline: ReleaseSnapshot["input"]["range"]["baseline"];
   readonly selectedVersion: ReleaseVersionConfiguration;
   readonly transport: GitHubRead;
+  readonly candidateHistory?: CandidateProposalHistory;
 }
 
 export async function inspectProposalHistory({
@@ -31,6 +37,7 @@ export async function inspectProposalHistory({
   baseline,
   selectedVersion,
   transport,
+  candidateHistory,
 }: HistoryInput): Promise<{
   previous: ProposalPullRequest | null;
   completed: ProposalPullRequest | null;
@@ -43,6 +50,14 @@ export async function inspectProposalHistory({
       "A closed/merged or competing proposal exists; explicit recovery or completed-cycle verification is required before reuse.",
     );
   const previous = open[0] ?? null;
+  if (config.internalPublication !== (candidateHistory ? true : undefined))
+    throw new ProposalConflictError(
+      "Internal proposals require the self-publication history controller.",
+    );
+  if (candidateHistory) {
+    await candidateHistory.assertCurrent();
+    return { previous, completed: candidateHistory.latestLanding };
+  }
   let completed: ProposalPullRequest | null = null;
   if (pulls.some((pull) => pull.merged)) {
     const cycle = await selectReleaseCycle(

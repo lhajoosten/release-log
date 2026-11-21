@@ -11,13 +11,12 @@ const execute = promisify(execFile);
 
 void test("container release bootstraps a cold CI install without executing dependency scripts", async () => {
   const workflow = await readFile(
-    new URL("../.github/workflows/container-release.yml", import.meta.url),
+    new URL("../.github/workflows/rolling-release-caller.yml", import.meta.url),
     "utf8",
   );
-  const commands = [...workflow.matchAll(/^\s+run: (pnpm[^\n]+)$/gmu)]
-    .slice(0, 2)
-    .map((match) => match[1]);
-  assert.equal(commands.length, 2);
+  const install = /^\s+(pnpm install --frozen-lockfile --ignore-scripts)$/mu.exec(workflow)?.[1];
+  assert.ok(install);
+  const commands = [install, "pnpm container:release validate"];
   const directory = await mkdtemp(join(tmpdir(), "release-container-install-"));
   const environment = { ...process.env, CI: "true", npm_config_offline: "true" };
   async function run(args: string[], ci = true) {
@@ -70,8 +69,7 @@ void test("container release bootstraps a cold CI install without executing depe
       `${policy.toString()}\nstoreDir: ${JSON.stringify(join(directory, "store"))}\n`,
     );
     await run(["install", "--lockfile-only", "--offline", "--ignore-scripts"], false);
-    // Execute the workflow's actual first two pnpm commands, retaining pnpm's automatic
-    // pre-script dependency verification. An early script can succeed after a failed install.
+    // Use the workflow's exact bootstrap command before invoking a pnpm script.
     let output = "";
     for (const command of commands) {
       assert.ok(command);

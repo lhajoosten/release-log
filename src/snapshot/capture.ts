@@ -64,6 +64,16 @@ export async function captureReleaseSnapshot(
   for (const pull of captured.pullRequests) {
     const proof = captured.verifiedAutomation?.find((entry) => entry.pullNumber === pull.number);
 
+    const candidate = selected.candidateLandings?.find((pin) => pin.pullNumber === pull.number);
+    if (candidate) {
+      excludedPullRequests.push({
+        number: pull.number,
+        url: pull.url,
+        verificationId: candidate.proposalId,
+        commitShas: pull.landedCommits.map((commit) => commit.sha).toSorted(),
+      });
+      continue;
+    }
     if (proof) {
       excludedPullRequests.push({
         number: pull.number,
@@ -268,7 +278,9 @@ export async function captureReleaseSnapshot(
       pullRequests,
       bootstrapCommits,
       historicalEntries,
-      ...(selected.automationExclusions ? { excludedPullRequests } : {}),
+      ...(selected.automationExclusions || selected.candidateLandings
+        ? { excludedPullRequests }
+        : {}),
     },
   };
   const snapshot = { ...payload, snapshotId: digest(payload) };
