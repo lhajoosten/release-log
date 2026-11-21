@@ -8,6 +8,8 @@ import { promisify } from "node:util";
 import { test } from "node:test";
 import type { TestContext } from "node:test";
 import { loadProducerRuntimes, withProducerRuntimes } from "../src/producer-runtime.ts";
+import { GitHubProposalRepository } from "../src/github-proposals.ts";
+import { verifyPrevious } from "../src/proposal/verification.ts";
 import { inspectPendingRelease } from "../src/git.ts";
 import { auditReleaseExclusion, verifyReleaseApproval } from "../src/release-approval.ts";
 import { parseVerifiedReleaseApproval } from "../src/release-approval-record.ts";
@@ -311,6 +313,17 @@ void test("creation, retry, refresh, changed caller pin and merge routing preser
       s.f.git(["show", `${refreshed.headSha}:${workflowPath}`]),
       caller.replaceAll(oldSha, refreshed.sourceSha),
     );
+    const replayApi = new GitHubProposalRepository(
+      request.configuration,
+      botId,
+      request.token,
+      s.f.transport,
+    );
+    const openPull = await replayApi.readPull(1);
+    const replay = () => verifyPrevious(replayApi, openPull, request.configuration, botId);
+    await withProducerRuntimes({ activeSha: refreshed.sourceSha, producers: [] }, async () => {
+      await assert.rejects(replay, new RegExp(activeSha + " has no explicitly trusted", "u"));
+    });
     const tree = s.f.git(["rev-parse", `${refreshed.headSha}^{tree}`]).trim();
     const landing = s.f
       .git(
@@ -374,6 +387,9 @@ void test("creation, retry, refresh, changed caller pin and merge routing preser
       ],
     });
     await withProducerRuntimes(next, async () => {
+      const beforeReplay = s.f.calls.length;
+      assert.equal((await replay()).head.commitSha, refreshed.headSha);
+      assert.ok(s.f.calls.slice(beforeReplay).every((call) => call.method === "GET"));
       const result = await rollRelease(
         {
           configuration: request.configuration,
@@ -496,7 +512,6 @@ void test("schema-3 0.0.0 predecessor fails closed, then refreshes through an ex
   await assert.rejects(replayReleaseSnapshot(serialized, request.configuration), {
     code: "normalizer-mismatch",
   });
-  const { GitHubProposalRepository } = await import("../src/github-proposals.ts");
   const api = new GitHubProposalRepository(
     request.configuration,
     botId,
