@@ -28,7 +28,20 @@ export function validateCommitGraph(
       return invalid("PR repository ID or constructed source URL does not match configuration.");
     const proof = verifiedAutomation?.find((entry) => entry.pullNumber === pull.number);
 
-    if (proof) {
+    const candidate = config.candidateLandings?.find((pin) => pin.pullNumber === pull.number);
+    if (candidate) {
+      if (
+        pull.authorType !== "Bot" ||
+        pull.authorId !== candidate.botUserId ||
+        pull.headRepositoryId !== config.repositoryId ||
+        pull.headRef !== `release-log/${config.releaseBranch}` ||
+        pull.headSha !== candidate.headSha ||
+        pull.mergeCommitSha !== candidate.landingSha ||
+        pull.stackBase ||
+        (pull.landingKind === "linear" && pull.landedCommits.length !== 1)
+      )
+        return invalid("Candidate automation does not match its verified landing identity.");
+    } else if (proof) {
       if (
         pull.authorType !== "Bot" ||
         pull.authorId !== proof.pull.botUserId ||
@@ -99,6 +112,11 @@ export function validateCommitGraph(
       if ([entry.sha, ...entry.parentShas].some((id) => id.length !== range.sourceCommitSha.length))
         return invalid("Snapshot commit IDs mix object formats.");
     }
+  }
+
+  for (const pin of config.candidateLandings ?? []) {
+    if (!pullRequests.some((pull) => pull.number === pin.pullNumber))
+      return invalid("A verified candidate landing is missing from the captured range.");
   }
 
   for (const entry of bootstrapCommits) {
