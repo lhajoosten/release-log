@@ -1,3 +1,4 @@
+import { isReservedReleaseBranch } from "../config/repository.ts";
 import type { ReleaseInputConfiguration } from "../config/repository.ts";
 import { invalid, limit } from "../evidence/schema.ts";
 import type { GitCommitEvidence } from "../git.ts";
@@ -29,18 +30,23 @@ export function validateCommitGraph(
     const proof = verifiedAutomation?.find((entry) => entry.pullNumber === pull.number);
 
     const candidate = config.candidateLandings?.find((pin) => pin.pullNumber === pull.number);
-    if (candidate) {
+    const previous =
+      range.baseline.kind === "bootstrap"
+        ? config.freshSeries?.previousLandings.find((pin) => pin.pullNumber === pull.number)
+        : undefined;
+    const pinned = candidate ?? previous;
+    if (pinned) {
       if (
         pull.authorType !== "Bot" ||
-        pull.authorId !== candidate.botUserId ||
+        pull.authorId !== pinned.botUserId ||
         pull.headRepositoryId !== config.repositoryId ||
         pull.headRef !== `release-log/${config.releaseBranch}` ||
-        pull.headSha !== candidate.headSha ||
-        pull.mergeCommitSha !== candidate.landingSha ||
+        pull.headSha !== pinned.headSha ||
+        pull.mergeCommitSha !== pinned.landingSha ||
         pull.stackBase ||
         (pull.landingKind === "linear" && pull.landedCommits.length !== 1)
       )
-        return invalid("Candidate automation does not match its verified landing identity.");
+        return invalid("Pinned release automation does not match its verified landing identity.");
     } else if (proof) {
       if (
         pull.authorType !== "Bot" ||
@@ -60,7 +66,7 @@ export function validateCommitGraph(
     } else if (
       pull.authorType === "Bot" &&
       pull.headRepositoryId === config.repositoryId &&
-      pull.headRef === `release-log/${config.releaseBranch}`
+      isReservedReleaseBranch(pull.headRef, config.releaseBranch, config.freshSeries !== undefined)
     )
       return invalid("Unverified release automation cannot enter a usable snapshot.");
     if (pull.stackBase) {
@@ -243,6 +249,14 @@ export function onboardingCommits(
 
   if (!reachedBaseline)
     return invalid("The pinned onboarding SHA must descend from the approved bootstrap baseline.");
+
+  for (const pin of config.freshSeries?.previousLandings ?? []) {
+    const pull = input.pullRequests.find(({ number }) => number === pin.pullNumber);
+    if (!pull || !pull.landedCommits.every(({ sha }) => historical.has(sha)))
+      return invalid(
+        "Each prior-series release landing must be present within the reviewed onboarding history.",
+      );
+  }
 
   return historical;
 }

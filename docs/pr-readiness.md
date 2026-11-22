@@ -18,7 +18,7 @@ With `optional`, absent context becomes a warning and a null context result, inc
 
 Failures identify the title/context field or commit SHA and the relevant rule. Warning-level conventional rules stay warnings. Internal audience does not skip checks or suppress a version bump; this gate does not calculate versions.
 
-Release-looking titles, branch names, labels, bot authors, and body markers grant no exemption. Generated release PRs supply the same valid title and context. Release approval verifies the exact generated unscoped squash subject. Passing metadata checks **does not authenticate a release proposal or authorize publication**. The [controller/tag path](release-workflow.md) verifies automation identity, snapshot and generated diff independently; metadata readiness alone is never an automation exemption.
+Release-looking titles, branch names, labels, bot authors, and body markers grant no exemption. Generated release PRs supply the same valid title and context. Release approval verifies the exact generated squash subject under the [approval policy](release-approval.md). Passing metadata checks **does not authenticate a release proposal or authorize publication**. The [controller/tag path](release-workflow.md) verifies automation identity, snapshot and generated diff independently.
 
 ## Current data and bounded failures
 

@@ -15,7 +15,7 @@ import type { CandidateProposalHistory, ReleaseProposalResult } from "./proposal
 import type { ReleaseAutomationConfiguration } from "./config/automation.ts";
 import { captureReleaseSnapshot } from "./snapshot/capture.ts";
 import { serializeReleaseSnapshot } from "./snapshot/replay.ts";
-import { parseReleaseInputConfiguration } from "./config/repository.ts";
+import { isReservedReleaseBranch, parseReleaseInputConfiguration } from "./config/repository.ts";
 import type { ReleaseInputConfiguration } from "./config/repository.ts";
 import { reconcileReleaseTag } from "./tagging/reconcile.ts";
 import type { ReleaseTagResult } from "./tagging/types.ts";
@@ -98,7 +98,15 @@ export async function rollRelease(
 
   const head = proposalObject(pull.head);
   const author = proposalObject(pull.user);
-  if (head.ref === api.headRef || author.id === automation.botUserId) {
+  if (
+    (typeof head.ref === "string" &&
+      isReservedReleaseBranch(
+        head.ref,
+        configuration.releaseBranch,
+        configuration.freshSeries !== undefined,
+      )) ||
+    author.id === automation.botUserId
+  ) {
     // Full reconstruction and identity/landing checks happen before any tag
     // write. Failed release verification must never fall through to collection.
     return {
@@ -192,6 +200,7 @@ export async function proposeReleaseForCycle(
         releaseBranch: configuration.releaseBranch,
         localRepository: request.repository,
         range,
+        ...(configuration.freshSeries ? { freshSeries: configuration.freshSeries } : {}),
         ...(configuration.candidateLandings
           ? { candidateLandings: configuration.candidateLandings }
           : {}),

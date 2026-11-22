@@ -152,16 +152,20 @@ export async function verifyReleaseApproval(
     );
   if (approval.mergeKind === "squash") {
     const message = await validateConventionalMessage(landing.message);
+    const [subject] = landing.message.split(/\r?\n/u, 1);
+    const copiedTitle =
+      subject === description.title || subject === `${description.title} (#${approval.pullNumber})`;
     if (
       !message.valid ||
-      message.commit.type !== "chore" ||
-      message.commit.scope !== null ||
-      message.commit.description !== `prepare v${prepared.plan.nextVersion}` ||
-      message.commit.breaking
+      message.commit.breaking ||
+      (!copiedTitle &&
+        (message.commit.type !== "chore" ||
+          message.commit.scope !== null ||
+          message.commit.description !== `prepare v${prepared.plan.nextVersion}`))
     )
       throw new ReleaseApprovalError(
         "content-mismatch",
-        "The release squash commit must retain the approved unscoped conventional subject without breaking declarations.",
+        "The release squash commit must use the legacy unscoped subject or the exact verified PR title with its optional PR number, without breaking declarations.",
       );
   }
   if (prepared.plan.nextVersion === null)

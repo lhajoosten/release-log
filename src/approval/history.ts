@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { readCargoContents } from "../cargo-version.ts";
 import { inspectGitTreeWithCommit, inspectPendingRelease, readGitBlob } from "../git.ts";
 import type { ResolvedReleaseBaseline } from "../git.ts";
@@ -149,10 +150,13 @@ export async function verifyProposalHistory(
         "Prior proposal snapshots exceed the 16 MiB audit budget.",
       );
 
+    const configuration = capturedVerificationConfiguration(snapshotJSON, config, "tagged-history");
+    const historicalBumps = !isDeepStrictEqual(configuration.releaseBumps, config.releaseBumps);
+
     const source = await readLocalProposalTree(repository, marker.sourceSha);
     const { snapshot, prepared, description } = await reconstructProposal(
       snapshotJSON,
-      capturedVerificationConfiguration(snapshotJSON, config),
+      configuration,
       marker.version,
       await readProposalContents(repository, source, config.selfUpgrade === true),
       botUserId,
@@ -169,12 +173,12 @@ export async function verifyProposalHistory(
       marker.sourceSha,
     );
 
-    if (JSON.stringify(capturedBaseline) !== JSON.stringify(expectedBaseline)) {
+    if (historicalBumps || JSON.stringify(capturedBaseline) !== JSON.stringify(expectedBaseline)) {
       const completed = await findCompletedHead();
       if (completed === null)
         throw new ReleaseApprovalError(
           "identity-mismatch",
-          "A prior proposal belongs to a different baseline without a matching tagged landing.",
+          "A prior proposal belongs to a different baseline or releaseBumps policy without a matching tagged landing.",
         );
       await inspectPendingRelease(repository, { kind: "bootstrap", commitSha }, completed);
     }

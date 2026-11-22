@@ -1,3 +1,4 @@
+import { requireUnusedReleaseVersions } from "../tagging/evidence.ts";
 import { createHash } from "node:crypto";
 import { activeProducerSha } from "../producer-runtime.ts";
 import { readToolPin } from "./tool-pins.ts";
@@ -89,6 +90,8 @@ export async function reconcileReleaseProposal(
   const baseline = snapshot.input.range.baseline;
   const requireFresh = async () => {
     await candidateHistory?.assertCurrent();
+    if (config.freshSeries && baseline.kind === "bootstrap")
+      await requireUnusedReleaseVersions(api);
     if ((await api.ref("heads", config.releaseBranch)) !== sourceSha)
       throw new ProposalConflictError(
         "Main changed after capture; collect and review the complete range again.",

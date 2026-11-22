@@ -20,6 +20,7 @@ export async function releaseFixture(
   }[],
   releasedVersion: string | null = "1.2.3",
   bootstrapMessages: readonly string[] = [],
+  configuration = fixtureConfiguration,
 ) {
   const baseline = "0".repeat(40);
   const bootstrapCommits = bootstrapMessages.map((message, index) => ({
@@ -92,7 +93,7 @@ export async function releaseFixture(
       pullRequests: pulls,
       bootstrapCommits,
     },
-    fixtureConfiguration,
+    configuration,
   );
 
   return { snapshot, serialized: await serializeReleaseSnapshot(snapshot) };

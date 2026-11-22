@@ -96,11 +96,18 @@ export async function inspectProposalHistory({
         throw new ProposalConflictError(
           "The completed release changed during reconciliation; retry from fresh state.",
         );
-      const verified = await verifyPrevious(api, completed, config, automation.botUserId);
+      const verified = await verifyPrevious(
+        api,
+        completed,
+        config,
+        automation.botUserId,
+        "tagged-history",
+      );
       const landing = await api.tree(cycle.baseline.commitSha);
       const mergeParents = [verified.source.commitSha, verified.head.commitSha];
       const squashParents = [verified.source.commitSha];
       if (
+        verified.nextVersion !== cycle.version.currentVersion ||
         landing.treeSha !== verified.head.treeSha ||
         (JSON.stringify(landing.parents) !== JSON.stringify(mergeParents) &&
           JSON.stringify(landing.parents) !== JSON.stringify(squashParents))

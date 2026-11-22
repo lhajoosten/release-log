@@ -107,6 +107,25 @@ After the setup PR lands, open **Actions → Rolling release caller → Run work
 
 A successful Actions run exits zero with `status: ready` and a passed `appDryRun`. Review the repository, branch, captured SHA, producer SHA, fixed range and input ID in the run log. The ID includes the configuration, source, version, producer and available App IDs. Rerun after changes to the source, caller inputs, producer or App settings. Local runs keep App findings unverified, and a passing candidate check alone gives no activation evidence. For blocked checks, use the remediation in the report and repeat the relevant stage. Keep `write: false` until a maintainer separately reviews and merges the one-line write activation in a PR. Manual dispatch remains read-only.
 
+## Restart a consumer release series
+
+Use this path for a reviewed restart at `0.1.0` after retiring a consumer's former releases. Keep the writer paused while preparing the reset. The repository's trusted caller owns the history start, legacy-metadata cutoff and reset evidence. The Rolling Release provider's own publication series keeps its existing boundary.
+
+Add `freshSeries` to the consumer's schema-2 configuration and set `bootstrap.baselineSha` and `bootstrap.onboardingSha` to the reviewed start and cutoff. Remove any `adoptedRelease` boundary from the new caller configuration. Use the original configuration when replaying snapshots from the former series. Fill in the reset record from the reviewed repository state.
+
+| Field                     | Required value                                                                                                                                                                                                                                                                  |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                      | A new lowercase series ID with letters, digits and optional hyphens, up to 40 characters                                                                                                                                                                                        |
+| `previousVersion`         | The stable version currently present in the source manifests and their supported lockfile mirrors                                                                                                                                                                               |
+| `previousChangelogSha256` | The full lowercase SHA-256 of the source `CHANGELOG.md` bytes                                                                                                                                                                                                                   |
+| `previousLandings`        | One record per old merged release proposal in the reset range. Use the old `release-log/<release-branch>` proposals. Each record contains `pullNumber`, `botUserId`, `headSha` and `landingSha`. All landings and their footprints must fall inside the reviewed legacy cutoff. |
+
+Use a feature-capable producer with the pinned reusable writer and read-only preview. Keep any existing producer history in the consumer's configuration. The older pinned writer or preview image must be upgraded before a caller can supply the new fields.
+
+The fresh series uses `release-log-series/<id>/<release-branch>`. It verifies that no stable version tag or visible GitHub Release remains before preparing the first online proposal and before creating its tag. The old proposal remains on its own branch. Close it as superseded through the reviewed consumer cutover so it cannot land after the cutoff. The controller leaves that PR and its branch untouched.
+
+Rehearse with the scoped read-only workflow and review the captured commit set, excluded old release proposals, first changelog and version-file updates. The new proposal replaces the pinned old changelog and tracked snapshot and updates supported manifests and lockfile mirrors together. Prior bytes remain available in Git history. Merge only the reviewed proposal. Tag reconciliation verifies its exact landing, and the next cycle uses that tag as its baseline. Keep the series ID and reset record fixed in subsequent configuration.
+
 ## Operator recovery and tool updates
 
 | Symptom                                                                                       | Next bounded action                                                                                                                                                                                                            |

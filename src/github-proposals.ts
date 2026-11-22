@@ -4,6 +4,7 @@ import type { GitHubRead } from "./github.ts";
 import { isCargoManifest, isProposalPath, isRootLockPath } from "./proposal-paths.ts";
 import { readReleaseContents } from "./version-file-inputs.ts";
 import type { ProposalFile, ReleaseFileContents } from "./proposal/prepare.ts";
+import { releaseProposalBranch } from "./config/repository.ts";
 import type { ReleaseInputConfiguration } from "./config/repository.ts";
 import { ProposalConflictError, proposalObject } from "./evidence/proposal.ts";
 
@@ -66,7 +67,7 @@ export class GitHubProposalRepository implements RepositoryEvidenceReader {
     this.token = token;
     this.transport = transport;
     this.signal = typeof deadline === "number" ? AbortSignal.timeout(deadline) : deadline;
-    this.headRef = `release-log/${config.releaseBranch}`;
+    this.headRef = releaseProposalBranch(config);
     this.prefix = `https://api.github.com/repos/${config.repository}`;
   }
   async request(

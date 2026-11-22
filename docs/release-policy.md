@@ -87,7 +87,7 @@ Shared landings use the same ownership checks in tagged cycles and during bootst
 
 ### Version calculation
 
-For an established release, take the highest required bump across distinct validated PRs, then increment once:
+For an established release, take the highest required bump across distinct validated PRs, then increment once. This table applies by default.
 
 | Evidence                                                                   | Current version at least 1.0.0 | Current version below 1.0.0 |
 | -------------------------------------------------------------------------- | ------------------------------ | --------------------------- |
@@ -99,6 +99,12 @@ For an established release, take the highest required bump across distinct valid
 A pre-1.0 minor bump resets patch to zero and does not implicitly graduate to 1.0.0. Graduation requires a separately reviewed policy change, not a hidden version override. `revert` is conservatively patch-releasing; do not infer cancellation of an earlier feature or remove either PR's evidence.
 
 Internal `feat`/`fix` changes still bump under this table. Breaking `docs`/`chore` changes still break. In an established release cycle, a docs/internal-only batch with no releasable types produces an explicit no-release result. Its entries are retained in the captured plan and included in the next releasable batch because no baseline advances on a no-release result. An already-open proposal is regenerated from the entire range, not just the latest event.
+
+### Repository bump overrides
+
+Trusted repository configuration may include a partial `releaseBumps` map. For example, `"releaseBumps": {"ci": "patch", "refactor": "patch"}` lets CI and refactor PRs start a patch proposal under their own conventional types. Each key must be a lowercase conventional type from the default table. Values are `none`, `patch`, or `minor`. Omitted types inherit the table. Breaking changes still bump minor before 1.0 and major from 1.0. Explicit initial adoption still starts at `0.1.0`.
+
+A no-release result retains the existing baseline and captured changes for the next batch. Review the map in the release branch's trusted caller configuration or the trusted config supplied to the CLI. Complete any in-flight proposal and publication under the original policy before changing the map. Subsequent cycles verify the former tag with the original captured policy and capture new inputs with the current policy. [Snapshot and replay contract](release-snapshot.md)
 
 ### Technical changelog and version files
 
@@ -130,7 +136,7 @@ Capture the resolved configuration and its identity with baseline/source IDs, no
 
 - Use one stable same-repository branch, `release-log/main` for `main`, and a versioned machine-readable proposal marker tied to repository/base, baseline/source IDs, and snapshot/output digests. A title or label alone is not identity or authorization.
 - Verify the configured App/bot numeric identity, head repository/branch, base branch, captured proposal, and recomputed exact generated diff together. Body markers and digests are untrusted claims until checked against trusted source/configuration. No blanket bot exemption.
-- Generate the title `chore(release): prepare vX.Y.Z` and commits `chore: prepare vX.Y.Z`. A squash merge must use the unscoped commit subject, not copy the scoped PR title unchanged.
+- Generate the title `chore(release): prepare vX.Y.Z` and commits `chore: prepare vX.Y.Z`. Squash approval accepts either subject. The scoped title can carry GitHub's exact PR-number suffix. [Exact squash approval requirements](release-approval.md)
 - Generated PRs supply the ordinary v1 block: `audience: internal`, a factual summary/impact of the proposal, and `required_action` directing review of version, changelog, and snapshot before merging. They must pass title/context checks; the marker is additional verification, not a bypass for missing context.
 - Exclude a release PR from subsequent product membership only after verifying its identity and that its landed changes exactly match its approved generated outputs. A human PR named `chore(release)` is ordinary. Unexpected source changes in a purported release PR fail; they are never silently discarded as automation.
 - Serialize by repository/release branch and compare expected remote branch/source state before updating. Older jobs must not overwrite newer proposals. Repeated events converge on the same PR, not append entries or create parallel proposals.

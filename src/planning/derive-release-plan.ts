@@ -1,3 +1,4 @@
+import { defaultReleaseBumps, isReleaseBumpType } from "../config/repository.ts";
 import type { HistoricalReleaseEntry, ReleaseSnapshot } from "../snapshot/model.ts";
 
 export class ReleasePlanError extends Error {
@@ -113,10 +114,8 @@ export function deriveReleasePlan(
     let bump: ReleaseBump;
 
     if (breaking) bump = current[0] === 0n ? "minor" : "major";
-    else if (type === "feat") bump = "minor";
-    else if (["fix", "perf", "revert"].includes(type)) bump = "patch";
-    else if (["build", "chore", "ci", "docs", "refactor", "style", "test"].includes(type))
-      bump = "none";
+    else if (isReleaseBumpType(type))
+      bump = snapshot.configuration.releaseBumps?.[type] ?? defaultReleaseBumps[type];
     else throw new ReleasePlanError("The captured change type is not part of release-policy-v1.");
 
     if (ranks[bump] > ranks[highest]) highest = bump;
@@ -198,7 +197,8 @@ export function deriveReleasePlan(
         ? snapshot.configuration.bootstrap.onboardingSha
         : null,
     historicalContributions,
-    ...(snapshot.configuration.automationExclusions !== undefined
+    ...(snapshot.configuration.automationExclusions !== undefined ||
+    (adopting && snapshot.configuration.freshSeries !== undefined)
       ? { excludedContributions: snapshot.normalized.excludedPullRequests }
       : {}),
   };

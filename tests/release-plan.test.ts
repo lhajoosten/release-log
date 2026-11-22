@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createReleasePlan, ReleasePlanError } from "../src/release-plan.ts";
+import {
+  parseReleaseInputConfiguration,
+  replayReleaseSnapshot,
+  serializeReleaseSnapshot,
+} from "../src/release-snapshot.ts";
 import { fixtureConfiguration, releaseFixture } from "./release-fixture.ts";
 
 for (const [title, current, next, bump] of [
@@ -162,4 +167,104 @@ void test("invalid versions, mode mismatches, and unknown configuration fail exp
     }),
     ReleasePlanError,
   );
+});
+
+void test("a partial releaseBumps policy promotes CI and refactors, suppresses features and inherits unspecified defaults", async () => {
+  const configuration = parseReleaseInputConfiguration({
+    ...fixtureConfiguration,
+    releaseBumps: { ci: "patch", refactor: "minor", feat: "none" },
+  });
+  const changes = [
+    { title: "ci(tooling): update the runner" },
+    { title: "refactor(api): simplify row selection" },
+    { title: "feat(api): add more options" },
+    { title: "fix(api): retain keys" },
+    { title: "docs(api): explain keys" },
+  ];
+  const version = { kind: "released", currentVersion: "1.2.3" } as const;
+  const original = await releaseFixture(changes);
+  const { snapshot, serialized } = await releaseFixture(
+    changes,
+    version.currentVersion,
+    [],
+    configuration,
+  );
+  const plan = await createReleasePlan(serialized, configuration, version);
+
+  assert.equal(plan.nextVersion, "1.3.0");
+  assert.deepEqual(
+    plan.contributions.map(({ type, bump }) => [type, bump]),
+    [
+      ["ci", "patch"],
+      ["refactor", "minor"],
+      ["feat", "none"],
+      ["fix", "patch"],
+      ["docs", "none"],
+    ],
+  );
+  assert.notEqual(snapshot.configurationId, original.snapshot.configurationId);
+  assert.notEqual(snapshot.snapshotId, original.snapshot.snapshotId);
+  assert.deepEqual(snapshot.tool, original.snapshot.tool);
+  assert.deepEqual(snapshot.normalized, original.snapshot.normalized);
+  assert.equal(
+    await serializeReleaseSnapshot(await replayReleaseSnapshot(serialized, configuration)),
+    serialized,
+  );
+  await assert.rejects(createReleasePlan(serialized, fixtureConfiguration, version), {
+    code: "configuration-mismatch",
+  });
+  await assert.rejects(createReleasePlan(original.serialized, configuration, version), {
+    code: "configuration-mismatch",
+  });
+});
+
+void test("releaseBumps cannot suppress a declared break or change the initial version", async () => {
+  const configuration = parseReleaseInputConfiguration({
+    ...fixtureConfiguration,
+    releaseBumps: { ci: "minor", refactor: "none" },
+  });
+  const changes = [{ title: "refactor(api)!: remove old keys", action: "Migrate keys." }];
+  for (const [currentVersion, nextVersion, bump] of [
+    ["1.2.3", "2.0.0", "major"],
+    ["0.4.7", "0.5.0", "minor"],
+  ] as const) {
+    const { serialized } = await releaseFixture(changes, currentVersion, [], configuration);
+    const plan = await createReleasePlan(serialized, configuration, {
+      kind: "released",
+      currentVersion,
+    });
+    assert.equal(plan.nextVersion, nextVersion);
+    assert.equal(plan.contributions[0]?.bump, bump);
+  }
+  const bootstrap = await releaseFixture([], null, ["ci: update the runner"], configuration);
+  const plan = await createReleasePlan(bootstrap.serialized, configuration, {
+    kind: "bootstrap",
+    initialVersion: "0.1.0",
+  });
+  assert.equal(plan.nextVersion, "0.1.0");
+  assert.equal(plan.bootstrapContributions[0]?.bump, "minor");
+});
+
+void test("releaseBumps accepts only a partial mapping of supported types to nonbreaking bumps", () => {
+  assert.deepEqual(
+    parseReleaseInputConfiguration({ ...fixtureConfiguration, releaseBumps: {} }).releaseBumps,
+    {},
+  );
+  for (const releaseBumps of [
+    null,
+    [],
+    "patch",
+    { CI: "patch" },
+    { feature: "minor" },
+    { ci: true },
+    { ci: "major" },
+    { ci: undefined },
+    { ci: "Patch" },
+    JSON.parse('{"__proto__":"patch"}') as unknown,
+  ]) {
+    assert.throws(() => parseReleaseInputConfiguration({ ...fixtureConfiguration, releaseBumps }), {
+      code: "schema-invalid",
+      message: /releaseBumps/u,
+    });
+  }
 });

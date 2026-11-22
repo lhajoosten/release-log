@@ -19,7 +19,8 @@ export type {
   PullRequestCommitEvidence,
 } from "./snapshot/association.ts";
 
-import type { CandidateLandingPin } from "./config/repository.ts";
+import { isReservedReleaseBranch } from "./config/repository.ts";
+import type { CandidateLandingPin, PreviousSeriesLanding } from "./config/repository.ts";
 import type { StackBase } from "./snapshot/association.ts";
 import { stackedLandingOwners } from "./snapshot/stacked-landing.ts";
 
@@ -205,6 +206,7 @@ export async function collectMergedPullRequests(
     readonly onboardingSha?: string;
     readonly automation?: readonly ReleaseExclusionAuthority[];
     readonly candidateLandings?: readonly CandidateLandingPin[];
+    readonly freshSeries?: { readonly previousLandings: readonly PreviousSeriesLanding[] };
   },
   read: GitHubRead = fetch,
 ): Promise<PullRequestAssociation> {
@@ -265,6 +267,10 @@ export async function collectMergedPullRequests(
     historical = new Set(legacy.commitShas);
   }
 
+  const previousSeriesLandings =
+    verified.baseline.kind === "bootstrap" ? (request.freshSeries?.previousLandings ?? []) : [];
+  const previousSeriesByPull = new Map(previousSeriesLandings.map((pin) => [pin.pullNumber, pin]));
+  const pinnedLandings = [...(request.candidateLandings ?? []), ...previousSeriesLandings];
   const inRange = new Set(verified.commitShas);
   const apiBase = `https://api.github.com/repos/${request.repository.split("/").map(encodeURIComponent).join("/")}`;
   const signal = AbortSignal.timeout(300_000);
@@ -409,7 +415,7 @@ export async function collectMergedPullRequests(
 
         if (
           !proof &&
-          !request.candidateLandings?.some(
+          !pinnedLandings.some(
             (pin) =>
               pin.pullNumber === pull.number &&
               pin.botUserId === pull.authorId &&
@@ -418,7 +424,11 @@ export async function collectMergedPullRequests(
           ) &&
           pull.authorType === "Bot" &&
           pull.headRepositoryId === pull.baseRepositoryId &&
-          pull.headRef === `release-log/${request.releaseBranch}`
+          isReservedReleaseBranch(
+            pull.headRef,
+            request.releaseBranch,
+            request.freshSeries !== undefined,
+          )
         ) {
           throw new PullRequestAssociationError(
             "automation-unverified",
@@ -626,6 +636,24 @@ export async function collectMergedPullRequests(
   const owners = new Map<string, number>();
   for (const pull of [...pulls.values()].toSorted((a, b) => a.number - b.number)) {
     const landing = await local(pull.mergeCommitSha);
+    const previousSeries = previousSeriesByPull.get(pull.number);
+    if (previousSeries) {
+      const readTree = async (sha: string) => {
+        const { data } = await get(`/git/commits/${sha}`);
+        if (!record(data) || data.sha !== sha || !record(data.tree) || !isSha(data.tree.sha))
+          return invalid("GitHub returned invalid prior-series commit tree evidence.");
+        return data.tree.sha;
+      };
+      if (
+        previousSeries.headSha !== pull.headSha ||
+        previousSeries.landingSha !== landing.sha ||
+        (await readTree(pull.headSha)) !== (await readTree(landing.sha))
+      )
+        throw new PullRequestAssociationError(
+          "automation-unverified",
+          `PR #${pull.number} prior-series landing differs from its reviewed bot head and tree.`,
+        );
+    }
     let landed: readonly GitCommitEvidence[];
     let landingKind: "merge" | "linear";
     if (
@@ -636,7 +664,11 @@ export async function collectMergedPullRequests(
       for (const member of await stack(pull, landing)) {
         if (
           member.authorType === "Bot" &&
-          member.headRef === `release-log/${request.releaseBranch}`
+          isReservedReleaseBranch(
+            member.headRef,
+            request.releaseBranch,
+            request.freshSeries !== undefined,
+          )
         )
           throw new PullRequestAssociationError(
             "automation-unverified",

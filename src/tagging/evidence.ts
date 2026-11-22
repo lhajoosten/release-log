@@ -22,6 +22,38 @@ export function sameTree(left: ProposalTree, right: ProposalTree): boolean {
   return true;
 }
 
+export async function requireUnusedReleaseVersions(api: RepositoryEvidenceReader): Promise<void> {
+  const releases = await api.request("/releases?per_page=1");
+  if (!Array.isArray(releases.data) || releases.data.length !== 0 || releases.next)
+    throw new ProposalConflictError(
+      "Fresh-series bootstrap requires an empty GitHub Release listing.",
+    );
+
+  for (let page = 1; page <= 10; page++) {
+    const tags = await api.request(`/tags?per_page=100&page=${page}`);
+    if (
+      !Array.isArray(tags.data) ||
+      tags.data.length > 100 ||
+      (tags.next && tags.data.length !== 100)
+    )
+      throw new ProposalConflictError(
+        "Fresh-series bootstrap could not verify the complete tag listing.",
+      );
+
+    for (const item of tags.data as unknown[]) {
+      const name = proposalObject(item).name;
+      if (typeof name !== "string")
+        throw new ProposalConflictError("Fresh-series bootstrap received an invalid tag listing.");
+      if (/^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(name))
+        throw new ProposalConflictError(
+          `Fresh-series bootstrap requires removal of existing stable tag ${name}.`,
+        );
+    }
+    if (!tags.next) return;
+  }
+  throw new ProposalConflictError("Fresh-series tag discovery exceeded ten pages.");
+}
+
 export async function readTagTarget(
   api: RepositoryEvidenceReader,
   tag: string,

@@ -57,6 +57,10 @@ export async function captureReleaseSnapshot(
     NormalizedReleaseInputs["excludedPullRequests"]
   >[number][] = [];
   const historical = onboardingCommits(captured, selected);
+  const previousSeriesLandings =
+    captured.range.baseline.kind === "bootstrap"
+      ? selected.freshSeries?.previousLandings
+      : undefined;
   const repairs = new Map(
     selected.commitMessageRepairs?.map((repair) => [repair.commitSha, repair]),
   );
@@ -65,11 +69,12 @@ export async function captureReleaseSnapshot(
     const proof = captured.verifiedAutomation?.find((entry) => entry.pullNumber === pull.number);
 
     const candidate = selected.candidateLandings?.find((pin) => pin.pullNumber === pull.number);
-    if (candidate) {
+    const previous = previousSeriesLandings?.find((pin) => pin.pullNumber === pull.number);
+    if (candidate || previous) {
       excludedPullRequests.push({
         number: pull.number,
         url: pull.url,
-        verificationId: candidate.proposalId,
+        verificationId: candidate?.proposalId ?? digest(previous),
         commitShas: pull.landedCommits.map((commit) => commit.sha).toSorted(),
       });
       continue;
@@ -278,7 +283,7 @@ export async function captureReleaseSnapshot(
       pullRequests,
       bootstrapCommits,
       historicalEntries,
-      ...(selected.automationExclusions || selected.candidateLandings
+      ...(selected.automationExclusions || selected.candidateLandings || previousSeriesLandings
         ? { excludedPullRequests }
         : {}),
     },
