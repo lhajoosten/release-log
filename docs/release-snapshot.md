@@ -18,7 +18,7 @@ Configuration version 1 requires these fields:
 | `repository`    | Exact `owner/repo` identity used for collection                          |
 | `repositoryId`  | Positive numeric GitHub repository ID; every captured PR base must match |
 | `releaseBranch` | The configured branch, matching collection                               |
-| `releasePolicy` | Literal `release-policy-v1`, referring to the accepted release policy    |
+| `releasePolicy` | `release-policy-v2` or historical `release-policy-v1`                    |
 
 The release/bootstrap boundary is already explicit in the captured range. This configuration only identifies the current extraction/normalization policy; output paths, adapters, automation identity, and publication configuration belong to later callers. No PR can override this policy. No initial/next version is calculated here.
 
@@ -26,7 +26,7 @@ Configuration version 2 adds a required `bootstrap` object with exactly `baselin
 
 Both configuration versions accept optional `contextPolicy` with exactly `required` or `optional`. Omission preserves the previous strict behavior and configuration identity. The [context-policy contract](release-context.md#consumer-context-policy) defines absent versus malformed context, breaking warnings and trusted gate configuration. Explicit selection binds an additional normalizer revision (composed with exclusion normalization when present), and participates in configuration/snapshot/proposal identity. Omitting the field does not add a context-policy identity component; no automatic migration or reinterpretation occurs. A changed policy requires fresh capture and review.
 
-Both configuration versions accept optional `releaseBumps` for the [nonbreaking version policy](release-policy.md#repository-bump-overrides). Omitting it retains prior snapshot bytes and identity. A supplied map is included in configuration, snapshot and proposal identity. Offline replay uses a matching trusted configuration. The rolling controller can use a predecessor's captured map when its exact reconstructed landing is already tagged.
+Both configuration versions accept optional `releaseBumps` for the [nonbreaking version policy](release-policy.md#repository-bump-overrides). Omitting it retains prior snapshot bytes and identity. A supplied map is included in configuration, snapshot and proposal identity. Offline replay uses a matching trusted configuration. The rolling controller can use a predecessor's captured policy revision and map when its exact reconstructed landing is already tagged.
 
 Schema version 2 additionally supports a consumer-owned [fresh series](release-workflow.md#restart-a-consumer-release-series). Its fixed history start, cutoff, previous version, changelog hash and reviewed old release landing pins participate in capture and replay. Old release PRs pinned within the cutoff remain in the raw evidence and appear as exclusions in the normalized bootstrap inputs. Tagged cycles in the new series collect only after the new tag and no longer include those exclusions.
 

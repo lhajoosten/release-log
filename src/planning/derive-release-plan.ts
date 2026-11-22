@@ -1,4 +1,8 @@
-import { defaultReleaseBumps, isReleaseBumpType } from "../config/repository.ts";
+import {
+  isReleaseBumpType,
+  releaseBumpDefaults,
+  type ReleasePolicy,
+} from "../config/repository.ts";
 import type { HistoricalReleaseEntry, ReleaseSnapshot } from "../snapshot/model.ts";
 
 export class ReleasePlanError extends Error {
@@ -17,7 +21,7 @@ export type ReleaseBump = "none" | "patch" | "minor" | "major";
 export interface ReleasePlan {
   readonly schemaVersion: 3 | 4 | 5;
   readonly excludedContributions?: ReleaseSnapshot["normalized"]["excludedPullRequests"];
-  readonly policy: "release-policy-v1";
+  readonly policy: ReleasePolicy;
   readonly snapshotId: string;
   readonly baselineCommitSha: string;
   readonly sourceCommitSha: string;
@@ -108,15 +112,16 @@ export function deriveReleasePlan(
   const version = versionConfiguration(selectedVersion, snapshot);
   const currentVersion = version.kind === "released" ? version.currentVersion : null;
   const current = parseVersion(currentVersion ?? "0.1.0");
+  const { releasePolicy, releaseBumps } = snapshot.configuration;
+  const defaults = releaseBumpDefaults(releasePolicy);
   let highest: ReleaseBump = "none";
 
   function classify(type: string, breaking: boolean): ReleaseBump {
     let bump: ReleaseBump;
 
     if (breaking) bump = current[0] === 0n ? "minor" : "major";
-    else if (isReleaseBumpType(type))
-      bump = snapshot.configuration.releaseBumps?.[type] ?? defaultReleaseBumps[type];
-    else throw new ReleasePlanError("The captured change type is not part of release-policy-v1.");
+    else if (isReleaseBumpType(type)) bump = releaseBumps?.[type] ?? defaults[type];
+    else throw new ReleasePlanError(`The captured change type is not part of ${releasePolicy}.`);
 
     if (ranks[bump] > ranks[highest]) highest = bump;
 
@@ -181,7 +186,7 @@ export function deriveReleasePlan(
 
   return {
     schemaVersion: snapshot.schemaVersion,
-    policy: "release-policy-v1",
+    policy: releasePolicy,
     snapshotId: snapshot.snapshotId,
     baselineCommitSha: snapshot.normalized.baselineCommitSha,
     sourceCommitSha: snapshot.normalized.sourceCommitSha,
