@@ -79,12 +79,15 @@ jobs:
           pnpm install --frozen-lockfile --ignore-scripts
           node scripts/install-producer-runtimes.ts
 
-      # Keep the pinned producer code for replay when its controller predates the flag.
-      - name: Load scan flag support for older release controllers
+      # Older pinned producers still replay history with their own release implementation.
+      - name: Load current publication gates for older release controllers
         run: |
-          controller=$(cat tool/scripts/self-release.ts)
-          if [[ "$controller" != *'process.env.RELEASE_CONTAINER_SCAN'* ]]; then
-            cp source/scripts/{self-release,container-release,scan-container}.ts tool/scripts/
+          if ! grep -q 'process.env.RELEASE_CONTAINER_SCAN' tool/scripts/self-release.ts; then
+            cp source/scripts/{container-release,scan-container}.ts tool/scripts/
+          fi
+          if ! grep -q 'checkQuality:' tool/scripts/self-release.ts; then
+            cp source/scripts/{self-release,self-release-publication}.ts tool/scripts/
+            cp source/src/tool-upgrade.ts tool/src/
           fi
 
       - name: Mint a short-lived release App token for this repository

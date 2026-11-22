@@ -12,6 +12,8 @@ The `release-proposal-replay` job in **PR metadata** replays open generated rele
 
 ## Gates, credentials and evidence
 
+Before the first public write, the latest Quality workflow run triggered by a push to main must succeed for the exact verified release landing. That workflow includes the aggregate verify and container jobs. For a pending run, self-publication polls for up to six minutes and defers if Quality is still pending. A failed run blocks the candidate. Retry Quality for a transient failure, then run self-publication or let the schedule retry. For a failure that requires code changes, merge the fix normally and review the replacement proposal. Journaled release recovery still verifies the retained outputs and applies the existing image checks.
+
 The workflow installs locked dependencies with `pnpm install --frozen-lockfile --ignore-scripts` before running any pnpm script, including candidate validation. pnpm 12 can implicitly install dependencies before a script, so validating first could attempt dependency lifecycle builds and leave an ignored-build failure for the subsequent explicit install. Keep the explicit scripts-disabled install first; no dependency build approvals or relaxed build policy are needed.
 
 Root commands are the shared interface:
