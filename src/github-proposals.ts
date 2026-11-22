@@ -152,7 +152,7 @@ export class GitHubProposalRepository implements RepositoryEvidenceReader {
       throw error;
     }
   }
-  async tree(commitSha: string): Promise<ProposalTree> {
+  async readCommit(commitSha: string): Promise<Omit<ProposalTree, "entries">> {
     const commit = proposalObject(
       (await this.request(`/git/commits/${proposalSha(commitSha)}`)).data,
     );
@@ -162,7 +162,18 @@ export class GitHubProposalRepository implements RepositoryEvidenceReader {
       !Array.isArray(commit.parents)
     )
       throw new ProposalConflictError("GitHub returned incomplete commit evidence.");
-    const treeSha = proposalSha(proposalObject(commit.tree).sha);
+    return {
+      commitSha,
+      treeSha: proposalSha(proposalObject(commit.tree).sha),
+      // GitHub's Git commits API omits the terminal LF present in raw Git
+      // messages. Restore only that delimiter; preserve all other message bytes.
+      message: commit.message.endsWith("\n") ? commit.message : `${commit.message}\n`,
+      parents: commit.parents.map((parent: unknown) => proposalSha(proposalObject(parent).sha)),
+    };
+  }
+  async tree(commitSha: string): Promise<ProposalTree> {
+    const commit = await this.readCommit(commitSha);
+    const { treeSha } = commit;
     const data = proposalObject((await this.request(`/git/trees/${treeSha}?recursive=1`)).data);
     if (
       data.sha !== treeSha ||
@@ -186,15 +197,7 @@ export class GitHubProposalRepository implements RepositoryEvidenceReader {
         throw new ProposalConflictError("GitHub returned inconsistent Git tree entries.");
       entries.set(item.path, { sha: proposalSha(item.sha), mode: item.mode, type: item.type });
     }
-    return {
-      commitSha,
-      treeSha,
-      // GitHub's Git commits API omits the terminal LF present in raw Git
-      // messages. Restore only that delimiter; preserve all other message bytes.
-      message: commit.message.endsWith("\n") ? commit.message : `${commit.message}\n`,
-      parents: commit.parents.map((parent: unknown) => proposalSha(proposalObject(parent).sha)),
-      entries,
-    };
+    return { ...commit, entries };
   }
   async contents(tree: ProposalTree): Promise<ReleaseFileContents> {
     const get = async (path: string): Promise<string | null> => {

@@ -56,7 +56,7 @@ The npm package remains private at `0.2.1`. The Linux/amd64 image `ghcr.io/lhajo
 
 ## Set up release automation
 
-Start with the [read-only initialization preflight](docs/release-workflow.md#first-time-setup-preflight) to review the bootstrap range, check version files and preview the dry-run caller. The [consumer workflow template](examples/rolling-release.yml) shows the same setup for a repository with already reviewed boundaries.
+Start with the [minimal consumer workflow](docs/release-workflow.md#minimal-consumer-workflow) and its read-only preview to review bootstrap history or verify an existing release boundary. The [release caller](examples/rolling-release.yml) uses provider-managed defaults and replay history. The [pre-merge metadata caller](examples/release-metadata-caller.yml) checks conventional PR titles and release context.
 
 The newer controller also supports opt-in [release PR self-upgrades and GitHub Releases](docs/release-workflow.md#self-upgrades-and-github-releases). This repository’s self-release workflow selects a reviewed producer revision and retains prior verification runtimes; the operations guide records the bootstrap’s required App permissions and read-only verification evidence.
 

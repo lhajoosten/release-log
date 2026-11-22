@@ -42,6 +42,7 @@ type Bootstrap = Extract<ReleaseInputConfiguration, { schemaVersion: 2 }>["boots
 export interface PreflightRequest {
   readonly repository: string;
   readonly sourceSha: string;
+  readonly consumerSetup?: boolean;
   readonly candidateSha?: string;
   readonly producerSha: string;
   readonly initialVersion: string;
@@ -332,7 +333,7 @@ export async function preflightRelease(request: PreflightRequest, read: GitHubRe
       throw new GitHubReadError(
         "The source already contains a release capture. Review or recover its recorded release boundary.",
       );
-    if (local.entries.has(callerPath) && !fixedRange)
+    if (local.entries.has(callerPath) && !fixedRange && !request.consumerSetup)
       throw new GitHubReadError(
         "The source already contains the standard rolling caller. Rerun its trusted manual preflight or use its reviewed configuration.",
       );
@@ -505,6 +506,7 @@ export async function preflightRelease(request: PreflightRequest, read: GitHubRe
       }
       if (
         !request.app &&
+        !request.consumerSetup &&
         !fixedRange &&
         (sourceCompatible || findings.candidateFiles?.status === "passed") &&
         findings.preparation?.status !== "blocked" &&

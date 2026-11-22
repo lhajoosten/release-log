@@ -32,14 +32,24 @@ function file(path: string, contents: string) {
 
 async function template(name: string) {
   return (await readFile(new URL(`../examples/${name}`, import.meta.url), "utf8"))
-    .replaceAll("REVIEWED_FULL_COMMIT_SHA", pin)
     .replace("branches: [main]", `branches: [${branch}]`)
-    .replace("release-branch: main", `release-branch: ${branch}`)
-    .replace(/^        \{"schemaVersion":.+$/mu, `        ${JSON.stringify(config)}`);
+    .replace("release-branch: main", `release-branch: ${branch}`);
 }
 
-const metadata = await template("release-metadata-caller.yml");
-const rolling = await template("rolling-release.yml");
+const metadataConsumer = await template("release-metadata-caller.yml");
+const rollingConsumer = await template("rolling-release.yml");
+const metadata = metadataConsumer
+  .replace("@consumer-v1", `@${pin}`)
+  .replace(
+    `      release-branch: ${branch}`,
+    `      tool-sha: ${pin}\n      configuration: '${JSON.stringify(config)}'`,
+  );
+const rolling = rollingConsumer
+  .replace(`consumer-release.yml@consumer-v1`, `rolling-release.yml@${pin}`)
+  .replace(
+    `      release-branch: ${branch}`,
+    `      release-branch: ${branch}\n      tool-sha: ${pin}\n      configuration: '${JSON.stringify(config)}'`,
+  );
 const branchPath = "/branches/releases%2Fstable";
 const rulesPath = "/rules/branches/releases%2Fstable?per_page=100&page=1";
 const protectionPath = `${branchPath}/protection`;
@@ -55,7 +65,7 @@ const rule = {
 function fixture(overrides: Record<string, Response> = {}) {
   const responses = new Map(
     Object.entries({
-      "": Response.json({ id: 17, full_name: "example/project" }),
+      "": Response.json({ id: 17, full_name: "example/project", default_branch: branch }),
       [branchPath]: Response.json({ name: branch, commit: { sha: tip }, protected: true }),
       [contentsPath(rollingPath)]: file(rollingPath, rolling),
       [contentsPath(metadataPath)]: file(metadataPath, metadata),
@@ -93,6 +103,21 @@ void test("verifies GitHub Actions enforcement on a non-main release branch", as
   assert.equal(result.status, "verified");
   assert.equal(result.branch, branch);
   assert.equal(result.check, check);
+  assert.ok(visited.includes(protectionPath));
+});
+
+void test("verifies the minimal callers through the same protected stable reference without an inline configuration", async () => {
+  const { read, visited } = fixture({
+    [contentsPath(rollingPath)]: file(rollingPath, rollingConsumer),
+    [contentsPath(metadataPath)]: file(metadataPath, metadataConsumer),
+  });
+  const { repository, repositoryId, releaseBranch } = config;
+  const result = await verifyMetadataOnboarding(
+    { repository, repositoryId, releaseBranch },
+    "synthetic",
+    read,
+  );
+  assert.equal(result.status, "verified");
   assert.ok(visited.includes(protectionPath));
 });
 

@@ -4,34 +4,25 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { parseReleaseInputConfiguration } from "../src/config/repository.ts";
 import { readToolPin, workflowPath } from "../src/tool-upgrade.ts";
-import { proposalObject } from "../src/github-proposals.ts";
+import { parseProducerPins } from "../src/config/producer-pins.ts";
+import { requireConsumerConfiguration } from "../src/config/consumer.ts";
 
 const execute = promisify(execFile);
 const activeSha = process.env.TOOL_SHA;
 const temporary = process.env.RUNNER_TEMP;
 if (!activeSha || !/^[a-f0-9]{40}$/u.test(activeSha) || !temporary)
   throw new Error("Pinned active tool SHA and runner temporary directory are required.");
-const value: unknown = JSON.parse(process.env.VERIFICATION_RUNTIMES ?? "[]");
-if (!Array.isArray(value) || value.length > 20)
-  throw new Error("Verification runtimes must be an explicitly trusted bounded list.");
-const pins = value.map((item: unknown) => {
-  const pin = proposalObject(item);
-  if (
-    Object.keys(pin).toSorted().join(",") !== "legacy,sha" ||
-    typeof pin.sha !== "string" ||
-    !/^[a-f0-9]{40}$/u.test(pin.sha) ||
-    typeof pin.legacy !== "boolean" ||
-    pin.sha === activeSha
-  )
-    throw new Error(
-      "Verification runtimes require full immutable SHAs and explicit legacy authority.",
-    );
-  return { sha: pin.sha, legacy: pin.legacy };
-});
-if (new Set(pins.map((pin) => pin.sha)).size !== pins.length)
-  throw new Error("Duplicate verification runtime pins.");
+const pins = parseProducerPins(JSON.parse(process.env.VERIFICATION_RUNTIMES ?? "[]"));
+if (pins.some(({ sha }) => sha === activeSha))
+  throw new Error("The active producer must be omitted from verification pins.");
 const configuration = parseReleaseInputConfiguration(
   JSON.parse(process.env.CONFIGURATION ?? "null") as unknown,
+);
+const historical: unknown = JSON.parse(process.env.HISTORICAL_CONFIGURATIONS ?? "[]");
+if (!Array.isArray(historical) || historical.length > 8)
+  throw new Error("Expected at most eight reviewed historical release configurations.");
+const configurations = historical.map((config: unknown) =>
+  requireConsumerConfiguration(config, configuration),
 );
 // This predecessor is anchored in the reviewed active tool checkout, never the
 // consumer checkout or a snapshot-selected revision. Legacy pins are terminals.
@@ -58,7 +49,19 @@ for (const pin of pins) {
     "--depth=1",
     "https://github.com/lhajoosten/rolling-release.git",
     pin.sha,
-  ]);
+  ]).catch(async () => {
+    await run("git", [
+      "fetch",
+      "--depth=1",
+      "https://github.com/lhajoosten/rolling-release.git",
+      pin.sha,
+    ]).catch((cause: unknown) => {
+      throw new Error(
+        `Cannot fetch reviewed producer ${pin.sha}. Retry the workflow or ask Rolling Release to restore this source revision.`,
+        { cause },
+      );
+    });
+  });
   await run("git", ["checkout", "--detach", pin.sha]);
   if ((await run("git", ["rev-parse", "HEAD"])).stdout.trim() !== pin.sha)
     throw new Error("Verification runtime checkout does not match its trusted pin.");
@@ -73,5 +76,9 @@ for (const pin of pins) {
 }
 await writeFile(
   join(temporary, "release-producer-runtimes.json"),
-  JSON.stringify({ activeSha, producers }),
+  JSON.stringify({
+    activeSha,
+    producers,
+    ...(configurations.length > 0 ? { configurations } : {}),
+  }),
 );

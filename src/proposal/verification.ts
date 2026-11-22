@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import { reconstructProposal } from "../producer-runtime.ts";
+import { hasTrustedHistoricalConfiguration, reconstructProposal } from "../producer-runtime.ts";
 import { capturedIdentity, verifyGeneratedTree } from "./identity.ts";
 import type { Description } from "./identity.ts";
 import { ProposalConflictError, proposalObject } from "../github-proposals.ts";
@@ -69,6 +69,8 @@ export function capturedVerificationConfiguration(
     throw new ProposalConflictError("The proposal snapshot is not valid JSON.");
   }
   const captured = parseReleaseInputConfiguration(proposalObject(value).configuration);
+  if (verification === "tagged-history" && hasTrustedHistoricalConfiguration(captured, current))
+    return captured;
   if (
     (captured.selfUpgrade && !current.selfUpgrade) ||
     (captured.githubRelease && !current.githubRelease) ||

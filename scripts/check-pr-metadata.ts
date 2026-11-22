@@ -1,4 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
+import { readConsumerSettings } from "../src/config/consumer.ts";
+import { inspectBranchSource } from "../src/git.ts";
 
 import {
   checkGitHubPullRequest,
@@ -53,9 +55,31 @@ try {
     );
   }
 
-  const config = process.argv.includes("--configuration")
-    ? readConfiguration(process.env.RELEASE_LOG_CONFIGURATION)
-    : undefined;
+  const inline = process.env.RELEASE_LOG_CONFIGURATION;
+  const branch = process.env.RELEASE_LOG_CONSUMER_BRANCH;
+  let config;
+  if (process.argv.includes("--configuration")) {
+    if (inline) config = readConfiguration(inline);
+    else if (branch) {
+      const source = "release-settings";
+      const settings = await readConsumerSettings(
+        source,
+        await inspectBranchSource(source, "HEAD"),
+        {
+          repository,
+          repositoryId: Number(process.env.GITHUB_REPOSITORY_ID),
+          releaseBranch: branch,
+        },
+      ).catch((cause: unknown) => {
+        throw new PullRequestCheckError(
+          cause instanceof Error ? cause.message : "Could not read trusted release settings.",
+        );
+      });
+      config = settings.configuration;
+    } else {
+      config = readConfiguration(inline);
+    }
+  }
   if (config && config.repository !== repository)
     throw new PullRequestCheckError(
       "The trusted configuration names a different GitHub repository.",

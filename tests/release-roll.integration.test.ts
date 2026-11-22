@@ -857,11 +857,17 @@ void test("reusable workflow mints scoped App tokens after queueing and runs onl
   );
   assert.ok(install);
   assert.ok(steps.indexOf(install) < steps.indexOf(mint));
-  assert.equal(object(install.env).VERIFICATION_RUNTIMES, "${{ inputs.verification-runtimes }}");
+  assert.equal(
+    object(install.env).VERIFICATION_RUNTIMES,
+    "${{ steps.replay.outputs.runtimes || inputs.verification-runtimes }}",
+  );
   assert.ok(!JSON.stringify(install).includes("steps.app.outputs.token"));
   const route = steps.at(-1);
   assert.ok(route);
-  assert.equal(object(route.env).RELEASE_LOG_APP_TOKEN, "${{ steps.app.outputs.token }}");
+  assert.equal(
+    object(route.env).RELEASE_LOG_APP_TOKEN,
+    "${{ steps.app.outputs.token || steps.preview-app.outputs.token }}",
+  );
   assert.ok(steps.indexOf(mint) < steps.indexOf(route));
   for (const step of steps.filter((candidate) => candidate.run)) {
     assert.ok(!text(step.run).includes("${{"));

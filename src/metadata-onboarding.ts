@@ -78,13 +78,27 @@ async function loadWorkflow(get: Read, path: string, sha: string) {
   return incomplete(`Replace ${path} with the supported caller template.`);
 }
 
-function withPinnedSource(job: unknown, workflow: string) {
+function workflowReference(job: unknown, workflow: string) {
   if (!isObject(job) || !isObject(job.with) || typeof job.uses !== "string") return undefined;
-  const [repository, pin] = job.uses.split(`/.github/workflows/${workflow}@`);
-  if (repository === undefined || pin === undefined || !isReleaseLogRepositoryName(repository))
+  const [repository, ref] = job.uses.split(`/.github/workflows/${workflow}@`);
+  if (repository === undefined || ref === undefined || !isReleaseLogRepositoryName(repository))
     return undefined;
-  if (job.uses !== `${repository}/.github/workflows/${workflow}@${pin}`) return undefined;
-  return fullSha.test(pin) && job.with["tool-sha"] === pin ? job.with : undefined;
+  if (job.uses !== `${repository}/.github/workflows/${workflow}@${ref}`) return undefined;
+  return { ref, input: job.with };
+}
+
+function withPinnedSource(job: unknown, workflow: string) {
+  const reference = workflowReference(job, workflow);
+  return reference && fullSha.test(reference.ref) && reference.input["tool-sha"] === reference.ref
+    ? reference.input
+    : undefined;
+}
+
+function withConsumerSource(job: unknown, workflow: string) {
+  const reference = workflowReference(job, workflow);
+  return reference && (reference.ref === "consumer-v1" || fullSha.test(reference.ref))
+    ? reference
+    : undefined;
 }
 
 function samePolicy(value: unknown, config: ReleaseInputConfiguration) {
@@ -103,21 +117,34 @@ function samePolicy(value: unknown, config: ReleaseInputConfiguration) {
   }
 }
 
-async function verifyCallers(get: Read, config: ReleaseInputConfiguration, sha: string) {
+async function verifyCallers(
+  get: Read,
+  config: Pick<ReleaseInputConfiguration, "repository" | "repositoryId" | "releaseBranch">,
+  sha: string,
+  expected?: ReleaseInputConfiguration,
+  defaultBranch?: unknown,
+) {
   // The API reads both callers at the same release-branch commit.
   const rolling = await loadWorkflow(get, rollingCaller, sha);
-  const release = withPinnedSource(
-    isObject(rolling.jobs) && rolling.jobs.release,
-    "rolling-release.yml",
-  );
+  const releaseJob = isObject(rolling.jobs) && rolling.jobs.release;
+  const release = withPinnedSource(releaseJob, "rolling-release.yml");
+  const consumer = withConsumerSource(releaseJob, "consumer-release.yml");
+  const matchingConsumer =
+    consumer &&
+    defaultBranch === config.releaseBranch &&
+    consumer.input["release-branch"] === config.releaseBranch &&
+    !Object.hasOwn(consumer.input, "configuration") &&
+    !Object.hasOwn(consumer.input, "replay-history");
   // GitHub treats these characters as glob syntax even in quoted YAML.
   const filter = config.releaseBranch.replace(/[+*?[\]!\\]/gu, "\\$&");
   const mergedPull = { pull_request_target: { types: ["closed"], branches: [filter] } };
   if (
     (!isDeepStrictEqual(rolling.on, mergedPull) &&
       !isDeepStrictEqual(rolling.on, { ...mergedPull, workflow_dispatch: null })) ||
-    release?.["release-branch"] !== config.releaseBranch ||
-    !samePolicy(release.configuration, config)
+    (!matchingConsumer &&
+      (release?.["release-branch"] !== config.releaseBranch ||
+        expected === undefined ||
+        !samePolicy(release.configuration, expected)))
   )
     incomplete(
       `Align the pinned rolling-release caller in ${rollingCaller} with the supplied repository, release branch and context policy.`,
@@ -126,11 +153,17 @@ async function verifyCallers(get: Read, config: ReleaseInputConfiguration, sha: 
   const metadata = await loadWorkflow(get, metadataCaller, sha);
   const job = isObject(metadata.jobs) && metadata.jobs["release-log"];
   const input = withPinnedSource(job, "release-metadata.yml");
+  const metadataConsumer = withConsumerSource(job, "release-metadata.yml");
+  const matchingMetadata =
+    matchingConsumer &&
+    metadataConsumer &&
+    metadataConsumer.ref === consumer.ref &&
+    Object.keys(metadataConsumer.input).length === 1 &&
+    metadataConsumer.input["release-branch"] === config.releaseBranch;
 
   if (
     !isObject(job) ||
-    !input ||
-    Object.keys(input).length !== 2 ||
+    (!matchingMetadata && (matchingConsumer || !input || Object.keys(input).length !== 2)) ||
     Object.keys(job).some((key) => !["uses", "with"].includes(key)) ||
     !isObject(metadata.jobs) ||
     Object.keys(metadata.jobs).length !== 1 ||
@@ -150,7 +183,7 @@ async function verifyCallers(get: Read, config: ReleaseInputConfiguration, sha: 
       `Use the supported pinned, read-only template in ${metadataCaller} with the exact release-branch filter and all five PR events.`,
     );
 
-  if (!samePolicy(input.configuration, config))
+  if (!matchingMetadata && (!expected || !samePolicy(input?.configuration, expected)))
     incomplete(
       `Copy the rolling-release configuration JSON into ${metadataCaller} to align repository, release branch and context policy.`,
     );
@@ -264,7 +297,9 @@ async function rulesetProtection(
 }
 
 export async function verifyMetadataOnboarding(
-  config: ReleaseInputConfiguration,
+  config:
+    | Pick<ReleaseInputConfiguration, "repository" | "repositoryId" | "releaseBranch">
+    | ReleaseInputConfiguration,
   token: string,
   read: GitHubRead = fetch,
 ): Promise<{
@@ -302,7 +337,13 @@ export async function verifyMetadataOnboarding(
     )
       insufficient("GitHub did not return complete release-branch evidence.");
 
-    await verifyCallers(get, config, target.commit.sha);
+    await verifyCallers(
+      get,
+      config,
+      target.commit.sha,
+      "schemaVersion" in config ? config : undefined,
+      repository.default_branch,
+    );
 
     const rules = await branchRules(get, encoded);
     if (rules.some((rule) => rule.type === "merge_queue"))

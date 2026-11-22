@@ -572,14 +572,14 @@ void test("consumer reusable workflow runs only pinned Release Log code with tru
   assert.match(source, /workflow_call:/u);
   assert.match(source, /name: metadata/u);
   assert.match(source, /repository: lhajoosten\/rolling-release/u);
-  assert.ok(source.includes("ref: ${{ inputs.tool-sha }}"));
+  assert.ok(source.includes("ref: ${{ inputs.tool-sha || job.workflow_sha }}"));
   assert.match(source, /persist-credentials: false/u);
   assert.match(source, /pnpm install --frozen-lockfile --ignore-scripts/u);
   assert.match(source, /permissions:\n  contents: read\n  pull-requests: read/u);
   assert.ok(source.includes("RELEASE_LOG_CONFIGURATION: ${{ inputs.configuration }}"));
   assert.match(source, /pnpm check:pr-metadata --configuration/u);
   assert.doesNotMatch(source, /secrets\.|pull_request\.head|refs\/pull|actions\/cache@/u);
-  assert.equal(source.match(/uses: [^@\n]+@[0-9a-f]{40}(?= |\n)/gu)?.length, 3);
+  assert.equal(source.match(/uses: [^@\n]+@[0-9a-f]{40}(?= |\n)/gu)?.length, 4);
 });
 
 void test("metadata command exercises successful and failing checks with only the HTTP boundary replaced", async (context) => {

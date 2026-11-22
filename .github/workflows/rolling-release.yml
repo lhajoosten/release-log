@@ -11,6 +11,17 @@ on:
         description: Trusted producer SHA/legacy pairs for prior proposal verification (executable authority)
         default: "[]"
         type: string
+      consumer:
+        description: Use the consumer dispatch preview and read-only token for paused writes
+        default: false
+        type: boolean
+      settings-source:
+        description: Release-branch commit holding the resolved settings
+        type: string
+      historical-configurations:
+        description: Reviewed consumer configurations for completed release verification
+        default: "[]"
+        type: string
       configuration:
         description: Trusted release input configuration JSON, supplied by the caller
         required: true
@@ -90,14 +101,6 @@ jobs:
           cp "$RUNNER_TEMP/release-cli/dist/dependency-lock.txt" "$RUNNER_TEMP/release-cli/pnpm-lock.yaml"
           pnpm --dir "$RUNNER_TEMP/release-cli" install --offline --prod --frozen-lockfile --ignore-scripts
 
-      - name: Install explicitly trusted producer runtimes before credentials
-        working-directory: tool
-        env:
-          TOOL_SHA: ${{ inputs.tool-sha }}
-          CONFIGURATION: ${{ inputs.configuration }}
-          VERIFICATION_RUNTIMES: ${{ inputs.verification-runtimes }}
-        run: node scripts/install-producer-runtimes.ts
-
       - name: Validate trusted caller configuration
         id: configuration
         env:
@@ -105,6 +108,7 @@ jobs:
           BOT_USER_ID: ${{ inputs.bot-user-id }}
           RELEASE_BRANCH: ${{ inputs.release-branch }}
           RELEASE_APP_ID: ${{ inputs.app-id }}
+          CONSUMER: ${{ inputs.consumer }}
           HAS_APP_KEY: ${{ secrets.app-private-key != '' }}
         run: |
           node --input-type=module <<'JS'
@@ -122,7 +126,8 @@ jobs:
             const appId = process.env.RELEASE_APP_ID;
             const canProbe = /^[1-9]\d*$/.test(appId) && Number.isSafeInteger(Number(appId)) && process.env.HAS_APP_KEY === 'true';
             await appendFile(process.env.GITHUB_OUTPUT, `probe-app=${canProbe}\n`);
-          } else {
+          }
+          if (process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || process.env.CONSUMER === 'true') {
             const automation = parseReleaseAutomation({ schemaVersion: 1, botUserId: Number(process.env.BOT_USER_ID) });
             await writeFile(`${process.env.RUNNER_TEMP}/release-automation.json`, JSON.stringify(automation));
           }
@@ -132,13 +137,44 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ github.repository }}
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || inputs.release-branch }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || format('refs/heads/{0}', inputs.release-branch) }}
           path: source
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Confirm the reviewed settings still apply to the queued run
+        if: inputs.consumer
+        env:
+          SETTINGS_SOURCE: ${{ inputs.settings-source }}
+        run: |
+          [[ "$SETTINGS_SOURCE" =~ ^[a-f0-9]{40}$ ]]
+          if ! git -C source merge-base --is-ancestor "$SETTINGS_SOURCE" HEAD ||
+             ! git -C source diff --quiet "$SETTINGS_SOURCE" HEAD -- .release-log/settings.json; then
+            echo "The release branch changed settings or diverged while this run was queued. Rerun from current release history." >&2
+            exit 1
+          fi
+
+      - name: Resolve needed producer runtimes from reviewed catalog
+        if: inputs.consumer
+        id: replay
+        working-directory: tool
+        env:
+          TOOL_SHA: ${{ inputs.tool-sha }}
+          CATALOG: ${{ inputs.verification-runtimes }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/select-consumer-producers.ts
+
+      - name: Install explicitly trusted producer runtimes before credentials
+        working-directory: tool
+        env:
+          TOOL_SHA: ${{ inputs.tool-sha }}
+          CONFIGURATION: ${{ inputs.configuration }}
+          VERIFICATION_RUNTIMES: ${{ steps.replay.outputs.runtimes || inputs.verification-runtimes }}
+          HISTORICAL_CONFIGURATIONS: ${{ inputs.historical-configurations }}
+        run: node scripts/install-producer-runtimes.ts
+
       - name: Check App installation access on this repository
-        if: github.event_name == 'workflow_dispatch' && steps.configuration.outputs.probe-app == 'true'
+        if: github.event_name == 'workflow_dispatch' && !inputs.consumer && steps.configuration.outputs.probe-app == 'true'
         id: installation
         continue-on-error: true
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
@@ -150,7 +186,9 @@ jobs:
       # Mint after queueing and tool installation. Never expose the key/token to
       # consumer dependency scripts, source code, or a PR-head checkout.
       - name: Mint a short-lived token with the required permissions
-        if: github.event_name != 'workflow_dispatch' || steps.installation.outcome == 'success'
+        if: >-
+          (github.event_name != 'workflow_dispatch' && (!inputs.consumer || inputs.write)) ||
+          steps.installation.outcome == 'success'
         id: app
         continue-on-error: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
@@ -162,8 +200,26 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
 
+      - name: Mint a read-only token for a paused merge run
+        if: inputs.consumer && !inputs.write && github.event_name != 'workflow_dispatch'
+        id: preview-app
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.app-private-key }}
+          permission-contents: read
+          permission-pull-requests: read
+
+      - name: Preview the current or initial release cycle
+        if: inputs.consumer && github.event_name == 'workflow_dispatch'
+        working-directory: tool
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TOOL_SHA: ${{ inputs.tool-sha }}
+        run: node scripts/preview-consumer-release.ts
+
       - name: Rehearse initialization on the captured release branch
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && !inputs.consumer
         env:
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_LOG_APP_TOKEN: ${{ steps.app.outputs.token }}
@@ -187,8 +243,9 @@ jobs:
       - name: Route the merge through the packaged CLI
         if: github.event_name != 'workflow_dispatch'
         env:
-          RELEASE_LOG_APP_TOKEN: ${{ steps.app.outputs.token }}
+          RELEASE_LOG_APP_TOKEN: ${{ steps.app.outputs.token || steps.preview-app.outputs.token }}
           RELEASE_WRITE: ${{ inputs.write }}
+          RELEASE_LOG_CONSUMER_RETRY_READS: ${{ inputs.consumer }}
         run: |
           mode=--dry-run
           if [ "$RELEASE_WRITE" = true ]; then mode=--write; fi

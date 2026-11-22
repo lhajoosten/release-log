@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { TestContext } from "node:test";
 
+import { selectConsumerProducers } from "../src/consumer-producers.ts";
 import { withProducerRuntimes } from "../src/producer-runtime.ts";
 import { prepareReleaseFileContents } from "../src/proposal-files.ts";
 import { describe } from "../src/proposal-identity.ts";
@@ -659,3 +660,68 @@ for (const [change, policy] of [
     });
   });
 }
+
+void test("a promoted producer is resolved by its immutable provider record without a consumer pin", async (context) => {
+  const oldSha = "a".repeat(40);
+  const activeSha = "b".repeat(40);
+  const state = await withProducerRuntimes({ activeSha: oldSha, producers: [] }, () =>
+    openProposal(context),
+  );
+  const { configuration, automation, token } = state.request;
+  const ref = `refs/tags/rolling-release-producer/${oldSha}`;
+  let record: "missing" | "wrong" | "approved" = "missing";
+  const transport: GitHubRead = (url, options) => {
+    if (url === `https://api.github.com/repos/lhajoosten/rolling-release/git/ref/${ref.slice(5)}`) {
+      assert.equal(new Headers(options.headers).has("Authorization"), false);
+      assert.equal(options.method, "GET");
+      if (record === "missing") return Promise.resolve(new Response(null, { status: 404 }));
+      return Promise.resolve(
+        json({ ref, object: { type: "commit", sha: record === "approved" ? oldSha : activeSha } }),
+      );
+    }
+    return state.f.transport(url, options);
+  };
+  const discover = () =>
+    selectConsumerProducers(
+      configuration,
+      automation.botUserId,
+      token,
+      activeSha,
+      [],
+      undefined,
+      transport,
+    );
+  await assert.rejects(discover(), /Ask Rolling Release to restore or approve it/u);
+  record = "wrong";
+  await assert.rejects(discover(), /requires producer/u);
+  record = "approved";
+  assert.deepEqual(await discover(), [{ sha: oldSha, legacy: false }]);
+});
+
+void test("reviewed prior configuration is replayed only at its exact published tag", async (context) => {
+  const state = await mergedProposal(context);
+  const oldConfiguration = state.request.configuration;
+  const request = {
+    ...state.request,
+    configuration: { ...oldConfiguration, contextPolicy: "optional" } as const,
+  };
+  const transport = cycleTransport(state.f);
+  await assert.rejects(selectReleaseCycle(request, transport), /configuration/u);
+
+  await withProducerRuntimes(
+    { activeSha: "b".repeat(40), producers: [], configurations: [oldConfiguration] },
+    async () => {
+      await assert.rejects(
+        selectReleaseCycle(request, transport),
+        /requires the original release tag/u,
+      );
+      state.f.git(["tag", "v1.3.0", state.landingSha]);
+      const selected = await selectReleaseCycle(request, transport);
+      assert.equal(selected.outcome, "selected");
+      if (selected.outcome === "selected") {
+        assert.equal(selected.baseline.commitSha, state.landingSha);
+        assert.deepEqual(selected.version, { kind: "released", currentVersion: "1.3.0" });
+      }
+    },
+  );
+});
