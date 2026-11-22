@@ -256,6 +256,236 @@ async function individuallySquashedStack(context: TestContext) {
   return { api, config, request, heads, landings };
 }
 
+async function individuallySquashedStackWithFinalSyncMerge(
+  context: TestContext,
+  forkAtMiddleCommit = false,
+) {
+  const directory = await repository(context);
+  const baseline = await createCommit(directory, "chore: bootstrap");
+  await git(directory, ["tag", "v1.0.0", baseline]);
+
+  await git(directory, ["switch", "-c", "root"]);
+  await writeFile(join(directory, "root-first"), "first\n");
+  await git(directory, ["add", "root-first"]);
+  const rootFork = await createCommit(directory, "feat(api): add root first part");
+  await writeFile(join(directory, "root-middle"), "middle\n");
+  await git(directory, ["add", "root-middle"]);
+  const rootMiddle = await createCommit(directory, "fix(api): add root middle part");
+  const rootOriginals = [rootFork, rootMiddle];
+  let rootHead = rootMiddle;
+  for (const index of [1, 2, 3]) {
+    const branch = `root-update-${index}`;
+    await git(directory, ["switch", "-c", branch, baseline]);
+    await writeFile(join(directory, `root-update-${index}`), `${index}\n`);
+    await git(directory, ["add", `root-update-${index}`]);
+    const update = await createCommit(directory, `docs(api): capture root update ${index}`);
+    await git(directory, ["switch", "root"]);
+    await git(directory, ["merge", "--no-ff", branch, "-m", `Merge root update ${index}`]);
+    rootHead = await git(directory, ["rev-parse", "HEAD"]);
+    rootOriginals.push(update, rootHead);
+  }
+  const rootTree = await commitTree(directory, rootHead);
+  const rootLanding = await git(directory, [
+    "commit-tree",
+    rootTree,
+    "-p",
+    baseline,
+    "-m",
+    "feat(api): add root part (#1)",
+  ]);
+
+  await git(directory, ["switch", "-c", "tip", forkAtMiddleCommit ? rootMiddle : rootFork]);
+  await writeFile(join(directory, "tip-first"), "first\n");
+  await git(directory, ["add", "tip-first"]);
+  const tipFirst = await createCommit(directory, "feat(api): add tip first part");
+  await writeFile(join(directory, "tip-last"), "last\n");
+  await git(directory, ["add", "tip-last"]);
+  const tipLast = await createCommit(directory, "test(api): finish tip part");
+
+  await git(directory, ["merge", "--no-commit", "--no-ff", rootHead]);
+  const syncTree = await git(directory, ["write-tree"]);
+  await git(directory, ["merge", "--abort"]);
+  const syncHead = await git(directory, [
+    "commit-tree",
+    syncTree,
+    "-p",
+    tipLast,
+    "-p",
+    rootHead,
+    "-m",
+    "Merge root into tip",
+  ]);
+  const tipLanding = await git(directory, [
+    "commit-tree",
+    syncTree,
+    "-p",
+    rootLanding,
+    "-m",
+    "feat(api): add tip part (#2)",
+  ]);
+
+  const api = http();
+  const rootPull = pullFixture(1, rootLanding, rootHead, rootOriginals.length, {
+    title: "feat(api): add root part",
+    body: "",
+    base: {
+      ref: "main",
+      sha: baseline,
+      repo: { id: 1, full_name: "example/project" },
+    },
+    head: { sha: rootHead, ref: "root", repo: { id: 1 } },
+  });
+  const tipPull = pullFixture(2, tipLanding, syncHead, 3, {
+    title: "fix(api): add tip part",
+    body: "",
+    base: {
+      ref: "root",
+      sha: rootHead,
+      repo: { id: 1, full_name: "example/project" },
+    },
+    head: { sha: syncHead, ref: "tip", repo: { id: 1 } },
+  });
+  api.pulls.set(1, rootPull);
+  api.pulls.set(2, tipPull);
+  api.originals.set(1, await Promise.all(rootOriginals.map((sha) => original(directory, sha))));
+  api.originals.set(2, [
+    ...(forkAtMiddleCommit ? [await original(directory, rootMiddle)] : []),
+    await original(directory, tipFirst),
+    await original(directory, tipLast),
+    await original(directory, syncHead),
+  ]);
+  if (forkAtMiddleCommit) tipPull.commits = 4;
+  api.links.set(rootLanding, [rootPull]);
+  api.links.set(tipLanding, [tipPull]);
+  api.overrides.set(`/git/commits/${rootHead}`, () =>
+    Response.json({ sha: rootHead, tree: { sha: rootTree } }),
+  );
+  api.overrides.set(`/git/commits/${syncHead}`, () =>
+    Response.json({ sha: syncHead, tree: { sha: syncTree } }),
+  );
+  api.overrides.set("/pulls?state=closed&base=root&per_page=100&page=1", () =>
+    Response.json([tipPull]),
+  );
+
+  const range = await inspectPendingRelease(directory, { kind: "tag", name: "v1.0.0" }, tipLanding);
+  const request = {
+    repository: "example/project",
+    releaseBranch: "main",
+    localRepository: directory,
+    range,
+    token,
+  };
+  const config = {
+    schemaVersion: 1,
+    repository: request.repository,
+    repositoryId: 1,
+    releaseBranch: "main",
+    releasePolicy: "release-policy-v1",
+    contextPolicy: "optional",
+  } as const;
+  return {
+    api,
+    config,
+    request,
+    rootFork,
+    rootMiddle,
+    rootHead,
+    rootLanding,
+    tipFirst,
+    tipLast,
+    syncHead,
+    tipLanding,
+  };
+}
+
+void test("accepts an individually squashed stack continuation with an exact terminal base sync merge", async (context) => {
+  const fixture = await individuallySquashedStackWithFinalSyncMerge(context);
+  const associated = await collectMergedPullRequests(fixture.request, fixture.api.read);
+  assert.deepEqual(
+    associated.pullRequests.map((pull) => [
+      pull.number,
+      ...pull.landedCommits.map(({ sha }) => sha),
+    ]),
+    [
+      [1, fixture.rootLanding],
+      [2, fixture.tipLanding],
+    ],
+  );
+  const serialized = await serializeReleaseSnapshot(
+    await captureReleaseSnapshot(associated, fixture.config),
+  );
+  assert.equal(
+    await serializeReleaseSnapshot(await replayReleaseSnapshot(serialized, fixture.config)),
+    serialized,
+  );
+});
+
+void test("rejects missing, reordered, or already inherited commits in a base-sync merge", async (context) => {
+  for (const mode of ["missing", "reordered"] as const) {
+    const fixture = await individuallySquashedStackWithFinalSyncMerge(context);
+    const originals = fixture.api.originals.get(2);
+    const pull = fixture.api.pulls.get(2);
+    assert.ok(originals && pull);
+    const tipCommits = originals;
+    const changed =
+      mode === "missing" ? tipCommits.slice(1) : [tipCommits[1], tipCommits[0], tipCommits[2]];
+    const updated = { ...pull, commits: changed.length };
+    fixture.api.originals.set(2, changed);
+    fixture.api.pulls.set(2, updated);
+    fixture.api.overrides.set("/pulls?state=closed&base=root&per_page=100&page=1", () =>
+      Response.json([updated]),
+    );
+    await assert.rejects(
+      collectMergedPullRequests(fixture.request, fixture.api.read),
+      /complete linear sequence or end in an exact stack-base sync merge/u,
+    );
+  }
+
+  const inherited = await individuallySquashedStackWithFinalSyncMerge(context, true);
+  await assert.rejects(
+    collectMergedPullRequests(inherited.request, inherited.api.read),
+    /complete linear sequence or end in an exact stack-base sync merge/u,
+  );
+});
+
+void test("rejects unsupported merges and mismatched endpoint trees in a base-sync merge", async (context) => {
+  const merged = await individuallySquashedStackWithFinalSyncMerge(context);
+  const originals = merged.api.originals.get(2);
+  assert.ok(originals);
+  const terminal = originals.at(-1);
+  assert.ok(terminal && typeof terminal === "object" && "parents" in terminal);
+  const parents = terminal.parents;
+  assert.ok(Array.isArray(parents));
+  merged.api.originals.set(2, [
+    ...originals.slice(0, -1),
+    { ...terminal, parents: [...parents, { sha: merged.rootFork }] },
+  ]);
+  await assert.rejects(
+    collectMergedPullRequests(merged.request, merged.api.read),
+    /complete linear sequence or end in an exact stack-base sync merge/u,
+  );
+
+  const badBaseTree = await individuallySquashedStackWithFinalSyncMerge(context);
+  const baseTreePath = `/git/commits/${badBaseTree.rootHead}`;
+  badBaseTree.api.overrides.set(baseTreePath, () =>
+    Response.json({ sha: badBaseTree.rootHead, tree: { sha: "f".repeat(40) } }),
+  );
+  await assert.rejects(
+    collectMergedPullRequests(badBaseTree.request, badBaseTree.api.read),
+    /original base and head trees must match the consecutive landed trees/u,
+  );
+
+  const badHeadTree = await individuallySquashedStackWithFinalSyncMerge(context);
+  const headTreePath = `/git/commits/${badHeadTree.syncHead}`;
+  badHeadTree.api.overrides.set(headTreePath, () =>
+    Response.json({ sha: badHeadTree.syncHead, tree: { sha: "e".repeat(40) } }),
+  );
+  await assert.rejects(
+    collectMergedPullRequests(badHeadTree.request, badHeadTree.api.read),
+    /original base and head trees must match the consecutive landed trees/u,
+  );
+});
+
 void test("individually squashed stack landings retain separate PR owners and replay exactly", async (context) => {
   const { api, config, request, landings } = await individuallySquashedStack(context);
   const associated = await collectMergedPullRequests(request, api.read);
@@ -294,6 +524,75 @@ void test("individually squashed stack landings retain separate PR owners and re
   await assert.rejects(
     replayReleaseSnapshot(JSON.stringify(tampered), config),
     /must match the consecutive landed trees/u,
+  );
+});
+
+void test("replay rejects disconnected commits and base self-parent in linear stack members", async (context) => {
+  const { api, config, request } = await individuallySquashedStack(context);
+  const associated = await collectMergedPullRequests(request, api.read);
+  const serialized = await serializeReleaseSnapshot(
+    await captureReleaseSnapshot(associated, config),
+  );
+  const snapshot = await replayReleaseSnapshot(serialized, config);
+  const continuation = snapshot.input.pullRequests.find((pull) => pull.number === 2);
+  assert.ok(continuation?.squashStack);
+  const inheritedHead = snapshot.input.pullRequests
+    .find((pull) => pull.number === 1)
+    ?.originalCommits.at(-1);
+  assert.ok(inheritedHead);
+
+  const disconnected = {
+    ...snapshot,
+    input: {
+      ...snapshot.input,
+      pullRequests: snapshot.input.pullRequests.map((pull) =>
+        pull.number === 2
+          ? {
+              ...pull,
+              commitCount: pull.commitCount + 1,
+              originalCommits: [
+                {
+                  sha: "f".repeat(40),
+                  message: "docs: disconnected original evidence",
+                  parentShas: [pull.squashStack?.base.sha ?? "0".repeat(40)],
+                },
+                ...pull.originalCommits,
+              ],
+            }
+          : pull,
+      ),
+    },
+  };
+  await assert.rejects(
+    replayReleaseSnapshot(JSON.stringify(disconnected), config),
+    /complete linear sequence or end in an exact stack-base sync merge/u,
+  );
+
+  const baseSelfParent = {
+    ...snapshot,
+    input: {
+      ...snapshot.input,
+      pullRequests: snapshot.input.pullRequests.map((pull) =>
+        pull.number === 2
+          ? {
+              ...pull,
+              commitCount: pull.commitCount + 1,
+              originalCommits: [
+                {
+                  sha: pull.squashStack?.base.sha ?? "0".repeat(40),
+                  message: inheritedHead.message,
+                  parentShas: inheritedHead.parentShas,
+                },
+                ...pull.originalCommits,
+              ],
+            }
+          : pull,
+      ),
+    },
+  };
+  await assert.rejects(
+    replayReleaseSnapshot(JSON.stringify(baseSelfParent), config),
+    /includes its captured stack base/u,
   );
 });
 

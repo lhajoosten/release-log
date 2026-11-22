@@ -1,6 +1,16 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:eeb5d5261ffa05f9db9139a997c0c9da479b795eb0fb698673b7e2dde4bc2036 -->
+<!-- release-log:pending:v1 sha256:389e52784600941b0a484c35dbca4e366a1802e3e142dc02a2b3c41ff6b0ec14 -->
+
+## v0.8.3 (2026-11-22)
+
+### 🐛 Fixes
+
+- Verify stacked squash continuations that end with a merge from the preceding branch&#46; ([#178](https://github.com/lhajoosten/rolling-release/pull/178)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+Full changelog: [v0&#46;8&#46;2&#8230;296fff8ec1c261d9198e7f84033bf542024ad930](https://github.com/lhajoosten/rolling-release/compare/v0.8.2...296fff8ec1c261d9198e7f84033bf542024ad930) (captured source).
+
+<!-- release-log:pending:end -->
 
 ## v0.8.2 (2026-11-22)
 
@@ -16,7 +26,6 @@
 
 Full changelog: [v0&#46;8&#46;1&#8230;3abee28442d74742deada6b8bc0bff8784151353](https://github.com/lhajoosten/rolling-release/compare/v0.8.1...3abee28442d74742deada6b8bc0bff8784151353) (captured source).
 
-<!-- release-log:pending:end -->
 
 ## v0.8.1 (2026-11-22)
 
