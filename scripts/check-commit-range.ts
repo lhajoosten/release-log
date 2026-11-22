@@ -39,7 +39,7 @@ const commits = git([
 const cli = fileURLToPath(import.meta.resolve("@commitlint/cli/cli.js"));
 const config = fileURLToPath(
   new URL(
-    values["allow-scopes"] ? "../commitlint.base.config.mjs" : "../commitlint.config.mjs",
+    values["allow-scopes"] ? "../commitlint.main.config.mjs" : "../commitlint.config.mjs",
     import.meta.url,
   ),
 );

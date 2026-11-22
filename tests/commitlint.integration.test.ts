@@ -136,6 +136,33 @@ void test("main-push commit checks accept GitHub PR-title squashes and legacy un
   });
 });
 
+void test("main-push commit checks allow a long GitHub co-author trailer while checking other footers", async (context) => {
+  const directory = await repository(context);
+  const base = await git(directory, ["rev-parse", "HEAD"]);
+  const coauthor =
+    "Co-authored-by: example-rolling-release[bot] <123456789+example-rolling-release[bot]@users.noreply.github.com>";
+  await git(directory, [
+    "commit",
+    "--allow-empty",
+    "-m",
+    `chore(release): prepare v0.8.1 (#173)\n\n${coauthor}`,
+  ]);
+  const args = ["--from", base, "--to", "HEAD", "--allow-scopes"];
+  await checkCommits(directory, args);
+
+  await git(directory, [
+    "commit",
+    "--allow-empty",
+    "-m",
+    `feat(api)!: change the payload\n\n${coauthor}\nBREAKING CHANGE: ${"changed ".repeat(14)}`,
+  ]);
+  await assert.rejects(checkCommits(directory, args), (error: unknown) => {
+    assert.ok(error instanceof Error && "stdout" in error);
+    assert.match(String(error.stdout), /footer-max-line-length/u);
+    return true;
+  });
+});
+
 for (const [name, merged, message] of [
   ["linear commits", false, "not conventional"],
   ["merged side-branch commits", true, "not conventional"],
