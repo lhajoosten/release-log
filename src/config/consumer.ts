@@ -21,6 +21,7 @@ const releaseFields = new Set([
   "githubRelease",
   "changelog",
   "adoptedRelease",
+  "freshSeries",
   "commitMessageRepairs",
 ]);
 
@@ -34,8 +35,7 @@ export function requireConsumerConfiguration(
     config.repositoryId !== caller.repositoryId ||
     config.releaseBranch !== caller.releaseBranch ||
     config.selfUpgrade ||
-    config.internalPublication ||
-    config.freshSeries
+    config.internalPublication
   )
     return invalid(
       "Consumer release configuration must match the caller repository, ID and release branch, and cannot select provider-only release modes.",

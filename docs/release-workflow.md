@@ -143,7 +143,7 @@ A successful Actions run exits zero with `status: ready` and a passed `appDryRun
 
 Use this path for a reviewed restart at `0.1.0` after retiring a consumer's former releases. Keep the writer paused while preparing the reset. The repository's trusted caller owns the history start, legacy-metadata cutoff and reset evidence. The Rolling Release provider's own publication series keeps its existing boundary.
 
-Add `freshSeries` to the consumer's schema-2 configuration and set `bootstrap.baselineSha` and `bootstrap.onboardingSha` to the reviewed start and cutoff. Remove any `adoptedRelease` boundary from the new caller configuration. Use the original configuration when replaying snapshots from the former series. Fill in the reset record from the reviewed repository state.
+Add `freshSeries` to the consumer's reviewed settings and set `bootstrap.baselineSha` and `bootstrap.onboardingSha` to the reviewed start and cutoff. Remove any `adoptedRelease` boundary from the new caller configuration. Use the original configuration when replaying snapshots from the former series. Fill in the reset record from the reviewed repository state.
 
 | Field                     | Required value                                                                                                                                                                                                                                                                  |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

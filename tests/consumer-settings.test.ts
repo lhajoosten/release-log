@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { migrateConsumerConfiguration, resolveConsumerSettings } from "../src/config/consumer.ts";
+import { releaseProposalBranch } from "../src/config/repository.ts";
 import { retryGitHubReads } from "../src/github-retry.ts";
 
 const caller = { repository: "example/project", repositoryId: 17, releaseBranch: "main" };
@@ -45,6 +46,36 @@ void test("moving reviewed inline settings to repository data preserves the exac
   const next = resolveConsumerSettings({ bootstrap, priorConfigurations: [legacy] }, caller);
   assert.deepEqual(next.historical, [inline.configuration]);
   assert.equal(next.configuration.releasePolicy, "release-policy-v2");
+});
+
+void test("migration preserves the reviewed fresh-series boundary and proposal branch", () => {
+  const bootstrap = { baselineSha: "a".repeat(40), onboardingSha: "b".repeat(40) };
+  const original = resolveConsumerSettings(
+    {
+      bootstrap,
+      freshSeries: {
+        id: "restart",
+        previousVersion: "2.1.0",
+        previousChangelogSha256: "c".repeat(64),
+        previousLandings: [
+          {
+            pullNumber: 42,
+            botUserId: 23,
+            headSha: "d".repeat(40),
+            landingSha: "e".repeat(40),
+          },
+        ],
+      },
+    },
+    caller,
+  ).configuration;
+  const migrated = migrateConsumerConfiguration(original);
+  assert.deepEqual(resolveConsumerSettings(migrated, caller).configuration, original);
+  assert.equal(releaseProposalBranch(original), "release-log-series/restart/main");
+  assert.throws(
+    () => resolveConsumerSettings({ freshSeries: migrated.freshSeries }, caller),
+    /requires consumer schema 2/u,
+  );
 });
 
 void test("consumer settings reject repository substitution, executable authority, and incomplete bootstrap", () => {

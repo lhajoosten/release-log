@@ -1,11 +1,46 @@
 [
-  { "sha": "6a38f7f50f743cb00c1b19798a29da29dc868867", "legacy": false },
-  { "sha": "9c49492e61e3bbc039efac46cf3d779cece7c9db", "legacy": false },
-  { "sha": "aac8e52a7fa5b10359231f6450d9d29d98e0da1b", "legacy": false },
-  { "sha": "8d3c1b1eb575d773d9c9446804fcde4df1e73f7a", "legacy": true },
-  { "sha": "3929887fbbb8309a55ad819a3d4f0063928a5340", "legacy": false },
-  { "sha": "21662200936919c1df83f9d3ce8fccee42fa3dc4", "legacy": false },
-  { "sha": "170634fcc1b9614357b8f1acb54fc54276baa85f", "legacy": false },
-  { "sha": "b73b56364a92d546829a11865b9a7ed658daaabe", "legacy": false },
-  { "sha": "443764fe6e08690f969b86b332bff69af71a2002", "legacy": false }
+  {
+    "sha": "8828be515345d761a7375b5c00b1beff0cfabaeb",
+    "legacy": true
+  },
+  {
+    "sha": "74a142cdf2708f8b0a904adbe0af912d95b3779b",
+    "legacy": false
+  },
+  {
+    "sha": "6a38f7f50f743cb00c1b19798a29da29dc868867",
+    "legacy": false
+  },
+  {
+    "sha": "9c49492e61e3bbc039efac46cf3d779cece7c9db",
+    "legacy": false
+  },
+  {
+    "sha": "aac8e52a7fa5b10359231f6450d9d29d98e0da1b",
+    "legacy": false
+  },
+  {
+    "sha": "8d3c1b1eb575d773d9c9446804fcde4df1e73f7a",
+    "legacy": true
+  },
+  {
+    "sha": "3929887fbbb8309a55ad819a3d4f0063928a5340",
+    "legacy": false
+  },
+  {
+    "sha": "21662200936919c1df83f9d3ce8fccee42fa3dc4",
+    "legacy": false
+  },
+  {
+    "sha": "170634fcc1b9614357b8f1acb54fc54276baa85f",
+    "legacy": false
+  },
+  {
+    "sha": "b73b56364a92d546829a11865b9a7ed658daaabe",
+    "legacy": false
+  },
+  {
+    "sha": "443764fe6e08690f969b86b332bff69af71a2002",
+    "legacy": false
+  }
 ]
