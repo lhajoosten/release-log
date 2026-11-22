@@ -9,6 +9,7 @@ export interface ReleaseImage {
 
 export interface PublicationOperations {
   readonly readImage: () => Promise<ReleaseImage | null>;
+  readonly checkQuality: (landingSha: string) => Promise<"passed" | "pending" | "failed">;
   readonly stage: () => Promise<void>;
   readonly publishImage: (
     beforePush: (configDigest: string) => Promise<void>,
@@ -66,6 +67,12 @@ export async function publishInternalCandidate(
 
   if (claim?.manifestDigest && !current)
     throw new ProposalConflictError("The previously observed version image is missing.");
+
+  if (!current && !githubComplete) {
+    const quality = await operations.checkQuality(candidate.landingSha);
+    if (quality === "pending") return { outcome: "quality-pending" as const };
+    if (quality === "failed") return { outcome: "quality-failed" as const };
+  }
 
   let saved = claim;
   // Existing images pass smoke and the current policy by digest inside publishImage.

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { CandidateLandingPin } from "../src/config/repository.ts";
 import { publishInternalCandidate } from "../scripts/self-release-publication.ts";
 import type { PublicationOperations, ReleaseImage } from "../scripts/self-release-publication.ts";
+import { waitForMainPushQuality } from "../src/tool-upgrade.ts";
 import type { PublicationClaim } from "../scripts/self-release-state.ts";
 
 const candidate: CandidateLandingPin = {
@@ -24,13 +25,45 @@ function harness() {
   let latest = false;
   const writes: string[] = [];
   const checks: string[] = [];
-  const options = { blocked: false, failAfter: "", superseded: false };
+  const options = {
+    blocked: false,
+    failAfter: "",
+    superseded: false,
+    quality: "success",
+    qualitySha: candidate.landingSha,
+  };
+  const qualityChecks: string[] = [];
   function record(action: string) {
     writes.push(action);
     if (options.failAfter === action) throw new Error(`Interrupted after ${action}`);
   }
   const operations: PublicationOperations = {
     readImage: async () => current,
+    checkQuality: (sha) =>
+      waitForMainPushQuality(
+        {
+          request: async (path) => {
+            qualityChecks.push(path);
+            const runs =
+              options.quality === "missing"
+                ? []
+                : [
+                    {
+                      run_number: 1,
+                      head_sha: options.qualitySha,
+                      head_branch: "main",
+                      event: "push",
+                      path: ".github/workflows/quality.yml",
+                      repository: { id: 1449550207 },
+                      status: options.quality === "in_progress" ? "in_progress" : "completed",
+                      conclusion: options.quality === "in_progress" ? null : options.quality,
+                    },
+                  ];
+            return { next: false, data: { total_count: runs.length, workflow_runs: runs } };
+          },
+        },
+        sha,
+      ),
     stage: async () => {
       checks.push("build and scan exact landing");
       if (options.blocked) throw new Error("Vulnerability gate failed");
@@ -80,6 +113,7 @@ function harness() {
     options,
     writes,
     checks,
+    qualityChecks,
     run: () => publishInternalCandidate(candidate, claim, operations),
     setImage(value: ReleaseImage) {
       current = value;
@@ -106,6 +140,49 @@ void test("a blocked candidate remains internal and automatically publishes the 
   assert.deepEqual(await h.run(), { outcome: "unchanged", image });
   assert.equal(h.writes.length, 7);
   assert.equal(h.checks.length, 2);
+});
+
+void test("first public writes require successful Quality on the exact landing", async () => {
+  const h = harness();
+  h.options.quality = "missing";
+  assert.deepEqual(await h.run(), { outcome: "quality-pending" });
+  h.options.quality = "in_progress";
+  assert.deepEqual(await h.run(), { outcome: "quality-pending" });
+  h.options.quality = "failure";
+  assert.deepEqual(await h.run(), { outcome: "quality-failed" });
+
+  h.options.quality = "success";
+  h.options.qualitySha = candidate.headSha;
+  await assert.rejects(h.run(), /Quality run provenance/u);
+  assert.deepEqual(h.writes, []);
+  assert.deepEqual(h.checks, []);
+
+  h.options.qualitySha = candidate.landingSha;
+  assert.deepEqual(await h.run(), { outcome: "published", image });
+  assert.deepEqual(h.writes, [
+    "claim",
+    "image",
+    "manifest",
+    "tag",
+    "release",
+    "complete",
+    "aliases",
+  ]);
+  assert.ok(
+    h.qualityChecks.every((path) =>
+      path.split("?")[1]?.includes("head_sha=" + candidate.landingSha),
+    ),
+  );
+});
+
+void test("an interrupted publication resumes from the verified image and journal", async () => {
+  const h = harness();
+  h.options.failAfter = "image";
+  await assert.rejects(h.run(), /Interrupted/u);
+  h.options.failAfter = "";
+  h.options.quality = "failure";
+  assert.deepEqual(await h.run(), { outcome: "published", image });
+  assert.equal(h.qualityChecks.length, 1);
 });
 
 for (const failure of ["claim", "image", "manifest", "tag", "release", "complete", "aliases"])

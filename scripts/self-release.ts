@@ -19,6 +19,7 @@ import { proposeReleaseForCycle } from "../src/release-roll.ts";
 import { candidateLandingPin } from "../src/tagging/candidate.ts";
 import { readTagTarget } from "../src/tagging/evidence.ts";
 import { createReleaseLandingVerifier, reconcileReleaseTag } from "../src/tagging/reconcile.ts";
+import { waitForMainPushQuality } from "../src/tool-upgrade.ts";
 import {
   checkImage,
   ContainerPublicationConflict,
@@ -343,6 +344,13 @@ async function main() {
                 }
                 return checkGitHub(active);
               },
+              checkQuality: (landingSha) =>
+                waitForMainPushQuality(api, landingSha, async () => {
+                  if ((await api.ref("heads", "main")) !== sourceSha)
+                    throw new StaleCandidate(
+                      "Main advanced while waiting for publication Quality.",
+                    );
+                }),
               stage: async () => {
                 await run("pnpm", ["container:build", "--tag", localImage]);
                 const imageId = await run("docker", [
@@ -430,8 +438,12 @@ async function main() {
               },
               repairAliases: (image) => repairAliases(active, image.digest),
             });
-            await report(outcome.outcome, { ...details, digest: outcome.image.digest });
-            return;
+            if ("image" in outcome) {
+              await report(outcome.outcome, { ...details, digest: outcome.image.digest });
+              return;
+            }
+            blocked = outcome.outcome === "quality-failed";
+            await report(outcome.outcome, details);
           } catch (error) {
             if (
               error instanceof ProposalConflictError ||
