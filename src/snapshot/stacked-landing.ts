@@ -19,6 +19,45 @@ function ancestors(start: string, graph: ReadonlyMap<string, GitCommitEvidence>)
   return seen;
 }
 
+function isLinearSequence(
+  commits: readonly { readonly sha: string; readonly parentShas: readonly string[] }[],
+  base: string,
+  head: string,
+): boolean {
+  let parent = base;
+  for (const commit of commits) {
+    if (commit.parentShas.length !== 1 || commit.parentShas[0] !== parent) return false;
+    parent = commit.sha;
+  }
+  return parent === head;
+}
+
+function hasTerminalBaseSync(
+  pull: AssociatedPullRequest,
+  preceding: AssociatedPullRequest,
+  baseSha: string,
+): boolean {
+  const precedingBySha = new Map(preceding.originalCommits.map((commit) => [commit.sha, commit]));
+  if (!precedingBySha.has(preceding.headSha)) return false;
+  const priorHistory = ancestors(preceding.headSha, precedingBySha);
+  const terminal = pull.originalCommits.at(-1);
+  const prefix = pull.originalCommits.slice(0, -1);
+  const fork = prefix[0]?.parentShas[0];
+  const finalPrefixCommit = prefix.at(-1);
+  return (
+    terminal?.sha === pull.headSha &&
+    terminal.parentShas.length === 2 &&
+    terminal.parentShas[0] === finalPrefixCommit?.sha &&
+    terminal.parentShas[1] === baseSha &&
+    prefix.length > 0 &&
+    Boolean(fork) &&
+    precedingBySha.has(fork ?? "") &&
+    priorHistory.has(fork ?? "") &&
+    isLinearSequence(prefix, fork ?? "", finalPrefixCommit?.sha ?? "") &&
+    !pull.originalCommits.some((commit) => priorHistory.has(commit.sha))
+  );
+}
+
 export function stackedFootprint(
   landing: GitCommitEvidence,
   graph: ReadonlyMap<string, GitCommitEvidence>,
@@ -83,22 +122,19 @@ export function validateSquashStackMember(
   )
     return fail("requires consecutive same-repository landings and a matching previous PR head");
 
-  let originalParent = evidence.base.sha;
-  const originalIds = new Set([originalParent]);
-  for (const original of pull.originalCommits) {
-    if (
-      originalIds.has(original.sha) ||
-      original.parentShas.length !== 1 ||
-      original.parentShas[0] !== originalParent
-    )
-      return fail(
-        "the original PR commits must form a complete linear sequence from the stack base",
-      );
-    originalIds.add(original.sha);
-    originalParent = original.sha;
-  }
-  if (originalParent !== pull.headSha || pull.originalCommits.length !== pull.commitCount)
+  const originalIds = new Set(pull.originalCommits.map((commit) => commit.sha));
+  if (originalIds.size !== pull.originalCommits.length)
+    return fail("the original PR commit list contains duplicate commits");
+  if (originalIds.has(evidence.base.sha))
+    return fail("the original PR commit list includes its captured stack base");
+  if (pull.originalCommits.length !== pull.commitCount)
     return fail("the original PR sequence does not account for the captured head and commit count");
+
+  const linearFromBase = isLinearSequence(pull.originalCommits, evidence.base.sha, pull.headSha);
+  if (!linearFromBase && !hasTerminalBaseSync(pull, preceding, evidence.base.sha))
+    return fail(
+      "the original PR commits must be a complete linear sequence or end in an exact stack-base sync merge",
+    );
 
   const trees = [
     evidence.originalBaseTree,
