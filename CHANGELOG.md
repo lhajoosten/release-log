@@ -1,6 +1,20 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:389e52784600941b0a484c35dbca4e366a1802e3e142dc02a2b3c41ff6b0ec14 -->
+<!-- release-log:pending:v1 sha256:ff7a3a8aa76880d3dad2c62cf72684056ad1095c3f80ba64d06dc798eb0d2735 -->
+
+## v0.9.0 (2026-11-22)
+
+### ✨ Features
+
+- Use one stable Rolling Release workflow reference and provider&#45;managed release defaults&#46; ([#181](https://github.com/lhajoosten/rolling-release/pull/181)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+### 🛠️ Required actions
+
+- Migrate once from an immutable caller to consumer&#45;v1 after the provider activates it&#46; Move reviewed bootstrap values and deliberate overrides into &#46;release&#45;log&#47;settings&#46;json&#46; ([#181](https://github.com/lhajoosten/rolling-release/pull/181))
+
+Full changelog: [v0&#46;8&#46;3&#8230;60d949735bfbc7ebf92cdf436514f931105b4a70](https://github.com/lhajoosten/rolling-release/compare/v0.8.3...60d949735bfbc7ebf92cdf436514f931105b4a70) (captured source).
+
+<!-- release-log:pending:end -->
 
 ## v0.8.3 (2026-11-22)
 
@@ -10,7 +24,6 @@
 
 Full changelog: [v0&#46;8&#46;2&#8230;296fff8ec1c261d9198e7f84033bf542024ad930](https://github.com/lhajoosten/rolling-release/compare/v0.8.2...296fff8ec1c261d9198e7f84033bf542024ad930) (captured source).
 
-<!-- release-log:pending:end -->
 
 ## v0.8.2 (2026-11-22)
 
