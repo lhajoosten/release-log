@@ -51,9 +51,11 @@ Git/PR capture, snapshots, version calculation, Node, Python, and Cargo version 
 
 ## Reusable workflow and callers
 
-### Website pilot with one workflow pin
+### Consumer workflow with one pin
 
-The website pilot calls `.github/workflows/consumer-release.yml` at one reviewed full Rolling Release commit. The caller supplies its existing release configuration, release branch, App ID, bot user ID, and App private-key secret. The provider owns the immutable writer and the website's reviewed historical producer registry. Existing consumers can continue using the writer entry point below.
+Call `.github/workflows/consumer-release.yml` at one reviewed full Rolling Release commit. The caller supplies its release configuration, release branch, App ID, bot user ID, and App private-key secret. The provider includes the immutable writer and its verified preview image. Existing consumers can continue using the writer entry point below.
+
+New consumers can omit `replay-history`. When adopting with proposals from previous versions, pass the reviewed historical producer records as a JSON array in the caller. Each has a full `sha` and an explicit boolean `legacy` flag. Set `legacy` only for producers of proposals made before producer IDs were recorded. For preview, add the verified 64-digit `digest` for a published image or omit it to build the reviewed source revision before authentication. Keep these records in the trusted workflow alongside the release configuration. When upgrading to a different writer, retain the previous writer as a historical producer if it created any proposals that still need replay.
 
 Trigger the pilot on `pull_request_target: closed` for the configured default branch and add a separate `workflow_dispatch` trigger. Grant the caller Contents and Pull requests read. Pass `vars.RELEASE_LOG_WRITE_ENABLED != 'false'` as the `write-enabled` input. The write job only runs after an eligible merged PR, independently of the preview. On manual dispatch from the default branch, the preview uses the captured commit and local tags to verify the selected release boundary, then prepares a plan with `--dry-run`. It carries a read-only App token for online reads and disconnects the container from the network for preparation.
 
