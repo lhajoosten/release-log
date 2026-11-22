@@ -1,6 +1,21 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:87ace0f5bae956a45915af2e719e0ca36cf5f37a8680968323721b6a4160ba3f -->
+<!-- release-log:pending:v1 sha256:d08287519cdb1bf0068b45d300faf6619b416cdb1c8049dd64267e00b99b7b18 -->
+
+## v0.8.2 (2026-11-22)
+
+<details>
+<summary>🔧 Internal maintenance</summary>
+
+- Accept GitHub co&#45;author trailers in main&#45;push commit checks&#46; ([#175](https://github.com/lhajoosten/rolling-release/pull/175)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+</details>
+
+<br>
+
+Full changelog: [v0&#46;8&#46;1&#8230;3730adbfb88bdf86e4ca886a8860a7c5f56d2519](https://github.com/lhajoosten/rolling-release/compare/v0.8.1...3730adbfb88bdf86e4ca886a8860a7c5f56d2519) (captured source).
+
+<!-- release-log:pending:end -->
 
 ## v0.8.1 (2026-11-22)
 
@@ -14,7 +29,6 @@
 
 Full changelog: [v0&#46;8&#46;0&#8230;f74198ff778b132dddc5a6440f230fd6b5be8ce8](https://github.com/lhajoosten/rolling-release/compare/v0.8.0...f74198ff778b132dddc5a6440f230fd6b5be8ce8) (captured source).
 
-<!-- release-log:pending:end -->
 
 ## v0.8.0 (2026-11-22)
 
