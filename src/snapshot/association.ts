@@ -30,10 +30,19 @@ export interface StackBase {
   readonly sha: string;
 }
 
+export interface SquashStackEvidence {
+  readonly base: StackBase;
+  readonly originalBaseTree: string;
+  readonly originalHeadTree: string;
+  readonly landedBaseTree: string;
+  readonly landedHeadTree: string;
+}
+
 export interface AssociatedPullRequest extends CapturedPullRequest {
   readonly url: string;
   readonly landingKind: "merge" | "linear";
   readonly stackBase?: StackBase;
+  readonly squashStack?: SquashStackEvidence;
   readonly originalCommits: readonly PullRequestCommitEvidence[];
   readonly landedCommits: readonly GitCommitEvidence[];
 }
