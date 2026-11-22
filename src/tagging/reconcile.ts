@@ -9,7 +9,7 @@ import {
 } from "../github-proposals.ts";
 import type { GitHubRead } from "../github.ts";
 import { parseReleaseAutomation } from "../config/automation.ts";
-import { verifyPrevious } from "../proposal/verification.ts";
+import { hasSameBumpPolicy, verifyPrevious } from "../proposal/verification.ts";
 import { parseReleaseInputConfiguration } from "../config/repository.ts";
 import type { CandidateLandingPin } from "../config/repository.ts";
 import type { ProposalPullRequest } from "../github-proposals.ts";
@@ -111,10 +111,10 @@ async function verifyLanding(
   await requireLandingOnCurrentMain(api, configuration, landingSha);
 
   const captured = verified.snapshot.configuration;
-  const historicalBumps = !isDeepStrictEqual(captured.releaseBumps, configuration.releaseBumps);
+  const historicalBumps = !hasSameBumpPolicy(captured, configuration);
   if (historicalBumps && (await readTagTarget(api, `v${verified.nextVersion}`)) !== landingSha)
     throw new ProposalConflictError(
-      "A changed releaseBumps policy requires the original release tag at the verified landing. Finish the pending release with its original configuration.",
+      "A changed bump policy requires the original release tag at the verified landing. Finish the pending release with its original configuration.",
     );
   if (captured.candidateStableNotes !== undefined) {
     if (baseline.kind !== "tag")
@@ -129,10 +129,11 @@ async function verifyLanding(
   if (captured.candidateLandings) {
     // A verified stable landing pins the candidate chain produced under its policy.
     const { releaseBumps: _releaseBumps, ...current } = configuration;
-    const candidateConfiguration =
-      captured.releaseBumps === undefined
-        ? current
-        : { ...current, releaseBumps: captured.releaseBumps };
+    const candidateConfiguration = {
+      ...current,
+      releasePolicy: captured.releasePolicy,
+      ...(captured.releaseBumps === undefined ? {} : { releaseBumps: captured.releaseBumps }),
+    };
     let previous = baseline.commitSha;
     for (const pin of captured.candidateLandings) {
       const earlierPull = await api.readPull(pin.pullNumber);
@@ -250,7 +251,7 @@ export async function reconcileReleaseTag(
     );
     if (historicalBumps && write && release.outcome === "would-create")
       throw new ProposalConflictError(
-        "Finish the pending GitHub Release with its original releaseBumps configuration.",
+        "Finish the pending GitHub Release with its original bump policy.",
       );
     return { ...result, release };
   };

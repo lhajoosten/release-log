@@ -54,6 +54,62 @@ for (const type of ["build", "chore", "ci", "docs", "refactor", "style", "test"]
   });
 }
 
+for (const [type, expectedBump] of [
+  ["build", "patch"],
+  ["chore", "patch"],
+  ["ci", "patch"],
+  ["refactor", "patch"],
+  ["docs", "none"],
+  ["style", "none"],
+  ["test", "none"],
+] as const) {
+  void test(`policy v2 classifies ${type} as ${expectedBump}`, async () => {
+    const configuration = { ...fixtureConfiguration, releasePolicy: "release-policy-v2" } as const;
+    const { serialized } = await releaseFixture(
+      [{ title: `${type}(api): update the tool` }],
+      "1.2.3",
+      [],
+      configuration,
+    );
+    const version = { kind: "released", currentVersion: "1.2.3" } as const;
+    const plan = await createReleasePlan(serialized, configuration, version);
+
+    assert.equal(plan.policy, "release-policy-v2");
+    assert.equal(plan.nextVersion, expectedBump === "patch" ? "1.2.4" : null);
+    assert.equal(plan.contributions[0]?.bump, expectedBump);
+    await assert.rejects(createReleasePlan(serialized, fixtureConfiguration, version));
+  });
+}
+
+void test("policy v2 inherits defaults and honors explicit overrides in one release", async () => {
+  const configuration = {
+    ...fixtureConfiguration,
+    releasePolicy: "release-policy-v2",
+    releaseBumps: { ci: "none", docs: "patch" },
+  } as const;
+  const { serialized } = await releaseFixture(
+    [
+      { title: "ci(api): update the workflow" },
+      { title: "docs(api): document the interface" },
+      { title: "refactor(api): simplify the implementation" },
+      { title: "feat(api): add the interface" },
+    ],
+    "1.2.3",
+    [],
+    configuration,
+  );
+  const plan = await createReleasePlan(serialized, configuration, {
+    kind: "released",
+    currentVersion: "1.2.3",
+  });
+
+  assert.equal(plan.nextVersion, "1.3.0");
+  assert.deepEqual(
+    plan.contributions.map(({ bump }) => bump),
+    ["none", "patch", "patch", "minor"],
+  );
+});
+
 void test("mixed batches choose the highest PR-title bump once, preserving internal and nonreleasing entries", async () => {
   const { serialized, snapshot } = await releaseFixture([
     { title: "fix(api): retain keys", message: "feat: add internal support" },

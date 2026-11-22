@@ -12,7 +12,7 @@ The configuration file is JSON containing exactly the [snapshot configuration](r
   "repository": "example/project",
   "repositoryId": 17,
   "releaseBranch": "main",
-  "releasePolicy": "release-policy-v1"
+  "releasePolicy": "release-policy-v2"
 }
 ```
 

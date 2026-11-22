@@ -584,72 +584,78 @@ for (const mode of ["node", "python", "both"] as const) {
   });
 }
 
-void test("a new bump policy respects an already tagged predecessor and rejects edited or untagged replay", async (context) => {
-  const oldSha = "a".repeat(40);
-  const state = await withProducerRuntimes({ activeSha: oldSha, producers: [] }, () =>
-    mergedProposal(context),
-  );
-  const registry = {
-    activeSha: "b".repeat(40),
-    producers: [
-      {
-        sha: oldSha,
-        legacy: false,
-        replay: (serialized: string, configuration: ReleaseCycleRequest["configuration"]) => {
-          assert.equal(Object.hasOwn(configuration, "releaseBumps"), false);
-          return replayReleaseSnapshot(serialized, configuration);
+for (const [change, policy] of [
+  ["overrides", { releaseBumps: { feat: "none", refactor: "patch" } }],
+  ["revision", { releasePolicy: "release-policy-v2" }],
+] as const) {
+  void test(`a bump-policy change in ${change} requires an exact tagged predecessor and replays its original policy`, async (context) => {
+    const oldSha = "a".repeat(40);
+    const state = await withProducerRuntimes({ activeSha: oldSha, producers: [] }, () =>
+      mergedProposal(context),
+    );
+    const registry = {
+      activeSha: "b".repeat(40),
+      producers: [
+        {
+          sha: oldSha,
+          legacy: false,
+          replay: (serialized: string, configuration: ReleaseCycleRequest["configuration"]) => {
+            assert.equal(configuration.releasePolicy, "release-policy-v1");
+            assert.equal(Object.hasOwn(configuration, "releaseBumps"), false);
+            return replayReleaseSnapshot(serialized, configuration);
+          },
+          prepare: prepareReleaseFileContents,
+          describe,
         },
-        prepare: prepareReleaseFileContents,
-        describe,
-      },
-    ],
-  };
-  await withProducerRuntimes(registry, async () => {
-    const configuration = {
-      ...state.request.configuration,
-      releaseBumps: { feat: "none", refactor: "patch" },
-    } as const;
-    const request = { ...state.request, configuration };
-    const transport = cycleTransport(state.f);
-    const before = state.f.calls.length;
+      ],
+    };
+    await withProducerRuntimes(registry, async () => {
+      const configuration = {
+        ...state.request.configuration,
+        ...policy,
+      } as const;
+      const request = { ...state.request, configuration };
+      const transport = cycleTransport(state.f);
+      const before = state.f.calls.length;
 
-    await assert.rejects(
-      selectReleaseCycle(request, transport),
-      /requires the original release tag/u,
-    );
-    state.f.git(["tag", "v1.3.0", state.sourceSha]);
-    await assert.rejects(
-      selectReleaseCycle(request, transport),
-      /requires the original release tag/u,
-    );
-    state.f.git(["tag", "-f", "v1.3.0", state.landingSha]);
-    const body = state.pull.body;
-    state.pull.body = "edited historical proposal";
-    await assert.rejects(selectReleaseCycle(request, transport), /identity was edited/u);
-    state.pull.body = body;
+      await assert.rejects(
+        selectReleaseCycle(request, transport),
+        /requires the original release tag/u,
+      );
+      state.f.git(["tag", "v1.3.0", state.sourceSha]);
+      await assert.rejects(
+        selectReleaseCycle(request, transport),
+        /requires the original release tag/u,
+      );
+      state.f.git(["tag", "-f", "v1.3.0", state.landingSha]);
+      const body = state.pull.body;
+      state.pull.body = "edited historical proposal";
+      await assert.rejects(selectReleaseCycle(request, transport), /identity was edited/u);
+      state.pull.body = body;
 
-    const cycle = await selectReleaseCycle(request, transport);
-    assert.equal(cycle.outcome, "selected");
-    if (cycle.outcome === "selected") {
-      assert.equal(cycle.baseline.commitSha, state.landingSha);
-      assert.deepEqual(cycle.version, { kind: "released", currentVersion: "1.3.0" });
-    }
-    assertReadOnly(state.f.calls, before);
+      const cycle = await selectReleaseCycle(request, transport);
+      assert.equal(cycle.outcome, "selected");
+      if (cycle.outcome === "selected") {
+        assert.equal(cycle.baseline.commitSha, state.landingSha);
+        assert.deepEqual(cycle.version, { kind: "released", currentVersion: "1.3.0" });
+      }
+      assertReadOnly(state.f.calls, before);
 
-    state.f.git(["read-tree", "--reset", "-u", "HEAD"]);
-    await state.f.advance("refactor(api): simplify selection");
-    const next = await reconcileReleaseProposal(
-      {
-        configuration,
-        automation: request.automation,
-        token: request.token,
-        write: false,
-        snapshot: await state.f.snapshot("v1.3.0", configuration),
-        version: { kind: "released", currentVersion: "1.3.0" },
-      },
-      transport,
-    );
-    assert.equal(next.outcome, "would-create");
-    assertReadOnly(state.f.calls, before);
+      state.f.git(["read-tree", "--reset", "-u", "HEAD"]);
+      await state.f.advance("refactor(api): simplify selection");
+      const next = await reconcileReleaseProposal(
+        {
+          configuration,
+          automation: request.automation,
+          token: request.token,
+          write: false,
+          snapshot: await state.f.snapshot("v1.3.0", configuration),
+          version: { kind: "released", currentVersion: "1.3.0" },
+        },
+        transport,
+      );
+      assert.equal(next.outcome, "would-create");
+      assertReadOnly(state.f.calls, before);
+    });
   });
-});
+}

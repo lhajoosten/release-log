@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { parseReleaseInputConfiguration } from "../config/repository.ts";
+import { defaultReleasePolicy, parseReleaseInputConfiguration } from "../config/repository.ts";
 import { GitInspectionError, inspectBranchSource } from "../git.ts";
 import { activeProducerSha } from "../producer-runtime.ts";
 import { preflightRelease } from "../release-preflight.ts";
@@ -37,7 +37,7 @@ export async function runPreflight(options: ReadonlyMap<string, string | true>):
         repository: required(options, "target"),
         repositoryId: Number(required(options, "repository-id")),
         releaseBranch: required(options, "release-branch"),
-        releasePolicy: "release-policy-v1",
+        releasePolicy: defaultReleasePolicy,
         contextPolicy: "required",
         changelog: { verbosity: "concise", format: "compact" },
       });

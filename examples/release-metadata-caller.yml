@@ -17,4 +17,4 @@ jobs:
     with:
       tool-sha: REVIEWED_FULL_COMMIT_SHA
       configuration: >-
-        {"schemaVersion":2,"repository":"OWNER/REPOSITORY","repositoryId":123456789,"releaseBranch":"main","releasePolicy":"release-policy-v1","contextPolicy":"required","githubRelease":true,"changelog":{"verbosity":"concise","format":"compact"},"bootstrap":{"baselineSha":"BASELINE_FULL_COMMIT_SHA","onboardingSha":"ONBOARDING_FULL_COMMIT_SHA"}}
+        {"schemaVersion":2,"repository":"OWNER/REPOSITORY","repositoryId":123456789,"releaseBranch":"main","releasePolicy":"release-policy-v2","contextPolicy":"required","githubRelease":true,"changelog":{"verbosity":"concise","format":"compact"},"bootstrap":{"baselineSha":"BASELINE_FULL_COMMIT_SHA","onboardingSha":"ONBOARDING_FULL_COMMIT_SHA"}}

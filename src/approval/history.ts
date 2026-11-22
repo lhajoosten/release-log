@@ -1,9 +1,8 @@
-import { isDeepStrictEqual } from "node:util";
 import { inspectGitTreeWithCommit, inspectPendingRelease, readGitBlob } from "../git.ts";
 import type { ResolvedReleaseBaseline } from "../git.ts";
 import type { ProposalTree } from "../github-proposals.ts";
 import { reconstructProposal } from "../producer-runtime.ts";
-import { capturedVerificationConfiguration } from "../proposal/verification.ts";
+import { capturedVerificationConfiguration, hasSameBumpPolicy } from "../proposal/verification.ts";
 import { readReleaseContents, trackedReleaseInput } from "../version-file-inputs.ts";
 import type { ReleaseFileContents } from "../version-file-inputs.ts";
 import { capturedIdentity, verifyGeneratedTree } from "../proposal/identity.ts";
@@ -76,7 +75,7 @@ async function findCompletedHead(
   if (match === undefined)
     throw new ReleaseApprovalError(
       "identity-mismatch",
-      "A prior proposal belongs to a different baseline or releaseBumps policy without a matching tagged landing.",
+      "A prior proposal belongs to a different baseline or bump policy without a matching tagged landing.",
     );
   return match;
 }
@@ -104,7 +103,7 @@ async function replayPriorProposal(
     ...replay,
     source,
     marker,
-    historicalBumps: !isDeepStrictEqual(configuration.releaseBumps, config.releaseBumps),
+    historicalBumps: !hasSameBumpPolicy(configuration, config),
   };
 }
 
