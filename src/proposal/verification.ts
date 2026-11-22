@@ -24,6 +24,8 @@ export interface VerifiedProposal extends Description {
   readonly changelog: string;
 }
 
+type ProposalVerification = "current-policy" | "tagged-history";
+
 function withoutTransitionOptions(config: ReleaseInputConfiguration) {
   const {
     selfUpgrade: _selfUpgrade,
@@ -40,15 +42,15 @@ function withoutTransitionOptions(config: ReleaseInputConfiguration) {
 export function capturedVerificationConfiguration(
   serialized: string,
   expected: ReleaseInputConfiguration,
+  verification: ProposalVerification = "current-policy",
 ): ReleaseInputConfiguration {
   const current = parseReleaseInputConfiguration(expected);
-  if (
-    current.changelog?.format === undefined &&
-    !current.selfUpgrade &&
-    !current.githubRelease &&
-    !current.commitMessageRepairs
-  )
-    return current;
+  const hasTransitionOptions =
+    current.changelog?.format !== undefined ||
+    current.selfUpgrade ||
+    current.githubRelease ||
+    current.commitMessageRepairs !== undefined;
+  if (!hasTransitionOptions && verification === "current-policy") return current;
 
   let value: unknown;
   try {
@@ -69,14 +71,20 @@ export function capturedVerificationConfiguration(
   // Trusted output/presentation opt-ins retain the original proposal rules.
   // A captured repair must still have matching trusted authority.
   const sameProvider =
+    hasTransitionOptions &&
     captured.repositoryId === RELEASE_LOG_REPOSITORY_ID &&
     current.repositoryId === RELEASE_LOG_REPOSITORY_ID &&
     isReleaseLogRepositoryName(captured.repository) &&
     isReleaseLogRepositoryName(current.repository);
   const comparable = sameProvider ? { ...captured, repository: current.repository } : captured;
-  return isDeepStrictEqual(withoutTransitionOptions(comparable), withoutTransitionOptions(current))
-    ? captured
-    : current;
+  function comparison(config: ReleaseInputConfiguration) {
+    const options = hasTransitionOptions ? withoutTransitionOptions(config) : config;
+    if (verification === "current-policy") return options;
+    // The caller must bind a historical replay to an existing tag and exact landing.
+    const { releaseBumps: _releaseBumps, ...rest } = options;
+    return rest;
+  }
+  return isDeepStrictEqual(comparison(comparable), comparison(current)) ? captured : current;
 }
 
 export async function verifyPrevious(
@@ -84,13 +92,18 @@ export async function verifyPrevious(
   pull: ProposalPullRequest,
   expected: ReleaseInputConfiguration,
   botUserId: number,
+  verification: ProposalVerification = "current-policy",
 ): Promise<VerifiedProposal> {
   const head = await api.tree(pull.headSha);
   const marker = capturedIdentity(head.message);
   const contents = await api.contents(head);
   const capturedJSON = contents[".release-log/inputs.json"];
   if (capturedJSON === null) throw new ProposalConflictError("The proposal snapshot is missing.");
-  const capturedConfiguration = capturedVerificationConfiguration(capturedJSON, expected);
+  const capturedConfiguration = capturedVerificationConfiguration(
+    capturedJSON,
+    expected,
+    verification,
+  );
   const source = await api.tree(marker.sourceSha);
   const { snapshot, prepared, description } = await reconstructProposal(
     capturedJSON,

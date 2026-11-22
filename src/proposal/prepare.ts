@@ -119,7 +119,9 @@ export function prepareVerifiedRelease(
 ): PreparedRelease {
   const plan = deriveReleasePlan(snapshot, version);
   const pending = snapshot.configuration.candidateLandings?.at(-1);
-  const fileVersion = pending ? { ...plan, currentVersion: pending.version } : plan;
+  const freshSeries = version.kind === "bootstrap" ? snapshot.configuration.freshSeries : undefined;
+  const currentVersion = pending?.version ?? freshSeries?.previousVersion;
+  const fileVersion = currentVersion === undefined ? plan : { ...plan, currentVersion };
   if (pending) {
     const notes = taggedReleaseNotes(contents["CHANGELOG.md"] ?? "", pending.version);
     if (createHash("sha256").update(notes).digest("hex") !== pending.changelogDigest)
@@ -129,8 +131,17 @@ export function prepareVerifiedRelease(
   const changelog = contents["CHANGELOG.md"];
   const rendered = renderPlannedChangelog(snapshot, plan);
   if (pending && !plan.release) return { plan, files: [] };
+  if (
+    freshSeries &&
+    (changelog === null ||
+      createHash("sha256").update(changelog).digest("hex") !== freshSeries.previousChangelogSha256)
+  )
+    throw new ProposalFilesError(
+      "The existing changelog differs from the reviewed freshSeries SHA-256.",
+    );
+
   const updatedChangelog = updateChangelog(
-    changelog ?? "",
+    freshSeries ? "" : (changelog ?? ""),
     rendered,
     !pending && version.kind === "released" ? version.currentVersion : undefined,
     snapshot.configuration.candidateStableNotes,

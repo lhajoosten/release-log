@@ -348,6 +348,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
           range,
           token,
           ...(automation === undefined ? {} : { automation }),
+          ...(config.freshSeries ? { freshSeries: config.freshSeries } : {}),
           ...(baseline.kind === "bootstrap" && config.schemaVersion === 2
             ? { onboardingSha: config.bootstrap.onboardingSha }
             : {}),

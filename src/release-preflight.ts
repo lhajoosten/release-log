@@ -1,4 +1,6 @@
 import { stringify } from "yaml";
+
+import { requireUnusedReleaseVersions } from "./tagging/evidence.ts";
 import { parseReleaseInputConfiguration } from "./config/repository.ts";
 import type { ReleaseInputConfiguration } from "./config/repository.ts";
 import {
@@ -199,7 +201,18 @@ function callerPreview(configuration: ReleaseInputConfiguration, producerSha: st
   return stringify(workflow, { lineWidth: 0 });
 }
 
-async function checkSetupState(api: GitHubProposalRepository): Promise<void> {
+async function checkSetupState(api: GitHubProposalRepository, freshSeries: boolean): Promise<void> {
+  if (freshSeries) await requireUnusedReleaseVersions(api);
+  else await checkInitialTags(api);
+
+  const proposals = await api.pulls();
+  if (proposals.length > 0 || (await api.ref("heads", api.headRef, true)))
+    throw new GitHubReadError(
+      `A reserved release branch or proposal already exists${proposals.length ? ` (PRs ${proposals.map(({ number }) => `#${number}`).join(", ")})` : ""}. Follow the proposal review or recovery path with its recorded boundary.`,
+    );
+}
+
+async function checkInitialTags(api: GitHubProposalRepository): Promise<void> {
   for (let page = 1; page <= 10; page++) {
     const { data, next } = await api.request(`/tags?per_page=100&page=${page}`);
     if (!Array.isArray(data) || data.length > 100 || (next && data.length !== 100))
@@ -221,11 +234,6 @@ async function checkSetupState(api: GitHubProposalRepository): Promise<void> {
         "Tag discovery exceeded ten pages. Review existing release history.",
       );
   }
-  const proposals = await api.pulls();
-  if (proposals.length > 0 || (await api.ref("heads", api.headRef, true)))
-    throw new GitHubReadError(
-      `A reserved release branch or proposal already exists${proposals.length ? ` (PRs ${proposals.map(({ number }) => `#${number}`).join(", ")})` : ""}. Follow the proposal review or recovery path with its recorded boundary.`,
-    );
 }
 
 export async function preflightRelease(request: PreflightRequest, read: GitHubRead = fetch) {
@@ -275,7 +283,7 @@ export async function preflightRelease(request: PreflightRequest, read: GitHubRe
     try {
       const input = await contents(sha, true);
       const files = prepareVersionFiles(input, {
-        currentVersion: null,
+        currentVersion: baseConfig.freshSeries?.previousVersion ?? null,
         nextVersion: version.initialVersion,
       });
       findings[stage] = {
@@ -320,7 +328,7 @@ export async function preflightRelease(request: PreflightRequest, read: GitHubRe
       throw new GitHubReadError(
         `An established release${tags.length ? ` (${tags[0]})` : ""} was found. Follow the established-release adoption or recovery path.`,
       );
-    if (local.entries.has(snapshotPath))
+    if (!baseConfig.freshSeries && local.entries.has(snapshotPath))
       throw new GitHubReadError(
         "The source already contains a release capture. Review or recover its recorded release boundary.",
       );
@@ -360,7 +368,7 @@ export async function preflightRelease(request: PreflightRequest, read: GitHubRe
           );
       };
       await checkSource();
-      await checkSetupState(api);
+      await checkSetupState(api, baseConfig.freshSeries !== undefined);
 
       const collect = (onboardingSha: string) =>
         collectMergedPullRequests(
@@ -371,6 +379,7 @@ export async function preflightRelease(request: PreflightRequest, read: GitHubRe
             range,
             token,
             onboardingSha,
+            ...(baseConfig.freshSeries ? { freshSeries: baseConfig.freshSeries } : {}),
           },
           readOnly,
         );
@@ -480,7 +489,7 @@ export async function preflightRelease(request: PreflightRequest, read: GitHubRe
             throw new GitHubReadError(
               "A new initial proposal was not prepared. Review existing release state.",
             );
-          await checkSetupState(api);
+          await checkSetupState(api, baseConfig.freshSeries !== undefined);
           await checkSource();
           findings.appDryRun = {
             status: "passed",

@@ -359,11 +359,18 @@ export async function fixture(
         behind_by: behind,
       });
     }
-    const currentPull = (raw: Record<string, unknown>) => ({
-      ...raw,
-      head: { ...object(raw.head), sha: ref("heads/release-log/main") ?? object(raw.head).sha },
-    });
-    if (method === "GET" && path === "/pulls") return json(pulls.map(currentPull));
+    const currentPull = (raw: Record<string, unknown>) => {
+      const head = object(raw.head);
+      return { ...raw, head: { ...head, sha: ref(`heads/${text(head.ref)}`) ?? head.sha } };
+    };
+    if (method === "GET" && path === "/pulls") {
+      const head = target.searchParams.get("head")?.split(":")[1];
+      return json(
+        pulls
+          .filter((pull) => head === undefined || head === object(pull.head).ref)
+          .map(currentPull),
+      );
+    }
     if (method === "GET" && path.startsWith("/pulls/")) {
       const pull = pulls.find((entry) => entry.number === Number(path.split("/")[2]));
       return pull ? json(currentPull(pull)) : json({}, 404);
@@ -413,8 +420,8 @@ export async function fixture(
         merged_at: null,
         user: { id: botId, type: "Bot" },
         head: {
-          ref: "release-log/main",
-          sha: ref("heads/release-log/main"),
+          ref: body.head,
+          sha: ref(`heads/${text(body.head)}`),
           repo: { id: repositoryId },
         },
         base: { ref: "main", sha: ref("heads/main"), repo: { id: repositoryId } },
@@ -431,7 +438,7 @@ export async function fixture(
         base: body.base
           ? { ...object(pull.base), ref: body.base, sha: ref("heads/main") }
           : pull.base,
-        head: { ...object(pull.head), sha: ref("heads/release-log/main") },
+        head: object(currentPull(pull).head),
       });
       return json(currentPull(pull));
     }

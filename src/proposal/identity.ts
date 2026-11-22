@@ -12,6 +12,7 @@ const maximumBodyBytes = 60 * 1024;
 
 interface ProposalIdentity {
   readonly schemaVersion: 1;
+  readonly seriesId?: string;
   readonly producerSha?: string;
   readonly bodyFormat?: "changelog-v1";
   readonly repositoryId: number;
@@ -51,6 +52,9 @@ export function describe(
       throw new ProposalConflictError("Controller output files exceed the 2 MiB per-file limit.");
   const identity: ProposalIdentity = {
     schemaVersion: 1,
+    ...(snapshot.configuration.freshSeries
+      ? { seriesId: snapshot.configuration.freshSeries.id }
+      : {}),
     ...(producerSha === undefined ? {} : { producerSha: proposalSha(producerSha) }),
     ...(bodyFormat === "legacy" ? {} : { bodyFormat }),
     repositoryId: snapshot.configuration.repositoryId,

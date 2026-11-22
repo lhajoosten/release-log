@@ -39,7 +39,9 @@ The approval record contains exactly these fields (replace the illustrative full
 
 For bootstrap, the baseline is `{ "kind": "bootstrap", "commitSha": "FULL_COMMIT_SHA" }`, using an explicitly owner-selected full object ID. No baseline is inferred. Record the exact reviewed head, source, snapshot and proposal identity independently before accepting the merge; do not fill them retrospectively from whichever branch head exists later. The trusted host must bind those values to the actual landing and merger.
 
-`mergeKind` accepts only `merge` or `squash`. **Record the authorized merge action through a trusted host/attestation; do not infer it from Git parent shape or the commit message.** A one-commit rebase can resemble a squash, and generic GitHub PR data does not prove the method used. Missing, unknown and `rebase` values are rejected, but a dishonest trusted record is outside this verifier's authority. Squash landings must retain the unscoped, nonbreaking `chore: prepare vX.Y.Z` subject.
+`mergeKind` accepts only `merge` or `squash`. **Record the authorized merge action through a trusted host/attestation; do not infer it from Git parent shape or the commit message.** A one-commit rebase can resemble a squash, and generic GitHub PR data does not prove the method used. Missing, unknown and `rebase` values are rejected, but a dishonest trusted record is outside this verifier's authority.
+
+For squash commits, the verifier accepts the legacy `chore: prepare vX.Y.Z` subject and the exact generated PR title `chore(release): prepare vX.Y.Z`. GitHub can append the exact ` (#123)` suffix for PR 123. This supports the `PR_TITLE` and `BLANK` squash defaults. The commit message must pass conventional validation without a breaking marker or footer.
 
 Both files use bounded (1 MiB), duplicate-key-rejecting JSON and strict versioned schemas. Unknown fields, self-approval, malformed IDs and unsupported methods fail rather than migrate or guess.
 
