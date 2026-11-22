@@ -51,9 +51,9 @@ Git/PR capture, snapshots, version calculation, Node, Python, and Cargo version 
 
 ## Reusable workflow and callers
 
-### Website pilot with one workflow pin
+### Consumer workflow with one pin
 
-The website pilot calls `.github/workflows/consumer-release.yml` at one reviewed full Rolling Release commit. The caller supplies its existing release configuration, release branch, App ID, bot user ID, and App private-key secret. The provider owns the immutable writer and the website's reviewed historical producer registry. Existing consumers can continue using the writer entry point below.
+Call `.github/workflows/consumer-release.yml` at one reviewed full Rolling Release commit. The caller supplies its release configuration, release branch, App ID, bot user ID, and App private-key secret. The provider owns the immutable writer and the reviewed historical producer registry keyed by consumer repository ID. The registry covers ReviewBot, Upkeep Bot, Lint Gate, the website, and kube-lab. For preview, prefer a verified image digest; Upkeep Bot's older runtimes build from approved immutable source before the workflow mints its read token. Existing consumers can continue using the writer entry point below.
 
 Trigger the pilot on `pull_request_target: closed` for the configured default branch and add a separate `workflow_dispatch` trigger. Grant the caller Contents and Pull requests read. Pass `vars.RELEASE_LOG_WRITE_ENABLED != 'false'` as the `write-enabled` input. The write job only runs after an eligible merged PR, independently of the preview. On manual dispatch from the default branch, the preview uses the captured commit and local tags to verify the selected release boundary, then prepares a plan with `--dry-run`. It carries a read-only App token for online reads and disconnects the container from the network for preparation.
 

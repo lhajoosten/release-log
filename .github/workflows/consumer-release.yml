@@ -36,9 +36,7 @@ defaults:
 jobs:
   preview:
     name: Preview with release-log latest
-    # The website is the first approved consumer of this replay registry.
     if: >-
-      github.repository_id == '1458711968' &&
       github.event.repository.default_branch == inputs.release-branch &&
       inputs.app-id != '' && inputs.bot-user-id != '' &&
       ((github.event_name == 'workflow_dispatch' &&
@@ -58,7 +56,7 @@ jobs:
           BOT_USER_ID: ${{ inputs.bot-user-id }}
         run: |
           input_dir="$RUNNER_TEMP/release-preview"
-          mkdir -p "$input_dir"
+          mkdir -p "$input_dir" "$RUNNER_TEMP/release-producers"
           jq -e -c --arg repo "$GITHUB_REPOSITORY" --argjson id "$GITHUB_REPOSITORY_ID" \
             --arg branch "$RELEASE_BRANCH" \
             'select(.repository == $repo and .repositoryId == $id and .releaseBranch == $branch and .selfUpgrade != true and .internalPublication != true)' \
@@ -76,16 +74,24 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Resolve the latest preview image and reviewed website producers
+      - name: Resolve the latest preview image and reviewed producers
         id: images
         env:
-          HISTORY: &website-history >-
+          HISTORY: &consumer-history >-
             [
-              {"sha":"3929887fbbb8309a55ad819a3d4f0063928a5340","legacy":false,"digest":"08279dd93f1e1917ae007d62f1bff6ea986298d59b93a3182f6c606d4ac4b11a"},
-              {"sha":"8d3c1b1eb575d773d9c9446804fcde4df1e73f7a","legacy":true,"digest":"39fd52c45348d8c103bad37dedc558df8d3fa65eb87cbdc16b9b844a385531a2"},
-              {"sha":"21662200936919c1df83f9d3ce8fccee42fa3dc4","legacy":false,"digest":"8da2381cb6192ac27729508e6743a402909d2baceda13ba72964c062ffd5311e"}
+              {"repositories":["1449294542","1458711968"],"sha":"3929887fbbb8309a55ad819a3d4f0063928a5340","legacy":false,"digest":"08279dd93f1e1917ae007d62f1bff6ea986298d59b93a3182f6c606d4ac4b11a"},
+              {"repositories":["1458711968"],"sha":"8d3c1b1eb575d773d9c9446804fcde4df1e73f7a","legacy":true,"digest":"39fd52c45348d8c103bad37dedc558df8d3fa65eb87cbdc16b9b844a385531a2"},
+              {"repositories":["1449294542","1458711968","1460584468","1466066310","1466479881"],"sha":"21662200936919c1df83f9d3ce8fccee42fa3dc4","legacy":false,"digest":"8da2381cb6192ac27729508e6743a402909d2baceda13ba72964c062ffd5311e"},
+              {"repositories":["1460584468"],"sha":"9c49492e61e3bbc039efac46cf3d779cece7c9db","legacy":false},
+              {"repositories":["1460584468"],"sha":"6a38f7f50f743cb00c1b19798a29da29dc868867","legacy":false},
+              {"repositories":["1460584468"],"sha":"aac8e52a7fa5b10359231f6450d9d29d98e0da1b","legacy":false}
             ]
         run: |
+          reviewed=$(jq -ce --arg id "$GITHUB_REPOSITORY_ID" \
+            'map(select(.repositories | index($id))) | select(length > 0)' <<< "$HISTORY") || {
+            echo "This repository has no reviewed producer history." >&2
+            exit 1
+          }
           docker pull --platform linux/amd64 "$RELEASE_LOG_IMAGE"
           image_id=$(docker image inspect --format '{{.Id}}' "$RELEASE_LOG_IMAGE")
           [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
@@ -95,7 +101,9 @@ jobs:
           active=$(docker image inspect --format "$revision_format" "$image_id")
           [[ "$active" =~ ^[a-f0-9]{40}$ ]]
           input_dir="$RUNNER_TEMP/release-preview"
-          history=$(jq -c --arg active "$active" 'map(select(.sha != $active))' <<< "$HISTORY")
+          history=$(jq -c --arg active "$active" 'map(select(.sha != $active))' <<< "$reviewed")
+          source_history=$(jq -c 'map(select(has("digest") | not) | {sha, legacy})' <<< "$history")
+          printf 'active=%s\nsource-history=%s\n' "$active" "$source_history" >> "$GITHUB_OUTPUT"
           while IFS=$'\t' read -r sha digest; do
             image="ghcr.io/lhajoosten/release-log@sha256:$digest"
             docker pull --platform linux/amd64 "$image"
@@ -106,10 +114,44 @@ jobs:
             docker cp "$container:/opt/release-log/." "$input_dir/producers/$sha"
             docker rm "$container" >/dev/null
             trap - EXIT
-          done < <(jq -r '.[] | [.sha, .digest] | @tsv' <<< "$history")
+          done < <(jq -r '.[] | select(has("digest")) | [.sha, .digest] | @tsv' <<< "$history")
           jq -n --arg active "$active" --argjson history "$history" \
-            '{activeSha: $active, producers: [$history[] | {sha, legacy, directory: ("/inputs/producers/" + .sha)}]}' \
+            '{activeSha: $active, producers: [$history[] | {sha, legacy, directory: ((if has("digest") then "/inputs/producers/" else "/producers/" end) + .sha)}]}' \
             > "$input_dir/producers.json"
+
+      - name: Check out the reviewed source-runtime installer
+        if: steps.images.outputs.source-history != '[]'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: lhajoosten/rolling-release
+          ref: 3929887fbbb8309a55ad819a3d4f0063928a5340
+          path: release-runtime-installer
+          persist-credentials: false
+
+      - name: Set up Node.js for historical runtimes
+        if: steps.images.outputs.source-history != '[]'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: release-runtime-installer/.node-version
+          package-manager-cache: false
+
+      - name: Set up pnpm for historical runtimes
+        if: steps.images.outputs.source-history != '[]'
+        uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
+        with:
+          package_json_file: release-runtime-installer/package.json
+          cache: false
+
+      - name: Build reviewed historical runtimes before authentication
+        if: steps.images.outputs.source-history != '[]'
+        working-directory: release-runtime-installer
+        env:
+          CONFIGURATION: ${{ inputs.configuration }}
+          TOOL_SHA: ${{ steps.images.outputs.active }}
+          VERIFICATION_RUNTIMES: ${{ steps.images.outputs.source-history }}
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          node scripts/install-producer-runtimes.ts
 
       - name: Mint a repository-scoped read-only preview token
         id: app
@@ -132,6 +174,7 @@ jobs:
               --security-opt no-new-privileges --user "$(id -u):$(id -g)" \
               --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m \
               --mount "type=bind,src=$GITHUB_WORKSPACE/source,dst=/source,readonly" \
+              --mount "type=bind,src=$RUNNER_TEMP/release-producers,dst=/producers,readonly" \
               --mount "type=bind,src=$input_dir,dst=/inputs,readonly" "$@"
           }
 
@@ -171,7 +214,6 @@ jobs:
   writer-history:
     name: Resolve reviewed writer history
     if: >-
-      github.repository_id == '1458711968' &&
       github.event.repository.default_branch == inputs.release-branch &&
       github.event_name == 'pull_request_target' &&
       github.event.action == 'closed' && github.event.pull_request.merged == true &&
@@ -187,14 +229,19 @@ jobs:
         env:
           CONFIGURATION: ${{ inputs.configuration }}
           RELEASE_BRANCH: ${{ inputs.release-branch }}
-          HISTORY: *website-history
+          HISTORY: *consumer-history
           WRITER_SHA: &writer-sha 21662200936919c1df83f9d3ce8fccee42fa3dc4
         run: |
           jq -e --arg repo "$GITHUB_REPOSITORY" --argjson id "$GITHUB_REPOSITORY_ID" \
             --arg branch "$RELEASE_BRANCH" \
             '.repository == $repo and .repositoryId == $id and .releaseBranch == $branch and .selfUpgrade != true and .internalPublication != true' \
             <<< "$CONFIGURATION" >/dev/null
-          runtimes=$(jq -c --arg writer "$WRITER_SHA" 'map(select(.sha != $writer) | {sha, legacy})' <<< "$HISTORY")
+          reviewed=$(jq -ce --arg id "$GITHUB_REPOSITORY_ID" \
+            'map(select(.repositories | index($id))) | select(length > 0)' <<< "$HISTORY") || {
+            echo "This repository has no reviewed producer history." >&2
+            exit 1
+          }
+          runtimes=$(jq -c --arg writer "$WRITER_SHA" 'map(select(.sha != $writer) | {sha, legacy})' <<< "$reviewed")
           printf 'runtimes=%s\n' "$runtimes" >> "$GITHUB_OUTPUT"
 
   write-release:

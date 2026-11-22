@@ -462,7 +462,7 @@ void test("manual initialization uses the immutable dispatch source, scoped App 
     if ("uses" in step) assert.match(String(step.uses), /@[a-f0-9]{40}$/u);
 });
 
-void test("the website consumer keeps preview and immutable writer independent", async () => {
+void test("the shared consumer keeps preview and immutable writer independent", async () => {
   const workflow = record(
     parse(
       await readFile(new URL("../.github/workflows/consumer-release.yml", import.meta.url), "utf8"),
@@ -511,6 +511,29 @@ void test("the website consumer keeps preview and immutable writer independent",
   assert.ok(active);
   assert.equal(active.legacy, false);
   assert.match(String(active.digest), /^[a-f0-9]{64}$/u);
+  assert.deepEqual(active.repositories, [
+    "1449294542",
+    "1458711968",
+    "1460584468",
+    "1466066310",
+    "1466479881",
+  ]);
+  assert.deepEqual(
+    producers
+      .map(record)
+      .filter((pin) => !("digest" in pin))
+      .map((pin) => pin.repositories),
+    [["1460584468"], ["1460584468"], ["1460584468"]],
+  );
+  for (const step of [image, writerHistory])
+    assert.match(String(step.run), /\.repositories \| index\(\$id\)/u);
+  const build = steps.find(
+    (step) => step.name === "Build reviewed historical runtimes before authentication",
+  );
+  assert.ok(build);
+  assert.ok(steps.indexOf(build) < steps.indexOf(app));
+  assert.equal(build.if, "steps.images.outputs.source-history != '[]'");
+  assert.doesNotMatch(JSON.stringify(build), /secrets\.|steps\.app|--write/u);
   assert.equal(
     writer.uses,
     `lhajoosten/rolling-release/.github/workflows/rolling-release.yml@${String(writerInputs["tool-sha"])}`,
