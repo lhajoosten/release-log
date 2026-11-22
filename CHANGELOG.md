@@ -1,6 +1,22 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:87ace0f5bae956a45915af2e719e0ca36cf5f37a8680968323721b6a4160ba3f -->
+<!-- release-log:pending:v1 sha256:eeb5d5261ffa05f9db9139a997c0c9da479b795eb0fb698673b7e2dde4bc2036 -->
+
+## v0.8.2 (2026-11-22)
+
+<details>
+<summary>🔧 Internal maintenance</summary>
+
+- Accept GitHub co&#45;author trailers in main&#45;push commit checks&#46; ([#175](https://github.com/lhajoosten/rolling-release/pull/175)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Gate provider publication on Quality for the reviewed main landing&#46; ([#177](https://github.com/lhajoosten/rolling-release/pull/177)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+</details>
+
+<br>
+
+Full changelog: [v0&#46;8&#46;1&#8230;3abee28442d74742deada6b8bc0bff8784151353](https://github.com/lhajoosten/rolling-release/compare/v0.8.1...3abee28442d74742deada6b8bc0bff8784151353) (captured source).
+
+<!-- release-log:pending:end -->
 
 ## v0.8.1 (2026-11-22)
 
@@ -14,7 +30,6 @@
 
 Full changelog: [v0&#46;8&#46;0&#8230;f74198ff778b132dddc5a6440f230fd6b5be8ce8](https://github.com/lhajoosten/rolling-release/compare/v0.8.0...f74198ff778b132dddc5a6440f230fd6b5be8ce8) (captured source).
 
-<!-- release-log:pending:end -->
 
 ## v0.8.0 (2026-11-22)
 
