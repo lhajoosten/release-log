@@ -8,6 +8,7 @@ import {
 } from "../github-proposals.ts";
 import type { GitHubRead } from "../github.ts";
 import { parseReleaseAutomation } from "../config/automation.ts";
+import { requireUnusedReleaseVersions } from "../tagging/evidence.ts";
 import { reconcileReleaseTag } from "../tagging/reconcile.ts";
 import { parseReleaseInputConfiguration } from "../config/repository.ts";
 
@@ -73,7 +74,17 @@ export async function selectReleaseCycle(
         "The captured bootstrap source is no longer the configured release-branch tip; capture the current branch before selecting a baseline.",
       );
 
+    if (configuration.freshSeries) await requireUnusedReleaseVersions(api);
     const commitSha = proposalSha(configuration.bootstrap.baselineSha);
+    if (
+      configuration.freshSeries &&
+      (!(await isAncestor(commitSha, configuration.bootstrap.onboardingSha)) ||
+        !(await isAncestor(configuration.bootstrap.onboardingSha, sourceSha)))
+    )
+      return cycleError(
+        "source-not-descendant",
+        "The fresh-series onboarding cutoff is outside the reviewed bootstrap range.",
+      );
     if (!(await isAncestor(commitSha, sourceSha)))
       return cycleError(
         "source-not-descendant",

@@ -1,8 +1,14 @@
+import { isReservedReleaseBranch } from "../config/repository.ts";
 import type { ReleaseInputConfiguration } from "../config/repository.ts";
 import { invalid, limit } from "../evidence/schema.ts";
 import type { GitCommitEvidence } from "../git.ts";
 import type { AssociatedPullRequest, StackBase } from "./association.ts";
-import { isFirstParentLanding, stackedFootprint, stackedLandingOwners } from "./stacked-landing.ts";
+import {
+  isFirstParentLanding,
+  stackedFootprint,
+  stackedLandingOwners,
+  validateSquashStackMember,
+} from "./stacked-landing.ts";
 import { canonical } from "./canonical.ts";
 import type { ReleaseSnapshot } from "./model.ts";
 
@@ -16,6 +22,8 @@ export function validateCommitGraph(
   const graph = new Map<string, GitCommitEvidence>();
   const parentsByCommit = new Map<string, readonly string[]>();
   const stacks = new Map<string, (AssociatedPullRequest & { stackBase: StackBase })[]>();
+  const landingOwners = new Map<string, AssociatedPullRequest>();
+  const protectedPulls = new Set<number>();
   let evidenceCount = 0;
   for (const pull of pullRequests) {
     evidenceCount += pull.originalCommits.length + pull.landedCommits.length;
@@ -29,18 +37,27 @@ export function validateCommitGraph(
     const proof = verifiedAutomation?.find((entry) => entry.pullNumber === pull.number);
 
     const candidate = config.candidateLandings?.find((pin) => pin.pullNumber === pull.number);
-    if (candidate) {
+    const previous =
+      range.baseline.kind === "bootstrap"
+        ? config.freshSeries?.previousLandings.find((pin) => pin.pullNumber === pull.number)
+        : undefined;
+    const pinned = candidate ?? previous;
+    if (pinned || proof) {
+      protectedPulls.add(pull.number);
+      if (pull.squashStack) return invalid("Verified automation cannot be a stack squash member.");
+    }
+    if (pinned) {
       if (
         pull.authorType !== "Bot" ||
-        pull.authorId !== candidate.botUserId ||
+        pull.authorId !== pinned.botUserId ||
         pull.headRepositoryId !== config.repositoryId ||
         pull.headRef !== `release-log/${config.releaseBranch}` ||
-        pull.headSha !== candidate.headSha ||
-        pull.mergeCommitSha !== candidate.landingSha ||
+        pull.headSha !== pinned.headSha ||
+        pull.mergeCommitSha !== pinned.landingSha ||
         pull.stackBase ||
         (pull.landingKind === "linear" && pull.landedCommits.length !== 1)
       )
-        return invalid("Candidate automation does not match its verified landing identity.");
+        return invalid("Pinned release automation does not match its verified landing identity.");
     } else if (proof) {
       if (
         pull.authorType !== "Bot" ||
@@ -60,7 +77,7 @@ export function validateCommitGraph(
     } else if (
       pull.authorType === "Bot" &&
       pull.headRepositoryId === config.repositoryId &&
-      pull.headRef === `release-log/${config.releaseBranch}`
+      isReservedReleaseBranch(pull.headRef, config.releaseBranch, config.freshSeries !== undefined)
     )
       return invalid("Unverified release automation cannot enter a usable snapshot.");
     if (pull.stackBase) {
@@ -75,6 +92,7 @@ export function validateCommitGraph(
       const landed = new Map(pull.landedCommits.map((entry) => [entry.sha, entry]));
       const landing = landed.get(pull.mergeCommitSha);
       if (!landing) return invalid("PR landing evidence is absent from its footprint.");
+      landingOwners.set(landing.sha, pull);
       if (pull.landingKind === "merge") {
         if (
           landing.parentShas.length !== 2 ||
@@ -199,6 +217,21 @@ export function validateCommitGraph(
         return fail(`PR #${pull.number} has incorrect landed commit ownership`);
     }
   }
+
+  for (const pull of pullRequests) {
+    if (!pull.squashStack) continue;
+    const fail = (message: string): never =>
+      invalid(`PR #${pull.number} stack squash landing ${pull.mergeCommitSha}: ${message}.`);
+    const parent = graph.get(pull.mergeCommitSha)?.parentShas[0];
+    const preceding = parent === undefined ? undefined : landingOwners.get(parent);
+    if (
+      !preceding ||
+      protectedPulls.has(preceding.number) ||
+      !isFirstParentLanding(range.sourceCommitSha, pull.mergeCommitSha, graph)
+    )
+      return fail("requires a preceding ordinary PR landing on the captured first-parent history");
+    validateSquashStackMember(pull, preceding, config.releaseBranch, fail);
+  }
 }
 
 export function onboardingCommits(
@@ -243,6 +276,14 @@ export function onboardingCommits(
 
   if (!reachedBaseline)
     return invalid("The pinned onboarding SHA must descend from the approved bootstrap baseline.");
+
+  for (const pin of config.freshSeries?.previousLandings ?? []) {
+    const pull = input.pullRequests.find(({ number }) => number === pin.pullNumber);
+    if (!pull || !pull.landedCommits.every(({ sha }) => historical.has(sha)))
+      return invalid(
+        "Each prior-series release landing must be present within the reviewed onboarding history.",
+      );
+  }
 
   return historical;
 }

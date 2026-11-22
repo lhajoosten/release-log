@@ -3,7 +3,12 @@ import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { parseDocument } from "yaml";
-import { parseReleaseInputConfiguration } from "../src/config/repository.ts";
+import {
+  isReleaseLogRepositoryName,
+  parseReleaseInputConfiguration,
+  RELEASE_LOG_REPOSITORY_ID,
+  resolveProviderConfiguration,
+} from "../src/config/repository.ts";
 import { GitHubProposalRepository, ProposalConflictError } from "../src/github-proposals.ts";
 import { pullRequestFromEvent } from "../src/github-pr-readiness.ts";
 import { loadProducerRuntimes, withProducerRuntimes } from "../src/producer-runtime.ts";
@@ -11,11 +16,22 @@ import { verifyPrevious } from "../src/proposal/verification.ts";
 import { updateToolPins, workflowPath } from "../src/tool-upgrade.ts";
 
 const execute = promisify(execFile);
-const { GITHUB_EVENT_PATH, GITHUB_EVENT_NAME, GITHUB_REPOSITORY, GITHUB_TOKEN, RUNNER_TEMP } =
-  process.env;
+const {
+  GITHUB_EVENT_PATH,
+  GITHUB_EVENT_NAME,
+  GITHUB_REPOSITORY,
+  GITHUB_REPOSITORY_ID,
+  GITHUB_TOKEN,
+  RUNNER_TEMP,
+} = process.env;
+const repositoryId = Number(GITHUB_REPOSITORY_ID);
+const providerRepository =
+  GITHUB_REPOSITORY !== undefined && isReleaseLogRepositoryName(GITHUB_REPOSITORY);
 if (
   GITHUB_EVENT_NAME !== "pull_request_target" ||
-  GITHUB_REPOSITORY !== "lhajoosten/release-log" ||
+  !GITHUB_REPOSITORY ||
+  !providerRepository ||
+  repositoryId !== RELEASE_LOG_REPOSITORY_ID ||
   !GITHUB_EVENT_PATH ||
   !GITHUB_TOKEN ||
   !RUNNER_TEMP ||
@@ -32,9 +48,12 @@ const configurationJSON: unknown = document.getIn(["env", "CONFIGURATION"]);
 const pins: unknown = document.getIn(["env", "VERIFICATION_RUNTIMES"]);
 if (document.errors.length || typeof configurationJSON !== "string" || typeof pins !== "string")
   throw new Error("Expected reviewed self-release configuration and verification runtime pins.");
-const configuration = parseReleaseInputConfiguration(JSON.parse(configurationJSON));
+const configuration = resolveProviderConfiguration(
+  parseReleaseInputConfiguration(JSON.parse(configurationJSON)),
+  GITHUB_REPOSITORY,
+  repositoryId,
+);
 if (
-  configuration.repository !== GITHUB_REPOSITORY ||
   configuration.releaseBranch !== "main" ||
   !configuration.selfUpgrade ||
   !configuration.internalPublication

@@ -1,14 +1,14 @@
-# release-log
+# Rolling Release
 
 `release-log` is a GitHub-first TypeScript CLI project for deterministic changelogs and optional AI-assisted, user-facing release notes based on pull requests between Git tags.
 
 ## Current status
 
-Git inspection, PR association, validated snapshots, version planning, and deterministic changelog rendering are implemented with tests and a locally packable CLI. Node and Python version manifests are supported. This repository runs the [rolling-release workflow](release-workflow.md) with source-pinned tool/workflow revisions and proposal/tag writes enabled. Its first live cycle refreshed [release PR #62](https://github.com/lhajoosten/release-log/pull/62), then tagged its exact manual-merge landing as `v0.1.0`. Subsequent self-use releases `v0.2.0` and `v0.2.1` also completed from their prior tags, preserving the original released section. A private sandbox separately demonstrated same-PR refresh, a subsequent `v0.1.0` → `v0.2.0` cycle with byte-preserved released changelog content, exact-landing tagging without a recursive proposal, and a successful matching-tag retry with unchanged refs/files. [Evidence and remaining live validation](release-workflow.md#live-evidence-and-remaining-validation) distinguish those results from outstanding controlled safety/recovery exercises and independent consumer adoption.
+Git inspection, PR association, validated snapshots, version planning, and deterministic changelog rendering are implemented with tests and a locally packable CLI. Node and Python version manifests are supported. This repository runs the [rolling-release workflow](release-workflow.md) with source-pinned tool/workflow revisions and proposal/tag writes enabled. Its first live cycle refreshed [release PR #62](https://github.com/lhajoosten/rolling-release/pull/62), then tagged its exact manual-merge landing as `v0.1.0`. Subsequent self-use releases `v0.2.0` and `v0.2.1` also completed from their prior tags, preserving the original released section. A private sandbox separately demonstrated same-PR refresh, a subsequent `v0.1.0` → `v0.2.0` cycle with byte-preserved released changelog content, exact-landing tagging without a recursive proposal, and a successful matching-tag retry with unchanged refs/files. [Evidence and remaining live validation](release-workflow.md#live-evidence-and-remaining-validation) distinguish those results from outstanding controlled safety/recovery exercises and independent consumer adoption.
 
 The npm package remains private at `0.2.1`. The Linux/amd64 GHCR image `v0.2.1` is published with verified anonymous pull/run access; see the [installation commands and evidence](container-release.md). The authorized same-event retry retained the digest with `reused: true` and no push. No npm package or GitHub Release assets are distributed. AI-written release notes remain unimplemented, with no provider/model configured. Existing approval/publication APIs are separate components; downstream publication belongs to each repository. The read-only [PR metadata workflow](pr-readiness.md) retains rollout limitations.
 
-For development setup and repository checks, see the [contribution guide](https://github.com/lhajoosten/release-log/blob/main/CONTRIBUTING.md).
+For development setup and repository checks, see the [contribution guide](https://github.com/lhajoosten/rolling-release/blob/main/CONTRIBUTING.md).
 
 ## Release flow
 
@@ -20,13 +20,13 @@ For development setup and repository checks, see the [contribution guide](https:
 
 AI must not determine release membership, classification, or breaking-change status. It should preserve supported user impact, warnings, required actions, and source PR references. Ordinary changelog generation must not require AI credentials or an available provider.
 
-The [accepted release policy](release-policy.md) defines bootstrap, membership, versioning, orchestration, and safety rules with worked acceptance examples. The [repository README](https://github.com/lhajoosten/release-log#readme) describes the product direction in more detail.
+The [accepted release policy](release-policy.md) defines bootstrap, membership, versioning, orchestration, and safety rules with worked acceptance examples. The [repository README](https://github.com/lhajoosten/rolling-release#readme) describes the product direction in more detail.
 
 ## Start here
 
 - To run the CLI: use the [published image and digest](container-release.md#pull-and-run), then follow the [mounted-input examples](container.md#run-with-mounted-inputs) and [command reference](cli.md).
 - To automate a repository: read the [rolling workflow setup and recovery](release-workflow.md), select its [initial adoption boundary](initial-adoption.md), and configure [PR metadata/context](pr-readiness.md).
-- To contribute: follow the [contribution guide](https://github.com/lhajoosten/release-log/blob/main/CONTRIBUTING.md) and run `pnpm verify`.
+- To contribute: follow the [contribution guide](https://github.com/lhajoosten/rolling-release/blob/main/CONTRIBUTING.md) and run `pnpm verify`.
 
 ## Core workflow and deterministic components
 

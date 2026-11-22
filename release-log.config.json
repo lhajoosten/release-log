@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "repository": "lhajoosten/release-log",
+  "repository": "lhajoosten/rolling-release",
   "repositoryId": 1449550207,
   "releaseBranch": "main",
   "releasePolicy": "release-policy-v1",

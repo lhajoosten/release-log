@@ -199,10 +199,21 @@ void test("invalid baselines, changed replay results, and CLI failures fail with
 void test("manual entry point surfaces safe CLI failures without leaking tokens or raw subprocess output", async (context) => {
   const directory = await mkdtemp(join(tmpdir(), "rehearsal-entry-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
-  const fake = join(directory, "fake-cli.mjs");
+  const fake = join(directory, "docker");
   await writeFile(
     fake,
-    'console.error("private subprocess output"); console.error("release-log: synthetic-rehearsal-secret"); console.error("release-log: PR #9 release metadata must be repaired."); process.exitCode = 1;\n',
+    `#!/bin/sh
+case " $* " in
+  *" -e GITHUB_TOKEN sha256:${"a".repeat(64)} collect --config /inputs/configuration.json "*) ;;
+  *) exit 99 ;;
+esac
+test "$GITHUB_TOKEN" = synthetic-rehearsal-secret || exit 99
+echo "private subprocess output" >&2
+echo "release-log: synthetic-rehearsal-secret" >&2
+echo "release-log: PR #9 release metadata must be repaired." >&2
+exit 1
+`,
+    { mode: 0o700 },
   );
   await writeFile(
     join(directory, "release-log.config.json"),
@@ -214,14 +225,14 @@ void test("manual entry point surfaces safe CLI failures without leaking tokens 
   );
 
   const environment = {
-    PATH: process.env.PATH,
+    PATH: `${directory}:${process.env.PATH}`,
     GITHUB_REF: "refs/heads/main",
     GITHUB_REPOSITORY: "example/project",
     GITHUB_REPOSITORY_ID: "17",
     GITHUB_SHA: "a".repeat(40),
     GITHUB_WORKSPACE: directory,
     GITHUB_TOKEN: "synthetic-rehearsal-secret",
-    RELEASE_LOG_CLI: fake,
+    RELEASE_LOG_IMAGE_ID: `sha256:${"a".repeat(64)}`,
     REHEARSAL_OUTPUT: join(directory, "preview"),
     REHEARSAL_MODE: "bootstrap",
     REHEARSAL_BASELINE: "0".repeat(40),
@@ -275,10 +286,7 @@ void test("manual entry point surfaces safe CLI failures without leaking tokens 
       !error.stderr.includes("synthetic-rehearsal-secret"),
   );
 
-  assert.deepEqual((await readdir(directory)).toSorted(), [
-    "fake-cli.mjs",
-    "release-log.config.json",
-  ]);
+  assert.deepEqual((await readdir(directory)).toSorted(), ["docker", "release-log.config.json"]);
 });
 
 function record(value: unknown): Record<string, unknown> {
@@ -306,12 +314,16 @@ void test("rehearsal workflow is manual, read-only, trusted-main-only, and pins 
   assert.ok(checkout);
   assert.equal(record(checkout.with).ref, "${{ github.sha }}");
   assert.equal(record(checkout.with)["persist-credentials"], false);
-  const installation = steps
+  assert.deepEqual(job.env, { RELEASE_LOG_IMAGE: "ghcr.io/lhajoosten/release-log:latest" });
+  const pull = steps
     .map(record)
-    .find((step) => typeof step.run === "string" && step.run.includes('release-consumer" install'));
-  assert.ok(installation && typeof installation.run === "string");
-  assert.ok(installation.run.includes("--offline --prod --frozen-lockfile --ignore-scripts"));
-  assert.ok(installation.run.includes("dist/dependency-lock.txt"));
+    .find((step) => typeof step.run === "string" && step.run.includes("docker pull"));
+  assert.ok(pull && typeof pull.run === "string");
+  assert.ok(pull.run.includes('docker pull --platform linux/amd64 "$RELEASE_LOG_IMAGE"'));
+  assert.ok(pull.run.includes("RELEASE_LOG_IMAGE_ID="));
+  assert.ok(
+    steps.map(record).every((step) => typeof step.run !== "string" || !step.run.includes("pnpm")),
+  );
   const upload = steps
     .map(record)
     .find((step) => String(step.uses).startsWith("actions/upload-artifact@"));
@@ -448,4 +460,74 @@ void test("manual initialization uses the immutable dispatch source, scoped App 
   assert.doesNotMatch(String(preflight.run), /--write|inputs\.write/u);
   for (const step of steps.map(record))
     if ("uses" in step) assert.match(String(step.uses), /@[a-f0-9]{40}$/u);
+});
+
+void test("the shared consumer keeps preview and immutable writer independent", async () => {
+  const workflow = record(
+    parse(
+      await readFile(new URL("../.github/workflows/consumer-release.yml", import.meta.url), "utf8"),
+    ) as unknown,
+  );
+  const jobs = record(workflow.jobs);
+  const preview = record(jobs.preview);
+  const history = record(jobs["writer-history"]);
+  const writer = record(jobs["write-release"]);
+  assert.deepEqual(workflow.permissions, { contents: "read", "pull-requests": "read" });
+  assert.equal(preview.needs, undefined);
+  assert.equal(writer.needs, "writer-history");
+  assert.deepEqual(history.permissions, {});
+  assert.match(String(preview.if), /workflow_dispatch[\s\S]*github\.ref == format/u);
+  assert.match(
+    String(history.if),
+    /pull_request_target[\s\S]*merged == true[\s\S]*inputs\.write-enabled/u,
+  );
+  assert.doesNotMatch(String(history.if), /workflow_dispatch/u);
+  assert.equal(record(preview.env).RELEASE_LOG_IMAGE, "ghcr.io/lhajoosten/release-log:latest");
+  assert.ok(Array.isArray(preview.steps) && Array.isArray(history.steps));
+  const steps = preview.steps.map(record);
+  const app = steps.find((step) => step.id === "app");
+  const image = steps.find((step) => step.id === "images");
+  const resolveHistory = steps.find((step) => step.id === "history");
+  const render = steps.find((step) => step.name === "Render a read-only preview");
+  assert.ok(app && image && render && resolveHistory);
+  assert.equal(record(app.with)["permission-contents"], "read");
+  assert.equal(record(app.with)["permission-pull-requests"], "read");
+  assert.deepEqual(history.steps[0], resolveHistory);
+  const writerHistory = record(history.steps[1]);
+  assert.equal(record(image.env).HISTORY, "${{ steps.history.outputs.records }}");
+  assert.equal(record(writerHistory.env).HISTORY, record(image.env).HISTORY);
+  const inputs = record(record(record(workflow.on).workflow_call).inputs);
+  assert.equal(record(inputs["replay-history"]).default, "[]");
+  assert.doesNotMatch(String(image.run), /workflow_dispatch|GITHUB_EVENT_NAME/u);
+  assert.match(String(render.run), /roll[\s\S]*--producer-runtimes[\s\S]*--dry-run/u);
+  assert.match(
+    String(render.run),
+    /select-cycle[\s\S]*--producer-runtimes \/inputs\/producers\.json[\s\S]*collect[\s\S]*--network none[\s\S]*prepare[\s\S]*--dry-run/u,
+  );
+  assert.doesNotMatch(String(render.run), /--write/u);
+  const writerInputs = record(writer.with);
+  assert.match(String(writerInputs["tool-sha"]), /^[a-f0-9]{40}$/u);
+  assert.equal(record(writerHistory.env).WRITER_SHA, writerInputs["tool-sha"]);
+  assert.match(String(writerHistory.run), /select\(\.sha != \$writer\)/u);
+  assert.equal(record(resolveHistory.env).WRITER_SHA, writerInputs["tool-sha"]);
+  assert.match(String(record(resolveHistory.env).WRITER_DIGEST), /^[a-f0-9]{64}$/u);
+  assert.equal(record(resolveHistory.env).REQUESTED_HISTORY, "${{ inputs.replay-history }}");
+  assert.match(String(resolveHistory.run), /map\(\.sha\) \| unique/u);
+  assert.doesNotMatch(JSON.stringify(workflow), /github\.repository_id\s*==\s*['"]\d+/u);
+  const build = steps.find(
+    (step) => step.name === "Build reviewed historical runtimes before authentication",
+  );
+  assert.ok(build);
+  assert.ok(steps.indexOf(build) < steps.indexOf(app));
+  assert.equal(build.if, "steps.images.outputs.source-history != '[]'");
+  assert.doesNotMatch(JSON.stringify(build), /secrets\.|steps\.app|--write/u);
+  assert.equal(
+    writer.uses,
+    `lhajoosten/rolling-release/.github/workflows/rolling-release.yml@${String(writerInputs["tool-sha"])}`,
+  );
+  assert.equal(
+    writerInputs["verification-runtimes"],
+    "${{ needs.writer-history.outputs.runtimes }}",
+  );
+  assert.equal(writerInputs.write, true);
 });

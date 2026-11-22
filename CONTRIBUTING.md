@@ -79,7 +79,7 @@ Lefthook first formats staged maintained files through `pnpm format:files` and a
 
 The runner clears Git's repository-local environment variables before starting checks, so Git fixture commands cannot inherit a linked worktree's absolute repository/index paths. It preserves the check exit status; no checks are skipped.
 
-Only originally staged maintained files are formatted and restaged; unrelated files are not added. The subsequent checks still cover maintained files across the working tree, so unrelated unstaged formatting errors can block a commit. The documentation build writes ignored output and cache files. Resolve failed checks rather than bypassing the hook. CI runs `pnpm verify` without formatting or pushing changes, checking the committed result.
+Only originally staged maintained files are formatted and restaged; unrelated files are not added. The subsequent checks still cover maintained files across the working tree, so unrelated unstaged formatting errors can block a commit. The documentation build writes ignored output and cache files. Resolve failed checks rather than bypassing the hook. CI runs the same checks on the committed result and distributes the behavioral tests across four jobs.
 
 The `commit-msg` hook requires an unscoped conventional message (`type: description`). For example:
 
@@ -101,7 +101,7 @@ Both policies accept the conventional types `build`, `chore`, `ci`, `docs`, `fea
 
 `pnpm check:commit-range` uses Git's `--no-merges` filter so GitHub-generated merge commits do not fail after an otherwise valid PR is merged. It invokes the same Commitlint configuration as the commit hook for each selected message; the pinned Commitlint version does not reliably forward `--git-log-args` filters. This excludes commits with multiple parents, not messages matching a pattern. Commits from merged branches are still checked; the traversal is not restricted to the first parent. Direct message validation (including PR titles and the `commit-msg` hook) remains strict.
 
-Merge commits, squash merges, and rebase merges are supported by this CI policy. Squash messages and ordinary commits must remain unscoped and conventional. When squash merging, edit the generated commit subject to remove the PR title's scope (for example, `feat(exports): add CSV output` becomes `feat: add CSV output`). The release metadata validator still rejects non-conventional merge messages; this CI exception does not define a release classification or PR-association policy. Do not rewrite existing published history just to apply the convention retroactively.
+GitHub uses squash-only merging with the PR title as the default squash subject and a blank body. Main-push CI accepts scoped conventional subjects from squash merges and unscoped conventional subjects from earlier landings. The commit hook and PR commit-range check still require unscoped authored commits. Release classification and GitHub PR association are checked independently. The approved release flow documents the exact squash subject it verifies.
 
 ## PR release context
 
@@ -113,9 +113,9 @@ The parser reports missing or invalid context without returning partial data. Th
 
 ## Continuous integration
 
-The `verify` job runs on PRs, pushes to `main`, and manual dispatch. PR title edits retrigger validation. Feature-branch pushes rely on the PR event rather than starting duplicate push workflows.
+Quality runs on PRs, pushes to `main`, and manual dispatch. PR title edits retrigger validation. Feature-branch pushes rely on the PR event rather than starting duplicate push workflows.
 
-CI installs frozen dependencies, runs the same `pnpm verify` command as local development, and validates non-merge commits in the applicable range and the PR title. GitHub event text is passed through environment variables, not interpolated into shell source. Actions are pinned to immutable SHAs and the workflow has read-only repository permissions.
+CI installs frozen dependencies and runs `pnpm check:static`, the documentation build, and four behavioral test shards with coverage reporting per shard. The required `verify` check validates that the jobs passed and every test file appears in its assigned shard report. The workflow continues to validate non-merge commits in the applicable range and the PR title. Use `pnpm verify` locally for a single combined coverage report. GitHub event text is passed through environment variables, not interpolated into shell source. Actions are pinned to immutable SHAs and the workflow has read-only repository permissions.
 
 The separate `PR metadata` workflow runs trusted base-SHA validator code under a metadata-only, explicitly read-only `pull_request_target` event. It never executes PR source; keep source testing in the unprivileged Quality workflow. Its observed ordinary/generated-PR checks and remaining controlled-run limitations are documented in [PR metadata readiness](docs/pr-readiness.md).
 

@@ -115,6 +115,27 @@ void test("commit-range checks accept generated merges and conventional side-bra
   await checkCommits(directory, ["--from", base, "--to", "HEAD"]);
 });
 
+void test("main-push commit checks accept GitHub PR-title squashes and legacy unscoped subjects", async (context) => {
+  const directory = await repository(context);
+  const base = await git(directory, ["rev-parse", "HEAD"]);
+  await git(directory, ["commit", "--allow-empty", "-m", "ci: update tooling"]);
+  await git(directory, [
+    "commit",
+    "--allow-empty",
+    "-m",
+    "ci(release): let consumers opt into historical replay (#165)",
+  ]);
+  const args = ["--from", base, "--to", "HEAD", "--allow-scopes"];
+  await checkCommits(directory, args);
+
+  await git(directory, ["commit", "--allow-empty", "-m", "invalid subject"]);
+  await assert.rejects(checkCommits(directory, args), (error: unknown) => {
+    assert.ok(error instanceof Error && "stdout" in error);
+    assert.match(String(error.stdout), /type-empty/u);
+    return true;
+  });
+});
+
 for (const [name, merged, message] of [
   ["linear commits", false, "not conventional"],
   ["merged side-branch commits", true, "not conventional"],

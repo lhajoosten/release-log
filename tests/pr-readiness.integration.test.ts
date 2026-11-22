@@ -542,7 +542,25 @@ void test("metadata workflow runs only trusted base source with read-only permis
     "pnpm install --frozen-lockfile --ignore-scripts",
     "pnpm check:pr-metadata",
   ]);
-  assert.doesNotMatch(source, /secrets\.|pull_request\.head|refs\/pull|actions\/cache@/u);
+  assert.doesNotMatch(source, /secrets\.|refs\/pull|actions\/cache@/u);
+  assert.doesNotMatch(JSON.stringify(steps), /pull_request\.head/u);
+  assert.ok("release-proposal-replay" in workflow.jobs);
+  const replay = workflow.jobs["release-proposal-replay"];
+  assert.ok(typeof replay === "object" && replay !== null);
+  assert.ok("if" in replay && "steps" in replay && Array.isArray(replay.steps));
+  assert.equal(
+    replay.if,
+    "github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'release-log/main'",
+  );
+  assert.deepEqual(replay.steps.slice(0, -1), steps.slice(0, -1));
+  assert.deepEqual(replay.steps.at(-1), {
+    name: "Replay the proposal using trusted post-merge runtimes",
+    env: {
+      BOT_USER_ID: "${{ vars.RELEASE_BOT_USER_ID }}",
+      GITHUB_TOKEN: "${{ github.token }}",
+    },
+    run: "node scripts/check-release-proposal.ts",
+  });
   assert.match(source, /cancel-in-progress: true/u);
 });
 
@@ -553,7 +571,7 @@ void test("consumer reusable workflow runs only pinned Release Log code with tru
   );
   assert.match(source, /workflow_call:/u);
   assert.match(source, /name: metadata/u);
-  assert.match(source, /repository: lhajoosten\/release-log/u);
+  assert.match(source, /repository: lhajoosten\/rolling-release/u);
   assert.ok(source.includes("ref: ${{ inputs.tool-sha }}"));
   assert.match(source, /persist-credentials: false/u);
   assert.match(source, /pnpm install --frozen-lockfile --ignore-scripts/u);

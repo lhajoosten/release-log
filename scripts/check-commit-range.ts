@@ -6,6 +6,7 @@ const { values } = parseArgs({
   options: {
     from: { type: "string" },
     to: { type: "string" },
+    "allow-scopes": { type: "boolean" },
   },
 });
 
@@ -27,7 +28,7 @@ if (git(["rev-parse", "--is-shallow-repository"]) === "true") {
 git(["merge-base", "--", values.from, values.to]);
 
 // Commitlint's pinned Git client silently drops --git-log-args=--no-merges.
-// Filter by parent count in Git, then use the same strict policy as the hook.
+// Filter by parent count in Git before validating each subject.
 const commits = git([
   "rev-list",
   "--no-merges",
@@ -36,7 +37,12 @@ const commits = git([
   "--",
 ]);
 const cli = fileURLToPath(import.meta.resolve("@commitlint/cli/cli.js"));
-const config = fileURLToPath(new URL("../commitlint.config.mjs", import.meta.url));
+const config = fileURLToPath(
+  new URL(
+    values["allow-scopes"] ? "../commitlint.base.config.mjs" : "../commitlint.config.mjs",
+    import.meta.url,
+  ),
+);
 
 for (const sha of commits.split("\n").filter(Boolean)) {
   const message = git(["show", "--no-patch", "--format=%B", sha, "--"]);

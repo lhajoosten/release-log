@@ -39,6 +39,7 @@ async function approved(
     bootstrapCommit?: boolean;
     objectFormat?: "sha1" | "sha256";
     changelogVerbosity?: ChangelogVerbosity;
+    squashMessage?: string;
   } = {},
 ) {
   const f = await fixture(
@@ -60,7 +61,7 @@ async function approved(
   const message =
     mergeKind === "merge"
       ? "Merge pull request #1 from release-log/main\n"
-      : `chore: prepare v${options.bootstrap ? "0.1.0" : "1.3.0"}\n`;
+      : (options.squashMessage ?? `chore: prepare v${options.bootstrap ? "0.1.0" : "1.3.0"}\n`);
   const landing = f
     .git(
       ["commit-tree", tree, "-p", source, ...(mergeKind === "merge" ? ["-p", head] : [])],
@@ -454,24 +455,37 @@ void test("changed PR metadata during verification invalidates the result", asyn
   );
 });
 
-for (const subject of [
-  "chore(release): prepare v1.3.0",
+for (const subject of ["chore(release): prepare v1.3.0", "chore(release): prepare v1.3.0 (#1)"]) {
+  void test(`release squash accepts the verified PR subject ${subject}`, async (context) => {
+    const state = await approved(context, "squash", "node", false, {
+      squashMessage: subject + "\n",
+    });
+    const verified = await verifyReleaseApproval(state.request, state.f.transport);
+    assert.equal(verified.landingSha, state.landing);
+    assert.equal(verified.proposalId, state.approval.proposalId);
+    assert.equal(verified.version, "1.3.0");
+  });
+}
+
+for (const message of [
+  "chore(release): prepare v1.3.0 (#2)",
+  "chore(release): prepare v1.3.0 (#01)",
+  "chore(release): prepare v1.3.0 (#1) extra",
+  "chore(release): prepare v1.3.1 (#1)",
+  "chore(tooling): prepare v1.3.0",
   "feat: prepare v1.3.0",
   "chore!: prepare v1.3.0",
+  "chore(release)!: prepare v1.3.0 (#1)",
+  "chore(release): prepare v1.3.0 (#1)\n\nBREAKING CHANGE: remove old input",
+  "chore: prepare v1.3.0\n\nBREAKING-CHANGE: remove old input",
 ]) {
-  void test(`squash subject ${subject} cannot substitute for the approved unscoped release subject`, async (context) => {
-    const state = await approved(context, "squash");
-    const changed = state.f
-      .git(["commit-tree", state.tree, "-p", state.source], subject + "\n")
-      .trim();
-    state.f.git(["update-ref", "refs/heads/main", changed, state.landing]);
-    state.pull.merge_commit_sha = changed;
+  void test(`release squash rejects a different subject or breaking declaration (${JSON.stringify(message)})`, async (context) => {
+    const state = await approved(context, "squash", "node", false, {
+      squashMessage: message + "\n",
+    });
     await assert.rejects(
-      verifyReleaseApproval(
-        { ...state.request, approval: { ...state.approval, landingSha: changed } },
-        state.f.transport,
-      ),
-      /unscoped conventional subject/u,
+      verifyReleaseApproval(state.request, state.f.transport),
+      /exact verified PR title/u,
     );
   });
 }

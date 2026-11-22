@@ -246,6 +246,50 @@ void test("first publication pushes once and verifies the registry config agains
   assert.ok(h.calls.filter((call) => call.args[0] !== "push").every((call) => !call.authenticated));
 });
 
+void test("a paused scan binds the journal and registry to the exact smoke-tested image ID", async () => {
+  const h = harness();
+  const imageId = `sha256:${"c".repeat(64)}`;
+  let reads = 0;
+  const result = await reconcilePublication(
+    "v1.2.3",
+    sha,
+    async () => (++reads <= 2 ? null : h.published),
+    h.run,
+    { smokeTestedImage: { imageId, configDigest: h.published.configDigest } },
+    async (configDigest) => assert.equal(configDigest, h.published.configDigest),
+  );
+  assert.equal(result.result.configDigest, h.published.configDigest);
+  assert.deepEqual(
+    h.calls.map((call) => call.args[0]),
+    ["image", "image", "tag", "push"],
+  );
+
+  for (const smokeTestedImage of [
+    null,
+    { imageId: h.published.configDigest, configDigest: h.published.configDigest },
+    { imageId, configDigest: "invalid" },
+  ]) {
+    const changed = harness();
+    await assert.rejects(
+      reconcilePublication("v1.2.3", sha, async () => null, changed.run, { smokeTestedImage }),
+      /smoke tests for its exact image ID/u,
+    );
+    assert.ok(changed.calls.every((call) => !call.authenticated));
+  }
+});
+
+void test("resuming publication with a paused scan still smoke-tests the retained image", async () => {
+  const h = harness();
+  await reconcilePublication("v1.2.3", sha, async () => h.published, h.run, {
+    smokeTestedImage: null,
+  });
+  assert.deepEqual(
+    h.calls.map((call) => call.args[0]),
+    ["pull", "check:container"],
+  );
+  assert.equal(h.calls[1]?.args.at(-1), `ghcr.io/lhajoosten/release-log@${h.published.digest}`);
+});
+
 void test("retry pulls by digest, tests and scans retained config identity, and never pushes", async () => {
   const h = harness();
   const result = await reconcilePublication(
@@ -455,6 +499,7 @@ void test("the self-release workflow reconciles only trusted main and keeps cred
   assert.ok("concurrency" in job);
   assert.deepEqual(job.concurrency, { group: "container-release", "cancel-in-progress": false });
   assert.match(String(job.if), /github.ref == 'refs\/heads\/main'/u);
+  assert.match(String(job.if), /vars\.RELEASE_LOG_WRITE_ENABLED != 'false'/u);
   let credentialSteps = 0;
   for (const step of job.steps) {
     assert.ok(typeof step === "object" && step !== null);

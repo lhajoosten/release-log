@@ -348,6 +348,10 @@ export async function inspectCommit(
     await runGit(repository, ["cat-file", "commit", sha]),
     "Could not read the captured commit object.",
   );
+  return parseCommitEvidence(sha, raw);
+}
+
+function parseCommitEvidence(sha: string, raw: string): GitCommitEvidence {
   const separator = raw.indexOf("\n\n");
   if (separator === -1)
     throw new GitInspectionError("git-command-failed", "Git returned malformed commit evidence.");
@@ -511,6 +515,15 @@ export async function inspectGitTree(
   repository: string,
   commitSha: string,
 ): Promise<GitTreeInspection> {
+  return (await inspectGitTreeObject(repository, commitSha)).tree;
+}
+
+export async function inspectGitTreeWithCommit(repository: string, commitSha: string) {
+  const { tree, raw } = await inspectGitTreeObject(repository, commitSha);
+  return { tree, commit: parseCommitEvidence(tree.commitSha, raw) };
+}
+
+async function readCommitTreeHeader(repository: string, commitSha: string) {
   const commit = await resolveCommit(repository, commitSha);
   const raw = requireSuccess(
     await runGit(repository, ["cat-file", "commit", commit]),
@@ -519,7 +532,15 @@ export async function inspectGitTree(
   const match = /^tree ([a-f0-9]{40}|[a-f0-9]{64})\n/u.exec(raw);
   if (!match?.[1])
     throw new GitInspectionError("git-command-failed", "Malformed Git commit tree header.");
-  const treeSha = requireObjectSha(match[1]);
+  return { commit, raw, treeSha: requireObjectSha(match[1]) };
+}
+
+export async function inspectCommitTreeSha(repository: string, commitSha: string): Promise<string> {
+  return (await readCommitTreeHeader(repository, commitSha)).treeSha;
+}
+
+async function inspectGitTreeObject(repository: string, commitSha: string) {
+  const { commit, raw, treeSha } = await readCommitTreeHeader(repository, commitSha);
   const listing = requireSuccess(
     await runGit(repository, ["ls-tree", "--full-tree", "-r", "-t", "-z", treeSha]),
     "Could not read the complete captured Git tree.",
@@ -546,7 +567,8 @@ export async function inspectGitTree(
       );
     entries.set(path, { sha: requireObjectSha(sha), mode, type });
   }
-  return { commitSha: commit, treeSha, entries };
+  const tree: GitTreeInspection = { commitSha: commit, treeSha, entries };
+  return { tree, raw };
 }
 
 export async function readGitBlob(repository: string, blobSha: string): Promise<string> {

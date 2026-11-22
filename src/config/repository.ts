@@ -9,7 +9,75 @@ import {
   unique,
 } from "../evidence/schema.ts";
 
+export const defaultReleaseBumps = {
+  build: "none",
+  chore: "none",
+  ci: "none",
+  docs: "none",
+  feat: "minor",
+  fix: "patch",
+  perf: "patch",
+  refactor: "none",
+  revert: "patch",
+  style: "none",
+  test: "none",
+} as const;
+
+type ConventionalType = keyof typeof defaultReleaseBumps;
+type NonbreakingBump = (typeof defaultReleaseBumps)[ConventionalType];
+type ReleaseBumpOverrides = Readonly<Partial<Record<ConventionalType, NonbreakingBump>>>;
+
+export function isReleaseBumpType(value: string): value is ConventionalType {
+  return Object.hasOwn(defaultReleaseBumps, value);
+}
+
+function parseReleaseBumps(value: unknown): ReleaseBumpOverrides {
+  if (
+    !isObject(value) ||
+    (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)
+  )
+    return invalid("Expected releaseBumps to be a JSON object.");
+  const bumps: Partial<Record<ConventionalType, NonbreakingBump>> = {};
+  for (const [type, bump] of Object.entries(value)) {
+    if (!isReleaseBumpType(type))
+      return invalid("releaseBumps keys must be supported lowercase conventional types.");
+    if (bump !== "none" && bump !== "patch" && bump !== "minor")
+      return invalid("releaseBumps values must be none, patch, or minor.");
+    bumps[type] = bump;
+  }
+  return bumps;
+}
+
 export type ReleaseContextPolicy = "required" | "optional";
+
+export const RELEASE_LOG_REPOSITORY_ID = 1449550207;
+const releaseLogRepositories: ReadonlySet<string> = new Set([
+  "lhajoosten/release-log",
+  "lhajoosten/rolling-release",
+]);
+
+export function isReleaseLogRepositoryName(repository: string): boolean {
+  return releaseLogRepositories.has(repository);
+}
+
+function isReleaseLogRepository(repository: string, repositoryId: unknown): boolean {
+  return isReleaseLogRepositoryName(repository) && repositoryId === RELEASE_LOG_REPOSITORY_ID;
+}
+
+// Resolve the checked-in self-release config against GitHub’s current slug.
+export function resolveProviderConfiguration(
+  configuration: ReleaseInputConfiguration,
+  repository: string | undefined,
+  repositoryId: unknown,
+): ReleaseInputConfiguration {
+  if (
+    repository === undefined ||
+    !isReleaseLogRepository(repository, repositoryId) ||
+    !isReleaseLogRepository(configuration.repository, configuration.repositoryId)
+  )
+    return invalid("Self-release requires the trusted provider repository identity.");
+  return { ...configuration, repository };
+}
 
 export function isReleaseContextPolicy(value: unknown): value is ReleaseContextPolicy {
   return value === "required" || value === "optional";
@@ -32,11 +100,25 @@ export interface CandidateLandingPin {
   readonly changelogDigest: string;
 }
 
+export type PreviousSeriesLanding = Pick<
+  CandidateLandingPin,
+  "pullNumber" | "botUserId" | "headSha" | "landingSha"
+>;
+
+interface FreshSeriesConfiguration {
+  readonly id: string;
+  readonly previousVersion: string;
+  readonly previousChangelogSha256: string;
+  readonly previousLandings: readonly PreviousSeriesLanding[];
+}
+
 interface ReleaseRepositoryConfiguration {
   readonly repository: string;
   readonly repositoryId: number;
   readonly releaseBranch: string;
   readonly releasePolicy: "release-policy-v1";
+  readonly releaseBumps?: ReleaseBumpOverrides;
+  readonly freshSeries?: FreshSeriesConfiguration;
   readonly contextPolicy?: ReleaseContextPolicy;
   readonly selfUpgrade?: true;
   readonly githubRelease?: true;
@@ -73,6 +155,72 @@ export type ReleaseInputConfiguration = ReleaseRepositoryConfiguration &
       }
   );
 
+export function releaseProposalBranch(config: ReleaseInputConfiguration): string {
+  return config.freshSeries
+    ? `release-log-series/${config.freshSeries.id}/${config.releaseBranch}`
+    : `release-log/${config.releaseBranch}`;
+}
+
+export function isReservedReleaseBranch(
+  headRef: string,
+  releaseBranch: string,
+  freshSeries: boolean,
+): boolean {
+  return (
+    headRef === `release-log/${releaseBranch}` ||
+    (freshSeries && headRef.startsWith("release-log-series/"))
+  );
+}
+
+function parseFreshSeries(value: unknown): FreshSeriesConfiguration {
+  const series = object(
+    value,
+    ["id", "previousVersion", "previousChangelogSha256", "previousLandings"],
+    "freshSeries",
+  );
+  const id = text(series.id, "fresh series ID", 40);
+  const previousVersion = text(series.previousVersion, "previous manifest version", 128);
+  const previousChangelogSha256 = text(
+    series.previousChangelogSha256,
+    "previous changelog SHA-256",
+    64,
+  );
+  if (
+    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(id) ||
+    !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(previousVersion) ||
+    !/^[a-f0-9]{64}$/u.test(previousChangelogSha256)
+  )
+    return invalid(
+      "freshSeries requires a lowercase series ID, a stable previous version and a full changelog SHA-256.",
+    );
+  const previousLandings = array(series.previousLandings, 100, "previous series landings")
+    .map((entry) => {
+      const pin = object(
+        entry,
+        ["pullNumber", "botUserId", "headSha", "landingSha"],
+        "previous series landing",
+      );
+      return {
+        pullNumber: positive(pin.pullNumber, "previous series PR number"),
+        botUserId: positive(pin.botUserId, "previous series bot user ID"),
+        headSha: sha(pin.headSha),
+        landingSha: sha(pin.landingSha),
+      };
+    })
+    .toSorted((left, right) => left.pullNumber - right.pullNumber);
+  if (!previousLandings.length)
+    return invalid("freshSeries requires the reviewed old release landings.");
+  unique(
+    previousLandings.map((pin) => pin.pullNumber),
+    "previous series PR numbers",
+  );
+  unique(
+    previousLandings.map((pin) => pin.landingSha),
+    "previous series landing commits",
+  );
+  return { id, previousVersion, previousChangelogSha256, previousLandings };
+}
+
 export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConfiguration {
   const item = object(
     value,
@@ -82,6 +230,8 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
       "repositoryId",
       "releaseBranch",
       "releasePolicy",
+      ...(isObject(value) && Object.hasOwn(value, "freshSeries") ? ["freshSeries"] : []),
+      ...(isObject(value) && Object.hasOwn(value, "releaseBumps") ? ["releaseBumps"] : []),
       ...(isObject(value) && value.schemaVersion === 2 ? ["bootstrap"] : []),
       ...(isObject(value) && Object.hasOwn(value, "contextPolicy") ? ["contextPolicy"] : []),
       ...(isObject(value) && Object.hasOwn(value, "selfUpgrade") ? ["selfUpgrade"] : []),
@@ -127,9 +277,7 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
 
   if (
     Object.hasOwn(item, "selfUpgrade") &&
-    (item.selfUpgrade !== true ||
-      repository !== "lhajoosten/release-log" ||
-      item.repositoryId !== 1449550207)
+    (item.selfUpgrade !== true || !isReleaseLogRepository(repository, item.repositoryId))
   )
     return invalid("Self-upgrades require explicit trusted release-log repository identity.");
 
@@ -211,8 +359,10 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
           return { ...target, wrapBody: true } as const;
         }
         const subject = text(repair.subject, "replacement commit subject", 100);
-        if (subject.trim() !== subject || !/^docs: [^\r\n\0]+$/u.test(subject))
-          return invalid("A commit message repair requires a single non-breaking docs subject.");
+        if (subject.trim() !== subject || !/^(?:docs|ci): [^\r\n\0]+$/u.test(subject))
+          return invalid(
+            "A commit message repair requires a single non-breaking docs or ci subject.",
+          );
         return { ...target, subject };
       })
       .toSorted((left, right) =>
@@ -253,8 +403,7 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
   if (
     Object.hasOwn(item, "internalPublication") &&
     (item.internalPublication !== true ||
-      repository !== "lhajoosten/release-log" ||
-      item.repositoryId !== 1449550207 ||
+      !isReleaseLogRepository(repository, item.repositoryId) ||
       releaseBranch !== "main" ||
       item.selfUpgrade !== true ||
       item.githubRelease !== true ||
@@ -320,11 +469,31 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
     candidateStableNotes = text(item.candidateStableNotes, "verified stable notes", 60 * 1024);
   }
 
+  let freshSeries: FreshSeriesConfiguration | undefined;
+  if (Object.hasOwn(item, "freshSeries")) {
+    if (
+      item.schemaVersion !== 2 ||
+      isReleaseLogRepository(repository, item.repositoryId) ||
+      adoptedRelease !== undefined ||
+      automationExclusions !== undefined ||
+      item.selfUpgrade === true ||
+      item.internalPublication === true
+    )
+      return invalid(
+        "freshSeries requires consumer schema 2 with no adopted boundary, self-release or separate exclusion configuration.",
+      );
+    freshSeries = parseFreshSeries(item.freshSeries);
+  }
+
   const common: ReleaseRepositoryConfiguration = {
     repository,
     repositoryId: positive(item.repositoryId, "repository ID"),
     releaseBranch,
     releasePolicy: "release-policy-v1",
+    ...(freshSeries === undefined ? {} : { freshSeries }),
+    ...(Object.hasOwn(item, "releaseBumps")
+      ? { releaseBumps: parseReleaseBumps(item.releaseBumps) }
+      : {}),
     ...(contextPolicy === undefined ? {} : { contextPolicy }),
     ...(item.selfUpgrade === true ? { selfUpgrade: true } : {}),
     ...(item.githubRelease === true ? { githubRelease: true } : {}),

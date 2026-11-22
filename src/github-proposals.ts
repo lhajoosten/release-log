@@ -2,8 +2,10 @@ import { createHash } from "node:crypto";
 import { GitHubReadError, requestGitHubJson } from "./github.ts";
 import type { GitHubRead } from "./github.ts";
 import { isCargoManifest, isProposalPath, isRootLockPath } from "./proposal-paths.ts";
-import { readReleaseContents } from "./version-file-inputs.ts";
+import { readReleaseContents, trackedReleaseInput } from "./version-file-inputs.ts";
+import type { ReleaseTreeEntry } from "./version-file-inputs.ts";
 import type { ProposalFile, ReleaseFileContents } from "./proposal/prepare.ts";
+import { releaseProposalBranch } from "./config/repository.ts";
 import type { ReleaseInputConfiguration } from "./config/repository.ts";
 import { ProposalConflictError, proposalObject } from "./evidence/proposal.ts";
 
@@ -14,17 +16,12 @@ export function proposalSha(value: unknown): string {
     throw new ProposalConflictError("GitHub returned an invalid immutable object ID.");
   return value;
 }
-interface TreeEntry {
-  readonly sha: string;
-  readonly mode: string;
-  readonly type: string;
-}
 export interface ProposalTree {
   readonly commitSha: string;
   readonly treeSha: string;
   readonly message: string;
   readonly parents: readonly string[];
-  readonly entries: ReadonlyMap<string, TreeEntry>;
+  readonly entries: ReadonlyMap<string, ReleaseTreeEntry>;
 }
 export interface ProposalPullRequest {
   readonly number: number;
@@ -39,6 +36,40 @@ export interface ProposalPullRequest {
 
 export interface RepositoryEvidenceReader {
   request(path: string): Promise<{ data: unknown; next: boolean }>;
+}
+
+function readBlobEvidence(value: unknown, sha: string): { content: string; size: number } {
+  const blob = proposalObject(value);
+  if (
+    blob.sha !== sha ||
+    blob.encoding !== "base64" ||
+    typeof blob.content !== "string" ||
+    typeof blob.size !== "number" ||
+    blob.size > 2 * 1024 * 1024
+  )
+    throw new ProposalConflictError(
+      "Controller input files require complete base64 blobs no larger than 2 MiB.",
+    );
+  return { content: blob.content, size: blob.size };
+}
+
+function decodeBlobText(content: string, size: number, sha: string): string {
+  const compact = content.replaceAll("\n", "");
+  const bytes = Buffer.from(compact, "base64");
+  const text = bytes.toString("utf8");
+  if (
+    bytes.length !== size ||
+    bytes.toString("base64") !== compact ||
+    !Buffer.from(text).equals(bytes)
+  )
+    throw new ProposalConflictError("Controller input blobs must be complete UTF-8 text.");
+  const actualSha = createHash(sha.length === 40 ? "sha1" : "sha256")
+    .update(`blob ${bytes.length}\0`)
+    .update(bytes)
+    .digest("hex");
+  if (actualSha !== sha)
+    throw new ProposalConflictError("GitHub blob bytes disagree with their immutable object ID.");
+  return text;
 }
 
 export class GitHubProposalRepository implements RepositoryEvidenceReader {
@@ -66,7 +97,7 @@ export class GitHubProposalRepository implements RepositoryEvidenceReader {
     this.token = token;
     this.transport = transport;
     this.signal = typeof deadline === "number" ? AbortSignal.timeout(deadline) : deadline;
-    this.headRef = `release-log/${config.releaseBranch}`;
+    this.headRef = releaseProposalBranch(config);
     this.prefix = `https://api.github.com/repos/${config.repository}`;
   }
   async request(
@@ -142,7 +173,7 @@ export class GitHubProposalRepository implements RepositoryEvidenceReader {
       throw new ProposalConflictError(
         "A complete bounded Git tree is required; truncated or oversized trees cannot be updated.",
       );
-    const entries = new Map<string, TreeEntry>();
+    const entries = new Map<string, ReleaseTreeEntry>();
     for (const raw of data.tree) {
       const item = proposalObject(raw);
       if (
@@ -167,64 +198,15 @@ export class GitHubProposalRepository implements RepositoryEvidenceReader {
   }
   async contents(tree: ProposalTree): Promise<ReleaseFileContents> {
     const get = async (path: string): Promise<string | null> => {
-      if (path.startsWith(".github/"))
-        for (const directory of [".github", ".github/workflows"]) {
-          const entry = tree.entries.get(directory);
-          if (entry && (entry.type !== "tree" || entry.mode !== "040000"))
-            throw new ProposalConflictError("Workflow directories must be ordinary Git trees.");
-        }
-      if (isCargoManifest(path)) {
-        const parts = path.split("/");
-        for (let count = 1; count < parts.length; count++) {
-          const parent = tree.entries.get(parts.slice(0, count).join("/"));
-          if (parent && (parent.type !== "tree" || parent.mode !== "040000"))
-            throw new ProposalConflictError("Cargo member directories must be ordinary Git trees.");
-        }
-      }
-      const parent = tree.entries.get(".release-log");
-      if (
-        path.startsWith(".release-log/") &&
-        parent &&
-        (parent.type !== "tree" || parent.mode !== "040000")
-      )
-        throw new ProposalConflictError(
-          "The snapshot directory must not be a symlink or submodule.",
-        );
-      const entry = tree.entries.get(path);
+      const entry = trackedReleaseInput(
+        tree.entries,
+        path,
+        (message) => new ProposalConflictError(message),
+      );
       if (!entry) return null;
-      if (entry.type !== "blob" || !["100644", "100755"].includes(entry.mode))
-        throw new ProposalConflictError(
-          "Proposal inputs must be ordinary tracked files, not symlinks or submodules.",
-        );
-      const blob = proposalObject((await this.request(`/git/blobs/${entry.sha}`)).data);
-      if (
-        blob.sha !== entry.sha ||
-        blob.encoding !== "base64" ||
-        typeof blob.content !== "string" ||
-        typeof blob.size !== "number" ||
-        blob.size > 2 * 1024 * 1024
-      )
-        throw new ProposalConflictError(
-          "Controller input files require complete base64 blobs no larger than 2 MiB.",
-        );
-      const compact = blob.content.replaceAll("\n", "");
-      const bytes = Buffer.from(compact, "base64");
-      const text = bytes.toString("utf8");
-      if (
-        bytes.length !== blob.size ||
-        bytes.toString("base64") !== compact ||
-        !Buffer.from(text).equals(bytes)
-      )
-        throw new ProposalConflictError("Controller input blobs must be complete UTF-8 text.");
-      const actualSha = createHash(entry.sha.length === 40 ? "sha1" : "sha256")
-        .update(`blob ${bytes.length}\0`)
-        .update(bytes)
-        .digest("hex");
-      if (actualSha !== entry.sha)
-        throw new ProposalConflictError(
-          "GitHub blob bytes disagree with their immutable object ID.",
-        );
-      return text;
+      const { data } = await this.request(`/git/blobs/${entry.sha}`);
+      const { content, size } = readBlobEvidence(data, entry.sha);
+      return decodeBlobText(content, size, entry.sha);
     };
     return readReleaseContents(get, this.config.selfUpgrade);
   }

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import { join } from "node:path";
@@ -7,21 +8,38 @@ import { parse } from "yaml";
 import { inspectCommit, inspectPendingRelease } from "../src/git.ts";
 import type { GitHubRead } from "../src/github.ts";
 import { collectMergedPullRequests } from "../src/github-association.ts";
+import { reconcileReleaseProposal } from "../src/release-proposal.ts";
 import { createReleasePlan } from "../src/release-plan.ts";
 import { preflightRelease } from "../src/release-preflight.ts";
 import { rollRelease } from "../src/release-roll.ts";
 import type { ReleaseRollRequest } from "../src/release-roll.ts";
 import {
   captureReleaseSnapshot,
+  parseReleaseInputConfiguration,
   replayReleaseSnapshot,
   serializeReleaseSnapshot,
 } from "../src/release-snapshot.ts";
 import { fixture, json, object, text } from "./proposal-fixture.ts";
 
-async function lifecycle(context: TestContext, bootstrapCommit = false) {
-  const f = await fixture(context, "node", "feat(api): export rows", {
-    bootstrap: true,
-    adoption: true,
+function historicalPull(raw: Record<string, unknown>) {
+  return {
+    ...raw,
+    id: Number(raw.number) + 20,
+    commits: 1,
+    merged: true,
+    updated_at: "2026-11-14T12:00:00Z",
+    base: { ...object(raw.base), repo: { id: 17, full_name: "example/project" } },
+  };
+}
+
+async function lifecycle(
+  context: TestContext,
+  bootstrapCommit = false,
+  established?: "node-npm" | "cargo-workspace",
+) {
+  const f = await fixture(context, established ?? "node", "feat(api): export rows", {
+    bootstrap: !established,
+    adoption: !established,
     bootstrapCommit,
   });
   const inputs = await f.request();
@@ -76,6 +94,9 @@ async function lifecycle(context: TestContext, bootstrapCommit = false) {
       collectionCalls.push(path);
       const stack = stackedLinks.get(association[1] ?? "");
       if (stack) return json(stack.map((number) => stackedPulls.get(number)));
+      const released =
+        established && f.pulls.find((pull) => pull.merge_commit_sha === association[1]);
+      if (released) return json([historicalPull(released)]);
       return json(
         f.changes.flatMap((change, index) =>
           change.sha === association[1] ? [ordinary(index)] : [],
@@ -83,6 +104,10 @@ async function lifecycle(context: TestContext, bootstrapCommit = false) {
       );
     }
     const detail = /^\/pulls\/(\d+)(\/commits)?$/u.exec(path);
+    const released =
+      established &&
+      f.pulls.find((pull) => pull.number === Number(detail?.[1]) && pull.state === "closed");
+    if (detail?.[2] && released) return json(await commits([text(object(released.head).sha)]));
     const stacked = stackedPulls.get(Number(detail?.[1]));
     if (detail && stacked) {
       collectionCalls.push(path);
@@ -126,6 +151,7 @@ async function lifecycle(context: TestContext, bootstrapCommit = false) {
       const original = f.pulls.find((pull) => pull.number === data.number);
       return {
         ...data,
+        ...(established && original?.state === "closed" ? historicalPull(original) : {}),
         ...(data.state === "closed" && original ? { head: original.head } : {}),
         merged: data.merged_at !== null,
         base: { ...object(data.base), repo: { id: 17, full_name: "example/project" } },
@@ -159,10 +185,16 @@ async function lifecycle(context: TestContext, bootstrapCommit = false) {
       write: true,
     };
   }
-  async function merge(kind: "merge" | "squash") {
-    const head = f.ref("heads/release-log/main");
+  async function merge(kind: "merge" | "squash", branch = "release-log/main") {
+    const head = f.ref(`heads/${branch}`);
     const source = f.ref("heads/main");
     assert.ok(head && source);
+    const pull = f.pulls.at(-1);
+    assert.ok(pull);
+    const message =
+      kind === "squash"
+        ? `${text(pull.title)} (#${Number(pull.number)})\n`
+        : "chore: merge generated release\n";
     const landing = f
       .git(
         [
@@ -172,12 +204,10 @@ async function lifecycle(context: TestContext, bootstrapCommit = false) {
           source,
           ...(kind === "merge" ? ["-p", head] : []),
         ],
-        "chore: merge generated release\n",
+        message,
       )
       .trim();
     f.git(["update-ref", "refs/heads/main", landing, source]);
-    const pull = f.pulls.at(-1);
-    assert.ok(pull);
     Object.assign(pull, {
       state: "closed",
       merged: true,
@@ -940,7 +970,7 @@ void test("initialization proposes the exact legacy setup cutoff and agrees with
   assert.ok("workflow_dispatch" in object(caller.on));
   assert.equal(
     job.uses,
-    `lhajoosten/release-log/.github/workflows/rolling-release.yml@${inputs.producerSha}`,
+    `lhajoosten/rolling-release/.github/workflows/rolling-release.yml@${inputs.producerSha}`,
   );
   assert.equal(parameters["tool-sha"], inputs.producerSha);
   assert.equal(parameters.write, false);
@@ -1079,3 +1109,209 @@ void test("initialization reports missing and candidate version files, ancestry 
   assert.equal(f.ref("heads/release-log/main"), null);
   assert.equal(f.git(["status", "--porcelain"]), "");
 });
+
+for (const mode of ["node-npm", "cargo-workspace"] as const) {
+  void test(`a fresh ${mode} series rehearses, isolates a pending legacy proposal, then rolls from its own exact tag`, async (context) => {
+    const s = await lifecycle(context, false, mode);
+    const prior = await reconcileReleaseProposal(await s.f.request(true), s.f.transport);
+    assert.equal(prior.outcome, "created");
+    const legacy = await s.merge("squash");
+    const legacyTag = await rollRelease({ ...s.request(), event: legacy.event }, s.transport);
+    assert.equal(legacyTag.route, "tag");
+    assert.equal(s.f.ref("tags/v1.3.0"), legacy.landing);
+
+    await s.f.advance("fix(api): keep selection state");
+    const pending = await rollRelease(s.request(), s.transport);
+    assert.equal(pending.route, "proposal");
+    assert.equal(s.f.pulls.length, 2);
+    const legacyPendingHead = s.f.ref("heads/release-log/main");
+    const legacyPending = structuredClone(s.f.pulls[1]);
+    const oldChangelog = s.f.git(["show", "HEAD:CHANGELOG.md"]);
+    const oldSnapshot = s.f.git(["show", "HEAD:.release-log/inputs.json"]);
+
+    const request = s.request();
+    const configuration = parseReleaseInputConfiguration({
+      ...request.configuration,
+      schemaVersion: 2,
+      bootstrap: { baselineSha: s.f.baseline, onboardingSha: legacy.landing },
+      releaseBumps: { ci: "patch" },
+      freshSeries: {
+        id: "restart",
+        previousVersion: "1.3.0",
+        previousChangelogSha256: createHash("sha256").update(oldChangelog).digest("hex"),
+        previousLandings: [
+          {
+            pullNumber: 1,
+            botUserId: request.automation.botUserId,
+            headSha: legacy.head,
+            landingSha: legacy.landing,
+          },
+        ],
+      },
+    });
+    let existingRelease = false;
+    s.f.intercept((method, path) => {
+      if (method !== "GET") return null;
+      if (path === "/tags")
+        return json(
+          s.f
+            .git(["tag", "--list"])
+            .trim()
+            .split("\n")
+            .filter(Boolean)
+            .map((name) => ({ name })),
+        );
+      if (path === "/releases") return json(existingRelease ? [{ tag_name: "v1.3.0" }] : []);
+      return null;
+    });
+
+    const reset = { ...request, configuration };
+    const readOnly = (from: number) =>
+      assert.ok(s.f.calls.slice(from).every(({ method }) => method === "GET"));
+    const beforeBlocked = s.f.calls.length;
+    await assert.rejects(
+      rollRelease({ ...reset, event: legacy.event }, s.transport),
+      /configured bot\/repository\/branches/u,
+    );
+    await assert.rejects(rollRelease(reset, s.transport), /existing stable tag/u);
+    readOnly(beforeBlocked);
+    s.f.git(["tag", "-d", "v1.2.3", "v1.3.0"]);
+    existingRelease = true;
+    await assert.rejects(rollRelease(reset, s.transport), /empty GitHub Release listing/u);
+    readOnly(beforeBlocked);
+    existingRelease = false;
+
+    const badChangelog = {
+      ...configuration,
+      freshSeries: { ...configuration.freshSeries, previousChangelogSha256: "0".repeat(64) },
+    };
+    await assert.rejects(
+      rollRelease(
+        { ...reset, configuration: parseReleaseInputConfiguration(badChangelog) },
+        s.transport,
+      ),
+      /reviewed freshSeries SHA-256/u,
+    );
+    const wrongLanding = {
+      ...configuration,
+      freshSeries: {
+        ...configuration.freshSeries,
+        previousLandings: [
+          {
+            pullNumber: 1,
+            botUserId: request.automation.botUserId,
+            headSha: s.f.baseline,
+            landingSha: legacy.landing,
+          },
+        ],
+      },
+    };
+    await assert.rejects(
+      rollRelease(
+        { ...reset, configuration: parseReleaseInputConfiguration(wrongLanding) },
+        s.transport,
+      ),
+      /automation branch/u,
+    );
+    readOnly(beforeBlocked);
+
+    const sourceSha = s.f.ref("heads/main");
+    assert.ok(sourceSha);
+    const report = await preflightRelease(
+      {
+        configuration,
+        repository: s.f.directory,
+        sourceSha,
+        producerSha: "a".repeat(40),
+        initialVersion: "0.1.0",
+        token: request.token,
+      },
+      s.transport,
+    );
+    assert.equal(report.findings.history?.status, "passed");
+    assert.equal(report.findings.preparation?.status, "passed");
+    const preview = await rollRelease({ ...reset, write: false }, s.transport);
+    assert.equal(preview.route, "proposal");
+    if (preview.route === "proposal") assert.equal(preview.result.outcome, "would-create");
+    readOnly(beforeBlocked);
+    assert.equal(s.f.ref("heads/release-log-series/restart/main"), null);
+
+    const first = await rollRelease(reset, s.transport);
+    assert.equal(first.route, "proposal");
+    if (first.route !== "proposal") throw new Error("Expected a proposal");
+    assert.equal(first.result.outcome, "created");
+    assert.equal(first.result.pullNumber, 3);
+    assert.equal(first.result.branch, "release-log-series/restart/main");
+    assert.equal(s.f.ref("heads/release-log/main"), legacyPendingHead);
+    assert.deepEqual(s.f.pulls[1], legacyPending);
+
+    const head = first.result.headSha;
+    assert.ok(head);
+    const changelog = s.f.git(["show", `${head}:CHANGELOG.md`]);
+    assert.match(changelog, /^## v0\.1\.0 /mu);
+    assert.doesNotMatch(changelog, /^## v1\.3\.0 /mu);
+    assert.match(changelog, /pull\/101/u);
+    assert.match(changelog, /pull\/102/u);
+    assert.doesNotMatch(changelog, /pull\/1\b/u);
+    if (mode === "node-npm") {
+      assert.match(s.f.git(["show", `${head}:package.json`]), /"version": "0\.1\.0"/u);
+      assert.match(
+        s.f.git(["show", `${head}:package-lock.json`]),
+        /"version": "0\.1\.0".*"version": "0\.1\.0"/u,
+      );
+    } else {
+      assert.match(s.f.git(["show", `${head}:Cargo.toml`]), /version = "0\.1\.0"/u);
+      assert.equal(
+        s.f.git(["show", `${head}:Cargo.lock`]).match(/version = "0\.1\.0"/gu)?.length,
+        2,
+      );
+      assert.match(
+        s.f.git(["show", `${head}:crates/upkeep-cli/Cargo.toml`]),
+        /version = "~0\.1\.0"/u,
+      );
+    }
+    const capture = await replayReleaseSnapshot(
+      s.f.git(["show", `${head}:.release-log/inputs.json`]),
+      configuration,
+    );
+    assert.deepEqual(
+      capture.normalized.excludedPullRequests?.map(({ number }) => number),
+      [1],
+    );
+    assert.equal(
+      await serializeReleaseSnapshot(
+        await replayReleaseSnapshot(oldSnapshot, request.configuration),
+      ),
+      oldSnapshot,
+    );
+    await assert.rejects(replayReleaseSnapshot(oldSnapshot, configuration), {
+      code: "configuration-mismatch",
+    });
+
+    const landing = await s.merge("squash", first.result.branch);
+    existingRelease = true;
+    const beforeTag = s.f.calls.length;
+    await assert.rejects(
+      rollRelease({ ...reset, event: landing.event }, s.transport),
+      /empty GitHub Release listing/u,
+    );
+    readOnly(beforeTag);
+    assert.equal(s.f.ref("tags/v0.1.0"), null);
+    existingRelease = false;
+    const tag = await rollRelease({ ...reset, event: landing.event }, s.transport);
+    assert.equal(tag.route, "tag");
+    assert.equal(s.f.ref("tags/v0.1.0"), landing.landing);
+    assert.equal(s.f.ref("tags/v1.3.0"), null);
+
+    await s.f.advance("ci(tooling): update runners");
+    const second = await rollRelease({ ...s.request(), configuration }, s.transport);
+    assert.equal(second.route, "proposal");
+    if (second.route !== "proposal") throw new Error("Expected the next proposal");
+    assert.equal(second.result.outcome, "created");
+    assert.equal(second.result.baselineSha, landing.landing);
+    const next = s.f.git(["show", `${second.result.headSha}:CHANGELOG.md`]);
+    assert.match(next, /^## v0\.1\.1 /mu);
+    assert.match(next, /^## v0\.1\.0 /mu);
+    assert.doesNotMatch(next, /^## v1\.3\.0 /mu);
+  });
+}

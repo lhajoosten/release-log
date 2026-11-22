@@ -184,6 +184,27 @@ void test("capture matches a hand-written normalized golden and retains raw asso
   assert.match(snapshot.tool.normalizerId, /^[a-f0-9]{64}$/u);
 });
 
+void test("legacy captures retain ordinary bot branches under the opt-in series namespace", async () => {
+  const source = {
+    ...input(),
+    pullRequests: [
+      {
+        ...entry(),
+        authorType: "Bot",
+        headRepositoryId: config.repositoryId,
+        headRef: "release-log-series/ordinary/main",
+      },
+    ],
+  };
+  const snapshot = await captureReleaseSnapshot(source, config);
+  const serialized = await serializeReleaseSnapshot(snapshot);
+  assert.equal(snapshot.normalized.pullRequests.length, 1);
+  assert.equal(
+    await serializeReleaseSnapshot(await replayReleaseSnapshot(serialized, config)),
+    serialized,
+  );
+});
+
 void test("a reviewed documentation subject repair preserves raw Git evidence and replays", async () => {
   const bootstrap = input();
   const source = {
@@ -221,6 +242,23 @@ void test("a reviewed documentation subject repair preserves raw Git evidence an
     currentVersion: "0.2.0",
   });
   assert.equal(plan.release, false);
+
+  const ciConfiguration = {
+    ...selected,
+    commitMessageRepairs: [{ ...repair, subject: "ci: verify the README header" }],
+  };
+  const ciSnapshot = await captureReleaseSnapshot(source, ciConfiguration);
+  const ciSerialized = await serializeReleaseSnapshot(ciSnapshot);
+  assert.deepEqual(await replayReleaseSnapshot(ciSerialized, ciConfiguration), ciSnapshot);
+  assert.equal(
+    (
+      await createReleasePlan(ciSerialized, ciConfiguration, {
+        kind: "released",
+        currentVersion: "0.2.0",
+      })
+    ).release,
+    false,
+  );
   await assert.rejects(
     captureReleaseSnapshot(source, {
       ...selected,

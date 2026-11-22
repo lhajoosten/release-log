@@ -19,6 +19,7 @@ import {
   readTagTarget,
   requireBaselineUnchanged,
   requireLandingOnCurrentMain,
+  requireUnusedReleaseVersions,
 } from "./evidence.ts";
 import type { ReleaseTagRequest, ReleaseTagResult } from "./types.ts";
 
@@ -81,7 +82,13 @@ async function verifyLanding(
       "The supplied landing SHA differs from the merged release pull request.",
     );
 
-  const verified = await verifyPrevious(api, pull, configuration, automation.botUserId);
+  const verified = await verifyPrevious(
+    api,
+    pull,
+    configuration,
+    automation.botUserId,
+    "tagged-history",
+  );
   const sourceSha = verified.source.commitSha;
   const proposalHeadSha = verified.head.commitSha;
   const landing = await api.tree(landingSha);
@@ -104,6 +111,11 @@ async function verifyLanding(
   await requireLandingOnCurrentMain(api, configuration, landingSha);
 
   const captured = verified.snapshot.configuration;
+  const historicalBumps = !isDeepStrictEqual(captured.releaseBumps, configuration.releaseBumps);
+  if (historicalBumps && (await readTagTarget(api, `v${verified.nextVersion}`)) !== landingSha)
+    throw new ProposalConflictError(
+      "A changed releaseBumps policy requires the original release tag at the verified landing. Finish the pending release with its original configuration.",
+    );
   if (captured.candidateStableNotes !== undefined) {
     if (baseline.kind !== "tag")
       throw new ProposalConflictError("Stable notes recovery requires a verified stable tag.");
@@ -115,6 +127,12 @@ async function verifyLanding(
       throw new ProposalConflictError("Recovered stable notes differ from the verified baseline.");
   }
   if (captured.candidateLandings) {
+    // A verified stable landing pins the candidate chain produced under its policy.
+    const { releaseBumps: _releaseBumps, ...current } = configuration;
+    const candidateConfiguration =
+      captured.releaseBumps === undefined
+        ? current
+        : { ...current, releaseBumps: captured.releaseBumps };
     let previous = baseline.commitSha;
     for (const pin of captured.candidateLandings) {
       const earlierPull = await api.readPull(pin.pullNumber);
@@ -137,7 +155,7 @@ async function verifyLanding(
         const earlier = await verifyPrevious(
           history,
           earlierPull,
-          configuration,
+          candidateConfiguration,
           automation.botUserId,
         );
         const earlierLanding = await history.tree(pin.landingSha);
@@ -171,7 +189,17 @@ async function verifyLanding(
     pin: candidateLandingPin(pull, landingSha, verified),
   });
 
-  return { api, configuration, verified, baseline, pull, landingSha, pullNumber, write };
+  return {
+    api,
+    configuration,
+    verified,
+    baseline,
+    pull,
+    landingSha,
+    pullNumber,
+    write,
+    historicalBumps,
+  };
 }
 
 export async function reconcileReleaseTag(
@@ -179,8 +207,17 @@ export async function reconcileReleaseTag(
   transport: GitHubRead = fetch,
   beforePublication?: () => Promise<void>,
 ): Promise<ReleaseTagResult> {
-  const { api, configuration, verified, baseline, pull, landingSha, pullNumber, write } =
-    await verifyReleaseLanding(request, transport);
+  const {
+    api,
+    configuration,
+    verified,
+    baseline,
+    pull,
+    landingSha,
+    pullNumber,
+    write,
+    historicalBumps,
+  } = await verifyReleaseLanding(request, transport);
   if (configuration.internalPublication && write && !beforePublication)
     throw new ProposalConflictError(
       "Internal stable publication requires the container publisher.",
@@ -196,7 +233,7 @@ export async function reconcileReleaseTag(
       tag,
       landingSha,
       taggedReleaseNotes(verified.changelog, verified.nextVersion),
-      write,
+      write && !historicalBumps,
       async () => {
         if (
           !samePull(pull, await api.readPull(pullNumber)) ||
@@ -211,6 +248,10 @@ export async function reconcileReleaseTag(
       },
       configuration.internalPublication === true,
     );
+    if (historicalBumps && write && release.outcome === "would-create")
+      throw new ProposalConflictError(
+        "Finish the pending GitHub Release with its original releaseBumps configuration.",
+      );
     return { ...result, release };
   };
   const existingTarget = await readTagTarget(api, tag);
@@ -222,7 +263,13 @@ export async function reconcileReleaseTag(
     return finish("unchanged");
   }
 
-  if (!write) return finish("would-create");
+  if (historicalBumps)
+    throw new ProposalConflictError("The historical release tag disappeared during verification.");
+  const freshBootstrap = configuration.freshSeries !== undefined && baseline.kind === "bootstrap";
+  if (!write) {
+    if (freshBootstrap) await requireUnusedReleaseVersions(api);
+    return finish("would-create");
+  }
 
   const currentPull = await api.readPull(pullNumber);
   if (!samePull(pull, currentPull))
@@ -241,6 +288,7 @@ export async function reconcileReleaseTag(
     return finish("unchanged");
   }
 
+  if (freshBootstrap) await requireUnusedReleaseVersions(api);
   await beforePublication?.();
   const created = proposalObject(
     (

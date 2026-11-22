@@ -91,6 +91,7 @@ function pullEvidence(value: unknown, presentation: boolean): AssociatedPullRequ
       "url",
       "landingKind",
       ...(isObject(value) && Object.hasOwn(value, "stackBase") ? ["stackBase"] : []),
+      ...(isObject(value) && Object.hasOwn(value, "squashStack") ? ["squashStack"] : []),
       "originalCommits",
       "landedCommits",
     ],
@@ -123,6 +124,14 @@ function pullEvidence(value: unknown, presentation: boolean): AssociatedPullRequ
   const stackBase = Object.hasOwn(item, "stackBase")
     ? object(item.stackBase, ["ref", "sha"], "stack base")
     : undefined;
+  const squashStack = Object.hasOwn(item, "squashStack")
+    ? object(
+        item.squashStack,
+        ["base", "originalBaseTree", "originalHeadTree", "landedBaseTree", "landedHeadTree"],
+        "stack squash evidence",
+      )
+    : undefined;
+  const squashBase = squashStack && object(squashStack.base, ["ref", "sha"], "stack squash base");
   return {
     number: positive(item.number, "PR number"),
     id: positive(item.id, "PR ID"),
@@ -149,6 +158,20 @@ function pullEvidence(value: unknown, presentation: boolean): AssociatedPullRequ
     landingKind: item.landingKind,
     ...(stackBase
       ? { stackBase: { ref: text(stackBase.ref, "stack base ref", 1024), sha: sha(stackBase.sha) } }
+      : {}),
+    ...(squashStack && squashBase
+      ? {
+          squashStack: {
+            base: {
+              ref: text(squashBase.ref, "stack squash base ref", 1024),
+              sha: sha(squashBase.sha),
+            },
+            originalBaseTree: sha(squashStack.originalBaseTree),
+            originalHeadTree: sha(squashStack.originalHeadTree),
+            landedBaseTree: sha(squashStack.landedBaseTree),
+            landedHeadTree: sha(squashStack.landedHeadTree),
+          },
+        }
       : {}),
     originalCommits,
     landedCommits,
@@ -260,6 +283,9 @@ export function association(
     ...(verifiedAutomation === undefined ? {} : { verifiedAutomation }),
   };
   const historical = onboardingCommits(captured, config);
+
+  if (pullRequests.some((pull) => pull.squashStack && historical.has(pull.mergeCommitSha)))
+    return invalid("Stack squash evidence cannot reattribute reviewed onboarding history.");
 
   if (
     config.schemaVersion === 2 &&
