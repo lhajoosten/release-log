@@ -19,7 +19,7 @@ Keep a version 2 configuration on the trusted release branch, reviewed independe
   "repository": "example/project",
   "repositoryId": 17,
   "releaseBranch": "main",
-  "releasePolicy": "release-policy-v1",
+  "releasePolicy": "release-policy-v2",
   "bootstrap": {
     "baselineSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "onboardingSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"

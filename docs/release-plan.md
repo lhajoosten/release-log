@@ -1,6 +1,6 @@
 # Release version planning
 
-`createReleasePlan(serializedSnapshot, expectedConfiguration, versionConfiguration)` in `src/release-plan.ts` replays and revalidates a [snapshot](release-snapshot.md), then applies [release-policy-v1](release-policy.md). It does not read Git, access the network, write files, or publish a release.
+`createReleasePlan(serializedSnapshot, expectedConfiguration, versionConfiguration)` in `src/release-plan.ts` replays and revalidates a [snapshot](release-snapshot.md), then applies the [captured release policy](release-policy.md#version-calculation). It does not read Git, access the network, write files, or publish a release.
 
 Version configuration is exactly one of:
 
@@ -21,8 +21,8 @@ Released mode requires the captured baseline tag to be exactly `v` plus the curr
 The schema version 3 result contains the policy revision, snapshot/baseline/source identities, resolved version configuration, current and next versions, release flag, chosen bump, and ordered per-PR `contributions` with number, URL, type, scope, breaking status, and required bump. Separate `bootstrapContributions` retain real commit SHA/URL, authored type, nullable scope, breaking status and required bump; they never have fabricated PR numbers or context. The array is empty for tagged releases. `onboardingSha` identifies an initial-adoption cutoff (null for established cycles). `historicalContributions` retain real source identities, breaking flags and readiness warnings without fabricated types or required bumps. Readers of version 1/2 plans must explicitly adopt the new format.
 
 - Breaking changes require major at 1.x or later, minor below 1.0.0.
-- Nonbreaking `feat` requires minor; `fix`, `perf`, and `revert` require patch.
-- Other accepted conventional types require no bump unless breaking.
+- By default, nonbreaking `feat` requires minor. In v2, `fix`, `perf`, `revert`, `build`, `chore`, `ci`, and `refactor` require patch, while `docs`, `style`, and `test` carry forward.
+- The captured policy revision and any `releaseBumps` overrides determine nonbreaking contributions.
 - A batch increments once by its highest requirement. PR titles classify entries; authored commit types do not create extra entries or override the PR type. Commit breaking evidence is retained and must agree with title/readiness rules.
 - Audience does not change the version decision. Internal features and fixes still release.
 - Explicit version-2 initial adoption proposes exactly `0.1.0` from the captured application tree, regardless of historical feature/fix labels or modern metadata readiness. Historical review/breaking warnings remain visible; no additional bump is applied. The strict lower-level version-1 bootstrap path retains its older type-based no-release behavior.

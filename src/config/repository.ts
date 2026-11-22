@@ -9,7 +9,7 @@ import {
   unique,
 } from "../evidence/schema.ts";
 
-export const defaultReleaseBumps = {
+const legacyReleaseBumps = {
   build: "none",
   chore: "none",
   ci: "none",
@@ -23,9 +23,24 @@ export const defaultReleaseBumps = {
   test: "none",
 } as const;
 
+export const defaultReleaseBumps = {
+  ...legacyReleaseBumps,
+  build: "patch",
+  chore: "patch",
+  ci: "patch",
+  refactor: "patch",
+} as const;
+
+export const defaultReleasePolicy = "release-policy-v2";
+export type ReleasePolicy = "release-policy-v1" | typeof defaultReleasePolicy;
+
 type ConventionalType = keyof typeof defaultReleaseBumps;
 type NonbreakingBump = (typeof defaultReleaseBumps)[ConventionalType];
 type ReleaseBumpOverrides = Readonly<Partial<Record<ConventionalType, NonbreakingBump>>>;
+
+export function releaseBumpDefaults(policy: ReleasePolicy) {
+  return policy === "release-policy-v1" ? legacyReleaseBumps : defaultReleaseBumps;
+}
 
 export function isReleaseBumpType(value: string): value is ConventionalType {
   return Object.hasOwn(defaultReleaseBumps, value);
@@ -116,7 +131,7 @@ interface ReleaseRepositoryConfiguration {
   readonly repository: string;
   readonly repositoryId: number;
   readonly releaseBranch: string;
-  readonly releasePolicy: "release-policy-v1";
+  readonly releasePolicy: ReleasePolicy;
   readonly releaseBumps?: ReleaseBumpOverrides;
   readonly freshSeries?: FreshSeriesConfiguration;
   readonly contextPolicy?: ReleaseContextPolicy;
@@ -261,7 +276,7 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
 
   if (
     (item.schemaVersion !== 1 && item.schemaVersion !== 2) ||
-    item.releasePolicy !== "release-policy-v1"
+    (item.releasePolicy !== "release-policy-v1" && item.releasePolicy !== defaultReleasePolicy)
   )
     return invalid("Unsupported release configuration schema or policy revision.");
   if (
@@ -489,7 +504,7 @@ export function parseReleaseInputConfiguration(value: unknown): ReleaseInputConf
     repository,
     repositoryId: positive(item.repositoryId, "repository ID"),
     releaseBranch,
-    releasePolicy: "release-policy-v1",
+    releasePolicy: item.releasePolicy,
     ...(freshSeries === undefined ? {} : { freshSeries }),
     ...(Object.hasOwn(item, "releaseBumps")
       ? { releaseBumps: parseReleaseBumps(item.releaseBumps) }

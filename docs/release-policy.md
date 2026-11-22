@@ -70,7 +70,7 @@ API collection must be explicit and bounded, with complete pagination or failure
 
 A shared GitHub landing SHA can represent a same-repository stack. The PR targeting the release branch starts the chain. Each subsequent PR targets the preceding PR's head branch and names its captured head SHA as the base. The actual two-parent landing must be on the release branch's first-parent history at the captured source. Its first parent must match the release-branch PR's captured base and its second parent must match the final PR's head. Each PR's complete commit list must match its part of the Git graph. The shared landing belongs to the release-branch PR, and other structural merges belong to the PR whose footprint introduced them. Missing or competing claims and stacks split by the captured baseline block capture.
 
-Each verified PR contributes its own conventional title, release context, and owned commits. An inner fix or feature contributes its normal patch or minor bump even when the release-branch PR is a refactor. An explicit breaking commit must agree with its owning PR's breaking title, and every breaking PR must supply its own `required_action`. An all-nonbreaking refactor stack leaves the release tag in place. Its changes appear in the next releasable batch from that tag.
+Each verified PR contributes its own conventional title, release context, and owned commits. An inner fix or feature contributes its normal patch or minor bump even when the release-branch PR is a refactor. An explicit breaking commit must agree with its owning PR's breaking title, and every breaking PR must supply its own `required_action`. An all-nonbreaking refactor stack can start a patch proposal under the current default.
 
 Shared landings use the same ownership checks in tagged cycles and during bootstrap. In a configured initial adoption, a stack member can use historical metadata handling when all of its owned landed commits are within the fixed onboarding history. See [issue #119](https://github.com/lhajoosten/release-log/issues/119) and [issue #141](https://github.com/lhajoosten/release-log/issues/141).
 
@@ -87,24 +87,26 @@ Shared landings use the same ownership checks in tagged cycles and during bootst
 
 ### Version calculation
 
-For an established release, take the highest required bump across distinct validated PRs, then increment once. This table applies by default.
+For an established release, take the highest required bump across distinct validated PRs, then increment once. New preflight configurations and caller templates use `release-policy-v2`.
 
 | Evidence                                                                   | Current version at least 1.0.0 | Current version below 1.0.0 |
 | -------------------------------------------------------------------------- | ------------------------------ | --------------------------- |
 | Explicit breaking declaration on any conventional type                     | Major                          | Minor                       |
 | Nonbreaking `feat`                                                         | Minor                          | Minor                       |
-| Nonbreaking `fix`, `perf`, or `revert`                                     | Patch                          | Patch                       |
-| Nonbreaking `build`, `chore`, `ci`, `docs`, `refactor`, `style`, or `test` | None                           | None                        |
+| Nonbreaking `fix`, `perf`, `revert`, `build`, `chore`, `ci`, or `refactor` | Patch                          | Patch                       |
+| Nonbreaking `docs`, `style`, or `test`                                     | None                           | None                        |
 
-A pre-1.0 minor bump resets patch to zero and does not implicitly graduate to 1.0.0. Graduation requires a separately reviewed policy change, not a hidden version override. `revert` is conservatively patch-releasing; do not infer cancellation of an earlier feature or remove either PR's evidence.
-
-Internal `feat`/`fix` changes still bump under this table. Breaking `docs`/`chore` changes still break. In an established release cycle, a docs/internal-only batch with no releasable types produces an explicit no-release result. Its entries are retained in the captured plan and included in the next releasable batch because no baseline advances on a no-release result. An already-open proposal is regenerated from the entire range, not just the latest event.
+A pre-1.0 minor bump resets patch to zero. `revert` is conservatively patch-releasing. Keep both the revert and the earlier change in the changelog when both are in the same batch. When a batch produces no release, its entries carry forward because the baseline stays in place.
 
 ### Repository bump overrides
 
-Trusted repository configuration may include a partial `releaseBumps` map. For example, `"releaseBumps": {"ci": "patch", "refactor": "patch"}` lets CI and refactor PRs start a patch proposal under their own conventional types. Each key must be a lowercase conventional type from the default table. Values are `none`, `patch`, or `minor`. Omitted types inherit the table. Breaking changes still bump minor before 1.0 and major from 1.0. Explicit initial adoption still starts at `0.1.0`.
+Trusted repository configuration may include a partial `releaseBumps` map. For example, `"releaseBumps": {"docs": "patch", "ci": "none"}` releases documentation changes and lets CI changes carry forward. Keys must be supported lowercase conventional types and values must be `none`, `patch`, or `minor`. Omitted types inherit the selected revision. Breaking changes take precedence and explicit initial adoption still starts at `0.1.0`.
 
-A no-release result retains the existing baseline and captured changes for the next batch. Review the map in the release branch's trusted caller configuration or the trusted config supplied to the CLI. Complete any in-flight proposal and publication under the original policy before changing the map. Subsequent cycles verify the former tag with the original captured policy and capture new inputs with the current policy. [Snapshot and replay contract](release-snapshot.md)
+### Upgrading an existing caller
+
+`release-policy-v1` stays available for existing caller configurations and historical replay. In v1, `build`, `chore`, `ci`, and `refactor` also carry forward unless overridden. To move forward, complete the current proposal, tag and any configured publication under its original policy. Upgrade preview, writer, and metadata runtimes to a revision supporting v2, keep the reviewed historical producers available, then change the trusted configuration to `"releasePolicy": "release-policy-v2"`. Use matching config in both callers when using separate release and metadata workflows. Rehearse the next cycle before enabling writes.
+
+A snapshot records both the policy revision and any override map. The rolling controller can replay a predecessor under that captured policy when its exact verified landing already has the expected tag. New proposals use the current trusted policy. [Snapshot and replay contract](release-snapshot.md)
 
 ### Technical changelog and version files
 

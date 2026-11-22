@@ -26,6 +26,16 @@ export interface VerifiedProposal extends Description {
 
 type ProposalVerification = "current-policy" | "tagged-history";
 
+export function hasSameBumpPolicy(
+  captured: ReleaseInputConfiguration,
+  current: ReleaseInputConfiguration,
+): boolean {
+  return (
+    captured.releasePolicy === current.releasePolicy &&
+    isDeepStrictEqual(captured.releaseBumps, current.releaseBumps)
+  );
+}
+
 function withoutTransitionOptions(config: ReleaseInputConfiguration) {
   const {
     selfUpgrade: _selfUpgrade,
@@ -81,7 +91,7 @@ export function capturedVerificationConfiguration(
     const options = hasTransitionOptions ? withoutTransitionOptions(config) : config;
     if (verification === "current-policy") return options;
     // The caller must bind a historical replay to an existing tag and exact landing.
-    const { releaseBumps: _releaseBumps, ...rest } = options;
+    const { releasePolicy: _policy, releaseBumps: _bumps, ...rest } = options;
     return rest;
   }
   return isDeepStrictEqual(comparison(comparable), comparison(current)) ? captured : current;
