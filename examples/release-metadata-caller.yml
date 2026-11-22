@@ -1,4 +1,3 @@
-# INACTIVE TEMPLATE: replace the pins and use the rolling-release caller's configuration JSON.
 # Use the release branch as a literal GitHub Actions branch filter.
 name: Release Log metadata
 on:
@@ -13,8 +12,6 @@ concurrency:
   cancel-in-progress: true
 jobs:
   release-log:
-    uses: lhajoosten/rolling-release/.github/workflows/release-metadata.yml@REVIEWED_FULL_COMMIT_SHA
+    uses: lhajoosten/rolling-release/.github/workflows/release-metadata.yml@consumer-v1
     with:
-      tool-sha: REVIEWED_FULL_COMMIT_SHA
-      configuration: >-
-        {"schemaVersion":2,"repository":"OWNER/REPOSITORY","repositoryId":123456789,"releaseBranch":"main","releasePolicy":"release-policy-v2","contextPolicy":"required","githubRelease":true,"changelog":{"verbosity":"concise","format":"compact"},"bootstrap":{"baselineSha":"BASELINE_FULL_COMMIT_SHA","onboardingSha":"ONBOARDING_FULL_COMMIT_SHA"}}
+      release-branch: main

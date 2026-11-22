@@ -1,3 +1,4 @@
+import { hasTrustedHistoricalConfiguration } from "../producer-runtime.ts";
 import { isDeepStrictEqual } from "node:util";
 import { candidateLandingPin } from "./candidate.ts";
 import { reconcileTaggedGitHubRelease, taggedReleaseNotes } from "../github-release.ts";
@@ -112,9 +113,13 @@ async function verifyLanding(
 
   const captured = verified.snapshot.configuration;
   const historicalBumps = !hasSameBumpPolicy(captured, configuration);
-  if (historicalBumps && (await readTagTarget(api, `v${verified.nextVersion}`)) !== landingSha)
+  const historicalConfiguration = hasTrustedHistoricalConfiguration(captured, configuration);
+  if (
+    (historicalBumps || historicalConfiguration) &&
+    (await readTagTarget(api, `v${verified.nextVersion}`)) !== landingSha
+  )
     throw new ProposalConflictError(
-      "A changed bump policy requires the original release tag at the verified landing. Finish the pending release with its original configuration.",
+      "A changed release configuration requires the original release tag at the verified landing. Finish the pending release with its original configuration.",
     );
   if (captured.candidateStableNotes !== undefined) {
     if (baseline.kind !== "tag")
@@ -200,6 +205,7 @@ async function verifyLanding(
     pullNumber,
     write,
     historicalBumps,
+    historicalConfiguration,
   };
 }
 
@@ -218,6 +224,7 @@ export async function reconcileReleaseTag(
     pullNumber,
     write,
     historicalBumps,
+    historicalConfiguration,
   } = await verifyReleaseLanding(request, transport);
   if (configuration.internalPublication && write && !beforePublication)
     throw new ProposalConflictError(
@@ -227,14 +234,17 @@ export async function reconcileReleaseTag(
   const tag = `v${verified.nextVersion}`;
   const finish = async (outcome: ReleaseTagResult["outcome"]): Promise<ReleaseTagResult> => {
     const result = { outcome, tag, landingSha, pullNumber };
-    if (!configuration.githubRelease) return result;
+    const githubRelease = historicalConfiguration
+      ? verified.snapshot.configuration.githubRelease
+      : configuration.githubRelease;
+    if (!githubRelease) return result;
     const release = await reconcileTaggedGitHubRelease(
       api,
       configuration.repository,
       tag,
       landingSha,
       taggedReleaseNotes(verified.changelog, verified.nextVersion),
-      write && !historicalBumps,
+      write && !historicalBumps && !historicalConfiguration,
       async () => {
         if (
           !samePull(pull, await api.readPull(pullNumber)) ||
@@ -249,9 +259,9 @@ export async function reconcileReleaseTag(
       },
       configuration.internalPublication === true,
     );
-    if (historicalBumps && write && release.outcome === "would-create")
+    if ((historicalBumps || historicalConfiguration) && write && release.outcome === "would-create")
       throw new ProposalConflictError(
-        "Finish the pending GitHub Release with its original bump policy.",
+        "Finish the pending GitHub Release with its original configuration.",
       );
     return { ...result, release };
   };

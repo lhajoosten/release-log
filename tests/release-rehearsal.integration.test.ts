@@ -462,78 +462,107 @@ void test("manual initialization uses the immutable dispatch source, scoped App 
     if ("uses" in step) assert.match(String(step.uses), /@[a-f0-9]{40}$/u);
 });
 
-void test("the shared consumer keeps preview and immutable writer independent", async () => {
+void test("the minimal consumer resolves one provider revision and forwards it to the writer", async () => {
   const workflow = record(
     parse(
       await readFile(new URL("../.github/workflows/consumer-release.yml", import.meta.url), "utf8"),
     ) as unknown,
   );
-  const jobs = record(workflow.jobs);
-  const preview = record(jobs.preview);
-  const history = record(jobs["writer-history"]);
-  const writer = record(jobs["write-release"]);
-  assert.deepEqual(workflow.permissions, { contents: "read", "pull-requests": "read" });
-  assert.equal(preview.needs, undefined);
-  assert.equal(writer.needs, "writer-history");
-  assert.deepEqual(history.permissions, {});
-  assert.match(String(preview.if), /workflow_dispatch[\s\S]*github\.ref == format/u);
-  assert.match(
-    String(history.if),
-    /pull_request_target[\s\S]*merged == true[\s\S]*inputs\.write-enabled/u,
+  const caller = record(
+    parse(
+      await readFile(new URL("../examples/rolling-release.yml", import.meta.url), "utf8"),
+    ) as unknown,
   );
-  assert.doesNotMatch(String(history.if), /workflow_dispatch/u);
-  assert.equal(record(preview.env).RELEASE_LOG_IMAGE, "ghcr.io/lhajoosten/release-log:latest");
-  assert.ok(Array.isArray(preview.steps) && Array.isArray(history.steps));
-  const steps = preview.steps.map(record);
-  const app = steps.find((step) => step.id === "app");
-  const image = steps.find((step) => step.id === "images");
-  const resolveHistory = steps.find((step) => step.id === "history");
-  const render = steps.find((step) => step.name === "Render a read-only preview");
-  assert.ok(app && image && render && resolveHistory);
-  assert.equal(record(app.with)["permission-contents"], "read");
-  assert.equal(record(app.with)["permission-pull-requests"], "read");
-  assert.deepEqual(history.steps[0], resolveHistory);
-  const writerHistory = record(history.steps[1]);
-  assert.equal(record(image.env).HISTORY, "${{ steps.history.outputs.records }}");
-  assert.equal(record(writerHistory.env).HISTORY, record(image.env).HISTORY);
+  const minimal = record(record(record(caller.jobs).release).with);
+  assert.deepEqual(Object.keys(minimal), [
+    "release-branch",
+    "app-id",
+    "bot-user-id",
+    "write-enabled",
+  ]);
   const inputs = record(record(record(workflow.on).workflow_call).inputs);
-  assert.equal(record(inputs["replay-history"]).default, "[]");
-  assert.doesNotMatch(String(image.run), /workflow_dispatch|GITHUB_EVENT_NAME/u);
-  assert.match(String(render.run), /roll[\s\S]*--producer-runtimes[\s\S]*--dry-run/u);
+  for (const input of ["configuration", "replay-history"])
+    assert.notEqual(record(inputs[input]).required, true);
+  assert.deepEqual(workflow.permissions, { contents: "read", "pull-requests": "read" });
+  const jobs = record(workflow.jobs);
+  const resolver = record(jobs.resolve);
+  assert.match(String(resolver.if), /workflow_dispatch[\s\S]*merged == true/u);
+  assert.match(JSON.stringify(resolver.steps), /job\.workflow_sha/u);
+  assert.doesNotMatch(JSON.stringify(resolver.steps), /secrets\.|pull_request\.head/u);
+  const release = record(jobs.release);
+  assert.equal(release.uses, "./.github/workflows/rolling-release.yml");
+  assert.equal(release.needs, "resolve");
+  const forwarded = record(release.with);
+  assert.equal(forwarded["tool-sha"], "${{ needs.resolve.outputs.revision }}");
+  assert.equal(forwarded.configuration, "${{ needs.resolve.outputs.configuration }}");
+  assert.equal(forwarded["verification-runtimes"], "${{ needs.resolve.outputs.runtimes }}");
   assert.match(
-    String(render.run),
-    /select-cycle[\s\S]*--producer-runtimes \/inputs\/producers\.json[\s\S]*collect[\s\S]*--network none[\s\S]*prepare[\s\S]*--dry-run/u,
+    String(forwarded.write),
+    /write-enabled && github.event_name != 'workflow_dispatch'/u,
   );
-  assert.doesNotMatch(String(render.run), /--write/u);
-  const writerInputs = record(writer.with);
-  assert.match(String(writerInputs["tool-sha"]), /^[a-f0-9]{40}$/u);
-  assert.equal(record(writerHistory.env).WRITER_SHA, writerInputs["tool-sha"]);
-  assert.match(String(writerHistory.run), /select\(\.sha != \$writer\)/u);
-  assert.equal(record(resolveHistory.env).WRITER_SHA, writerInputs["tool-sha"]);
-  assert.match(String(record(resolveHistory.env).WRITER_DIGEST), /^[a-f0-9]{64}$/u);
-  assert.equal(record(resolveHistory.env).REQUESTED_HISTORY, "${{ inputs.replay-history }}");
-  assert.match(String(resolveHistory.run), /map\(\.sha\) \| unique/u);
-  assert.doesNotMatch(JSON.stringify(workflow), /github\.repository_id\s*==\s*['"]\d+/u);
-  const installer = steps.find(
-    (step) => step.name === "Check out the reviewed source-runtime installer",
-  );
-  assert.ok(installer);
-  assert.equal(record(installer.with).ref, writerInputs["tool-sha"]);
+});
 
-  const build = steps.find(
-    (step) => step.name === "Build reviewed historical runtimes before authentication",
+void test("promotion records the exact approved revision before a stable fast-forward", async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "consumer-promotion-"));
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const workflow = record(
+    parse(
+      await readFile(
+        new URL("../.github/workflows/consumer-promotion.yml", import.meta.url),
+        "utf8",
+      ),
+    ) as unknown,
   );
-  assert.ok(build);
-  assert.ok(steps.indexOf(build) < steps.indexOf(app));
-  assert.equal(build.if, "steps.images.outputs.source-history != '[]'");
-  assert.doesNotMatch(JSON.stringify(build), /secrets\.|steps\.app|--write/u);
-  assert.equal(
-    writer.uses,
-    `lhajoosten/rolling-release/.github/workflows/rolling-release.yml@${String(writerInputs["tool-sha"])}`,
+  const job = record(record(workflow.jobs).promote);
+  assert.match(String(job.if), /conclusion == 'success'[\s\S]*event == 'push'/u);
+  assert.ok(Array.isArray(job.steps));
+  const step = record(job.steps.at(-1));
+  assert.equal(typeof step.run, "string");
+  const candidate = "a".repeat(40);
+  const other = "b".repeat(40);
+  const trace = join(directory, "trace");
+  const summary = join(directory, "summary");
+  await writeFile(
+    join(directory, "gh"),
+    [
+      "#!/usr/bin/env bash",
+      'printf "%s\\n" "$*" >> "$TRACE"',
+      'case "$*" in',
+      '  *ref/heads/main*) echo "$MAIN" ;;',
+      '  *"--method POST"*) exit 1 ;;',
+      '  *"git/ref/tags"*) echo "commit $RECORD" ;;',
+      '  *"--method PATCH"*) [[ "$*" == *"force=false"* ]] || exit 1; echo "$CANDIDATE" ;;',
+      "  *) exit 1 ;;",
+      "esac",
+    ].join("\n"),
+    { mode: 0o755 },
   );
-  assert.equal(
-    writerInputs["verification-runtimes"],
-    "${{ needs.writer-history.outputs.runtimes }}",
+  const run = (main: string, recordSha: string) =>
+    execute("bash", ["-ec", String(step.run)], {
+      env: {
+        ...process.env,
+        PATH: directory + ":" + process.env.PATH,
+        GITHUB_REPOSITORY: "example/provider",
+        GITHUB_STEP_SUMMARY: summary,
+        TRACE: trace,
+        CANDIDATE: candidate,
+        QUALITY_RUN: "123",
+        MAIN: main,
+        RECORD: recordSha,
+      },
+    });
+
+  await run(other, candidate);
+  assert.doesNotMatch(await readFile(trace, "utf8"), /--method/u);
+  await writeFile(trace, "");
+  await assert.rejects(run(candidate, other));
+  assert.doesNotMatch(await readFile(trace, "utf8"), /--method PATCH/u);
+  await writeFile(trace, "");
+  await run(candidate, candidate);
+  const commands = await readFile(trace, "utf8");
+  assert.match(commands, /--method POST[\s\S]*git\/ref\/tags\/[\s\S]*--method PATCH.*force=false/u);
+  assert.match(
+    await readFile(summary, "utf8"),
+    new RegExp(`Promoted ${candidate} via Quality run 123`, "u"),
   );
-  assert.equal(writerInputs.write, true);
 });

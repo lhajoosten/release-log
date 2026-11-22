@@ -1,9 +1,5 @@
-# INACTIVE TEMPLATE: review, replace placeholders, and authorize App setup/live
-# writes separately before copying to .github/workflows/ in a consumer.
-# Replace repository identity and onboarding SHAs with your own reviewed values.
-# githubRelease publishes the tagged changelog as a stable GitHub Release/latest.
-# selfUpgrade is reserved for release-log's own caller; do not enable for consumers.
-# Self-use additionally requires App Actions read and Workflows write.
+# Review this template before installing it. Set RELEASE_LOG_WRITE_ENABLED=false
+# before rehearsing the caller. Approve the repository-scoped App separately.
 name: Rolling release caller
 on:
   workflow_dispatch:
@@ -15,18 +11,11 @@ permissions:
   pull-requests: read
 jobs:
   release:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
-    uses: lhajoosten/rolling-release/.github/workflows/rolling-release.yml@REVIEWED_FULL_COMMIT_SHA
+    uses: lhajoosten/rolling-release/.github/workflows/consumer-release.yml@consumer-v1
     with:
-      tool-sha: REVIEWED_FULL_COMMIT_SHA
       release-branch: main
       app-id: ${{ vars.RELEASE_APP_ID }}
       bot-user-id: ${{ vars.RELEASE_BOT_USER_ID }}
-      # Contents/PR write on the App; keep its installation repository-limited.
-      # For upgrades, explicitly retain reviewed producers of existing proposals:
-      # verification-runtimes: '[{"sha":"REVIEWED_PREDECESSOR_FULL_SHA","legacy":true}]'
-      write: false
-      configuration: >-
-        {"schemaVersion":2,"repository":"OWNER/REPOSITORY","repositoryId":123456789,"releaseBranch":"main","releasePolicy":"release-policy-v2","contextPolicy":"required","githubRelease":true,"changelog":{"verbosity":"concise","format":"compact"},"bootstrap":{"baselineSha":"BASELINE_FULL_COMMIT_SHA","onboardingSha":"ONBOARDING_FULL_COMMIT_SHA"}}
+      write-enabled: ${{ vars.RELEASE_LOG_WRITE_ENABLED != 'false' }}
     secrets:
-      app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY || secrets.RELEASE_LOG_PRIVATE_KEY }}

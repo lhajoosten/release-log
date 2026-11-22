@@ -65,7 +65,7 @@ export async function selectReleaseCycle(
     if (configuration.schemaVersion !== 2)
       return cycleError(
         "baseline-unavailable",
-        "No verified tagged release proposal or explicit bootstrap baseline is available; refusing to infer a tag.",
+        "No verified tagged release proposal or explicit bootstrap baseline is available. Run the read-only setup preflight and record the reviewed bootstrap range before enabling writes.",
       );
 
     if ((await api.ref("heads", configuration.releaseBranch)) !== sourceSha)

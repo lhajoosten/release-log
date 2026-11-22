@@ -15,6 +15,7 @@ import { reconcileReleaseProposal } from "./proposal/reconcile.ts";
 import { parseReleaseAutomation } from "./config/automation.ts";
 import { reconcileReleaseTag } from "./tagging/reconcile.ts";
 import { rollRelease } from "./release-roll.ts";
+import { retryGitHubReads } from "./github-retry.ts";
 import { selectReleaseCycle } from "./cycle/select.ts";
 import { ProposalConflictError } from "./github-proposals.ts";
 import {
@@ -59,6 +60,7 @@ const help = `release-log (Node.js >=26.13.0 <27; Git required for collection/ap
   release-log capture-review --config FILE --target FILE --policy FILE --repository DIR
   release-log finalize-approval --config FILE --review FILE --attestation FILE
       --policy FILE --repository DIR
+  release-log verify-onboarding --target OWNER/REPO --repository-id ID --release-branch BRANCH
   release-log verify-onboarding --config FILE
   release-log verify-approval --config FILE --approval FILE --policy FILE --repository DIR
   release-log audit-exclusion --config FILE --approval FILE --policy FILE --repository DIR
@@ -160,7 +162,7 @@ async function runCLI(args: readonly string[]): Promise<string> {
       ],
     ],
     ["roll", ["config", "automation", "repository", "event", "dry-run", "write"]],
-    ["verify-onboarding", ["config"]],
+    ["verify-onboarding", ["config", "target", "repository-id", "release-branch"]],
     ["select-cycle", ["config", "automation", "source"]],
     ["collect", ["config", "repository", "source", "baseline-tag", "bootstrap-sha", "exclusions"]],
     ["backfill", ["config", "repository", "dry-run", "write"]],
@@ -212,14 +214,32 @@ async function runCLI(args: readonly string[]): Promise<string> {
   if (options.has("write") && options.has("dry-run"))
     throw new UsageError("--write and --dry-run are mutually exclusive.");
   if (command === "preflight") return runPreflight(options);
-  const configJSON: unknown = JSON.parse(await readText(required(options, "config"), 1024 * 1024));
-  const config = parseReleaseInputConfiguration(configJSON);
-  if (planningCommand) return planningCommand.run(options, config);
   if (command === "verify-onboarding") {
-    const result = await verifyMetadataOnboarding(config, process.env.GITHUB_TOKEN ?? "");
+    const legacy = options.has("config");
+    if (legacy && options.size !== 1)
+      throw new UsageError("Use either --config or the repository identity options.");
+    const configuration = legacy
+      ? parseReleaseInputConfiguration(
+          JSON.parse(await readText(required(options, "config"), 1024 * 1024)),
+        )
+      : parseReleaseInputConfiguration({
+          schemaVersion: 1,
+          releasePolicy: "release-policy-v2",
+          repository: required(options, "target"),
+          repositoryId: Number(required(options, "repository-id")),
+          releaseBranch: required(options, "release-branch"),
+        });
+    const { repository, repositoryId, releaseBranch } = configuration;
+    const result = await verifyMetadataOnboarding(
+      legacy ? configuration : { repository, repositoryId, releaseBranch },
+      process.env.GITHUB_TOKEN ?? "",
+    );
     if (result.status !== "verified") process.exitCode = 1;
     return JSON.stringify(result, null, 2) + "\n";
   }
+  const configJSON: unknown = JSON.parse(await readText(required(options, "config"), 1024 * 1024));
+  const config = parseReleaseInputConfiguration(configJSON);
+  if (planningCommand) return planningCommand.run(options, config);
   if (command === "backfill") {
     const repository = required(options, "repository");
     const token = process.env.GITHUB_TOKEN;
@@ -239,15 +259,18 @@ async function runCLI(args: readonly string[]): Promise<string> {
     const automation = parseReleaseAutomation(
       JSON.parse(await readText(required(options, "automation"), 1024 * 1024)) as unknown,
     );
-    const result = await rollRelease({
-      configuration: config,
-      automation,
-      repository: required(options, "repository"),
-      token,
-      eventName: process.env.GITHUB_EVENT_NAME ?? "",
-      event: JSON.parse(await readText(required(options, "event"), 4 * 1024 * 1024)) as unknown,
-      write: options.has("write"),
-    });
+    const result = await rollRelease(
+      {
+        configuration: config,
+        automation,
+        repository: required(options, "repository"),
+        token,
+        eventName: process.env.GITHUB_EVENT_NAME ?? "",
+        event: JSON.parse(await readText(required(options, "event"), 4 * 1024 * 1024)) as unknown,
+        write: options.has("write"),
+      },
+      process.env.RELEASE_LOG_CONSUMER_RETRY_READS === "true" ? retryGitHubReads() : undefined,
+    );
     return (
       JSON.stringify({ mode: options.has("write") ? "write" : "dry-run", ...result }, null, 2) +
       "\n"
@@ -260,12 +283,15 @@ async function runCLI(args: readonly string[]): Promise<string> {
     const token = process.env.GITHUB_TOKEN;
     if (!token?.trim())
       throw new UsageError("select-cycle requires GITHUB_TOKEN with repository/PR read access.");
-    const result = await selectReleaseCycle({
-      configuration: config,
-      automation,
-      sourceSha: required(options, "source"),
-      token,
-    });
+    const result = await selectReleaseCycle(
+      {
+        configuration: config,
+        automation,
+        sourceSha: required(options, "source"),
+        token,
+      },
+      process.env.RELEASE_LOG_CONSUMER_RETRY_READS === "true" ? retryGitHubReads() : undefined,
+    );
     if (result.outcome === "release-tag-pending")
       throw new ProposalConflictError(
         `release-tag-pending: tag ${result.tag} at ${result.landingSha} by rerunning tag-release for PR #${result.pullNumber}.`,

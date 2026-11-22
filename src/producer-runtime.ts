@@ -2,6 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
+import { requireConsumerConfiguration } from "./config/consumer.ts";
 import { describe } from "./proposal/identity.ts";
 import type { Description, ProposalBodyFormat } from "./proposal/identity.ts";
 import { prepareReleaseFileContents } from "./proposal/prepare.ts";
@@ -22,6 +24,7 @@ interface Producer {
 export interface ProducerRuntimes {
   readonly activeSha: string;
   readonly producers: readonly Producer[];
+  readonly configurations?: readonly ReleaseInputConfiguration[];
 }
 const context = new AsyncLocalStorage<ProducerRuntimes>();
 
@@ -30,6 +33,20 @@ export function withProducerRuntimes<T>(runtimes: ProducerRuntimes, operation: (
 }
 export function activeProducerSha(): string | undefined {
   return context.getStore()?.activeSha;
+}
+
+export function hasTrustedHistoricalConfiguration(
+  captured: ReleaseInputConfiguration,
+  current: ReleaseInputConfiguration,
+): boolean {
+  return (
+    !isDeepStrictEqual(captured, current) &&
+    captured.repository === current.repository &&
+    captured.repositoryId === current.repositoryId &&
+    captured.releaseBranch === current.releaseBranch &&
+    (context.getStore()?.configurations?.some((config) => isDeepStrictEqual(config, captured)) ??
+      false)
+  );
 }
 
 // Executable modules are trusted; this checks the public module contract before
@@ -51,7 +68,9 @@ function implementsProducer(value: {
 export async function loadProducerRuntimes(value: unknown): Promise<ProducerRuntimes> {
   const registry = proposalObject(value);
   if (
-    Object.keys(registry).toSorted().join(",") !== "activeSha,producers" ||
+    Object.keys(registry).some(
+      (key) => !["activeSha", "producers", "configurations"].includes(key),
+    ) ||
     !Array.isArray(registry.producers) ||
     registry.producers.length > 20
   )
@@ -92,7 +111,18 @@ export async function loadProducerRuntimes(value: unknown): Promise<ProducerRunt
       );
     producers.push({ sha, legacy: entry.legacy, ...runtime });
   }
-  return { activeSha, producers };
+  const historical = registry.configurations ?? [];
+  if (!Array.isArray(historical) || historical.length > 8)
+    throw new ProposalConflictError("Supply a bounded trusted historical configuration list.");
+  const configurations = historical.map((item: unknown) => {
+    const entry = proposalObject(item);
+    return requireConsumerConfiguration(entry, {
+      repository: String(entry.repository),
+      repositoryId: Number(entry.repositoryId),
+      releaseBranch: String(entry.releaseBranch),
+    });
+  });
+  return { activeSha, producers, configurations };
 }
 
 export async function reconstructProposal(
@@ -121,7 +151,7 @@ export async function reconstructProposal(
         : (registry?.producers.filter((p) => p.sha === producerSha) ?? []);
   if (candidates.length === 0)
     throw new ProposalConflictError(
-      `The recorded producer SHA ${producerSha} has no explicitly trusted verification runtime. Review the caller verification runtime pins.`,
+      `The recorded producer SHA ${producerSha} has no explicitly trusted verification runtime. Ask Rolling Release to restore or approve this producer in the provider catalog.`,
     );
   for (const [index, producer] of candidates.entries()) {
     let snapshot: ReleaseSnapshot;
