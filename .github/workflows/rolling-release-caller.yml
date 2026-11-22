@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  RELEASE_PRODUCER_SHA: 2f227e33be894eee14a35b7090b9a65ff546d9f8
+  RELEASE_PRODUCER_SHA: 930182ada24f1429a3de69fa2eb31eb6bc265520
   CONFIGURATION: >-
     {"schemaVersion":2,"repository":"lhajoosten/rolling-release","repositoryId":1449550207,"releaseBranch":"main","releasePolicy":"release-policy-v1","contextPolicy":"required","selfUpgrade":true,"githubRelease":true,"internalPublication":true,"changelog":{"verbosity":"concise","format":"compact"},"bootstrap":{"baselineSha":"bb0033fb274e69a8aabad6a17d71f18ec9292f60","onboardingSha":"c28fe6faa4d516847fbc725e9186cc80ac8873af"},"adoptedRelease":{"pullNumber":83,"headSha":"35363260d66053716354266d184b1b7bbec11f2a","landingSha":"bb9bf88a467e32e9532521737b53464706052f15","commitSha":"33e397fce7b4993a7e001966b612116beaae7520","tag":"v0.3.0"}}
   VERIFICATION_RUNTIMES: >-
