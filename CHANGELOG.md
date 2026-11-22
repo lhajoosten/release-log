@@ -1,6 +1,16 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:99e8da7071ed1e0bf13ed3caadae7e7cbd3e6b390dd59ddacb5b99c88f4cdbad -->
+<!-- release-log:pending:v1 sha256:d964107f21b964288acede4d747cd5f07c35e10dd38932984b164022a708aeb5 -->
+
+## v0.8.1 (2026-11-22)
+
+### 👷 Continuous integration
+
+- Adopt the v2 release policy in Rolling Release and make the verified v0&#46;8&#46;0 writer available to callers&#46; ([#172](https://github.com/lhajoosten/rolling-release/pull/172)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+Full changelog: [v0&#46;8&#46;0&#8230;1ab271245c9a2f857a57c0a2636484ded56c1731](https://github.com/lhajoosten/rolling-release/compare/v0.8.0...1ab271245c9a2f857a57c0a2636484ded56c1731) (captured source).
+
+<!-- release-log:pending:end -->
 
 ## v0.8.0 (2026-11-22)
 
@@ -14,7 +24,6 @@
 
 Full changelog: [v0&#46;7&#46;0&#8230;930182ada24f1429a3de69fa2eb31eb6bc265520](https://github.com/lhajoosten/rolling-release/compare/v0.7.0...930182ada24f1429a3de69fa2eb31eb6bc265520) (captured source).
 
-<!-- release-log:pending:end -->
 
 ## v0.7.0 (2026-11-22)
 
