@@ -83,8 +83,8 @@ jobs:
         id: history
         env:
           REQUESTED_HISTORY: ${{ inputs.replay-history }}
-          WRITER_SHA: &writer-sha 170634fcc1b9614357b8f1acb54fc54276baa85f
-          WRITER_DIGEST: 83184b69e2992dbd1dcbd4a8ae671a668f19c4bf93e003c4bf216f22e04c028e
+          WRITER_SHA: &writer-sha b73b56364a92d546829a11865b9a7ed658daaabe
+          WRITER_DIGEST: 76665088945656f16240192f8cfa90dd6b7afa10b33045266a956b0b2bfe1d90
         run: |
           history=$(jq -ces --arg writer "$WRITER_SHA" --arg digest "$WRITER_DIGEST" '
             select(length == 1) | .[0] | select(type == "array" and length <= 19)
@@ -260,7 +260,7 @@ jobs:
   write-release:
     name: Verify and write the release
     needs: writer-history
-    uses: lhajoosten/rolling-release/.github/workflows/rolling-release.yml@170634fcc1b9614357b8f1acb54fc54276baa85f
+    uses: lhajoosten/rolling-release/.github/workflows/rolling-release.yml@b73b56364a92d546829a11865b9a7ed658daaabe
     with:
       tool-sha: *writer-sha
       verification-runtimes: ${{ needs.writer-history.outputs.runtimes }}
