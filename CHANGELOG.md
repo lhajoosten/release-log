@@ -1,6 +1,41 @@
 # Changelog
 
-<!-- release-log:pending:v1 sha256:dffc471e90de463bfba3ca3ed95f51dcd5486dbc4cbe533f01ab3a596044287b -->
+<!-- release-log:pending:v1 sha256:42091128462a0728c1b768f8e1803202cb116a4f8e48a3e7819f4148aaff48d2 -->
+
+## v0.7.0 (2026-11-22)
+
+### ✨ Features
+
+- Configure version bumps and start a reviewed new release series&#46; ([#167](https://github.com/lhajoosten/rolling-release/pull/167)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+### 🛠️ Required actions
+
+- Coordinate the remaining self&#45;release and consumer workflow updates before renaming the provider repository&#46; ([#157](https://github.com/lhajoosten/rolling-release/pull/157))
+
+<details>
+<summary>🔧 Internal maintenance</summary>
+
+- Pilot duration&#45;weighted sharding for the Node coverage suite&#46; ([#148](https://github.com/lhajoosten/rolling-release/pull/148)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Run the full behavioral suite as four required Quality shards&#46; ([#149](https://github.com/lhajoosten/rolling-release/pull/149)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Control container vulnerability scanning with a repository Actions variable&#46; ([#154](https://github.com/lhajoosten/rolling-release/pull/154)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Run read&#45;only release rehearsals with the latest stable CLI and gate the separate publisher with configuration&#46; ([#156](https://github.com/lhajoosten/rolling-release/pull/156)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Prepare provider identity checks for the planned repository slug change&#46; ([#157](https://github.com/lhajoosten/rolling-release/pull/157)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Pilot source complexity and duplication reporting in the Quality workflow&#46; ([#158](https://github.com/lhajoosten/rolling-release/pull/158)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Preserve historical release proposal replay across the provider rename&#46; ([#159](https://github.com/lhajoosten/rolling-release/pull/159)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Adopt the canonical Rolling Release repository and workflow names&#46; ([#160](https://github.com/lhajoosten/rolling-release/pull/160)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Allow a reviewed CI subject for a pinned merged commit&#46; ([#161](https://github.com/lhajoosten/rolling-release/pull/161)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Consolidate release proposal replay with PR metadata&#46; ([#163](https://github.com/lhajoosten/rolling-release/pull/163)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Pilot a single&#45;pin release workflow for a consumer&#46; ([#164](https://github.com/lhajoosten/rolling-release/pull/164)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Make historical replay inputs optional in the public workflow&#46; ([#165](https://github.com/lhajoosten/rolling-release/pull/165)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+- Accept GitHub squash subjects copied from scoped PR titles&#46; ([#166](https://github.com/lhajoosten/rolling-release/pull/166)) by [&#64;lhajoosten](https://github.com/lhajoosten)
+
+</details>
+
+<br>
+
+Full changelog: [v0&#46;6&#46;0&#8230;49573d6b693f18e2c25f51f97cc66775b73aa803](https://github.com/lhajoosten/rolling-release/compare/v0.6.0...49573d6b693f18e2c25f51f97cc66775b73aa803) (captured source).
+
+<!-- release-log:pending:end -->
 
 ## v0.6.0 (2026-11-21)
 
@@ -32,7 +67,6 @@
 
 Full changelog: [v0&#46;5&#46;2&#8230;fd2d2f1d4d7bfea7640152c5594122f0a1b348ee](https://github.com/lhajoosten/release-log/compare/v0.5.2...fd2d2f1d4d7bfea7640152c5594122f0a1b348ee) (captured source).
 
-<!-- release-log:pending:end -->
 
 ## v0.5.2 (2026-11-21)
 
