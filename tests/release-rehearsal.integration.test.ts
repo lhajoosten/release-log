@@ -491,15 +491,26 @@ void test("the website consumer keeps preview and immutable writer independent",
   assert.ok(app && image && render);
   assert.equal(record(app.with)["permission-contents"], "read");
   assert.equal(record(app.with)["permission-pull-requests"], "read");
-  assert.equal(record(image.env).HISTORY, record(record(history.steps[0]).env).HISTORY);
+  const reviewHistory = record(image.env).HISTORY;
+  const writerHistory = record(history.steps[0]);
+  assert.equal(reviewHistory, record(writerHistory.env).HISTORY);
+  assert.doesNotMatch(String(image.run), /workflow_dispatch|GITHUB_EVENT_NAME/u);
   assert.match(String(render.run), /roll[\s\S]*--producer-runtimes[\s\S]*--dry-run/u);
   assert.match(
     String(render.run),
-    /select-cycle[\s\S]*collect[\s\S]*--network none[\s\S]*prepare[\s\S]*--dry-run/u,
+    /select-cycle[\s\S]*--producer-runtimes \/inputs\/producers\.json[\s\S]*collect[\s\S]*--network none[\s\S]*prepare[\s\S]*--dry-run/u,
   );
   assert.doesNotMatch(String(render.run), /--write/u);
   const writerInputs = record(writer.with);
   assert.match(String(writerInputs["tool-sha"]), /^[a-f0-9]{40}$/u);
+  assert.equal(record(writerHistory.env).WRITER_SHA, writerInputs["tool-sha"]);
+  assert.match(String(writerHistory.run), /select\(\.sha != \$writer\)/u);
+  const producers: unknown = JSON.parse(String(reviewHistory));
+  assert.ok(Array.isArray(producers));
+  const active = producers.map(record).find((pin) => pin.sha === writerInputs["tool-sha"]);
+  assert.ok(active);
+  assert.equal(active.legacy, false);
+  assert.match(String(active.digest), /^[a-f0-9]{64}$/u);
   assert.equal(
     writer.uses,
     `lhajoosten/rolling-release/.github/workflows/rolling-release.yml@${String(writerInputs["tool-sha"])}`,

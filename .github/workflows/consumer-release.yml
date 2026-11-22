@@ -76,13 +76,14 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Resolve the latest preview image and reviewed website history
+      - name: Resolve the latest preview image and reviewed website producers
         id: images
         env:
           HISTORY: &website-history >-
             [
               {"sha":"3929887fbbb8309a55ad819a3d4f0063928a5340","legacy":false,"digest":"08279dd93f1e1917ae007d62f1bff6ea986298d59b93a3182f6c606d4ac4b11a"},
-              {"sha":"8d3c1b1eb575d773d9c9446804fcde4df1e73f7a","legacy":true,"digest":"39fd52c45348d8c103bad37dedc558df8d3fa65eb87cbdc16b9b844a385531a2"}
+              {"sha":"8d3c1b1eb575d773d9c9446804fcde4df1e73f7a","legacy":true,"digest":"39fd52c45348d8c103bad37dedc558df8d3fa65eb87cbdc16b9b844a385531a2"},
+              {"sha":"21662200936919c1df83f9d3ce8fccee42fa3dc4","legacy":false,"digest":"8da2381cb6192ac27729508e6743a402909d2baceda13ba72964c062ffd5311e"}
             ]
         run: |
           docker pull --platform linux/amd64 "$RELEASE_LOG_IMAGE"
@@ -90,8 +91,6 @@ jobs:
           [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
           printf 'image-id=%s\n' "$image_id" >> "$GITHUB_OUTPUT"
 
-          # Manual planning has no proposal to replay.
-          [[ "$GITHUB_EVENT_NAME" == pull_request_target ]] || exit 0
           revision_format='{{ index .Config.Labels "org.opencontainers.image.revision" }}'
           active=$(docker image inspect --format "$revision_format" "$image_id")
           [[ "$active" =~ ^[a-f0-9]{40}$ ]]
@@ -144,7 +143,7 @@ jobs:
           fi
 
           cycle=$(preview -e GITHUB_TOKEN "$IMAGE_ID" select-cycle --config /inputs/config.json \
-            --automation /inputs/automation.json --source "$GITHUB_SHA")
+            --producer-runtimes /inputs/producers.json --automation /inputs/automation.json --source "$GITHUB_SHA")
           kind=$(jq -er --arg sha "$GITHUB_SHA" \
             'select(.outcome == "selected" and .sourceSha == $sha) | .baseline.kind' <<< "$cycle")
           commit=$(jq -er '.baseline.commitSha' <<< "$cycle")
@@ -189,20 +188,21 @@ jobs:
           CONFIGURATION: ${{ inputs.configuration }}
           RELEASE_BRANCH: ${{ inputs.release-branch }}
           HISTORY: *website-history
+          WRITER_SHA: &writer-sha 21662200936919c1df83f9d3ce8fccee42fa3dc4
         run: |
           jq -e --arg repo "$GITHUB_REPOSITORY" --argjson id "$GITHUB_REPOSITORY_ID" \
             --arg branch "$RELEASE_BRANCH" \
             '.repository == $repo and .repositoryId == $id and .releaseBranch == $branch and .selfUpgrade != true and .internalPublication != true' \
             <<< "$CONFIGURATION" >/dev/null
-          runtimes=$(jq -c 'map({sha, legacy})' <<< "$HISTORY")
+          runtimes=$(jq -c --arg writer "$WRITER_SHA" 'map(select(.sha != $writer) | {sha, legacy})' <<< "$HISTORY")
           printf 'runtimes=%s\n' "$runtimes" >> "$GITHUB_OUTPUT"
 
   write-release:
     name: Verify and write the release
     needs: writer-history
-    uses: lhajoosten/rolling-release/.github/workflows/rolling-release.yml@14c1f1258381dab0e553c5e030e1ec71aec5127f
+    uses: lhajoosten/rolling-release/.github/workflows/rolling-release.yml@21662200936919c1df83f9d3ce8fccee42fa3dc4
     with:
-      tool-sha: 14c1f1258381dab0e553c5e030e1ec71aec5127f
+      tool-sha: *writer-sha
       verification-runtimes: ${{ needs.writer-history.outputs.runtimes }}
       release-branch: ${{ inputs.release-branch }}
       app-id: ${{ inputs.app-id }}
