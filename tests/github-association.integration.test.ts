@@ -82,6 +82,10 @@ async function original(directory: string, sha: string) {
   };
 }
 
+async function commitTree(directory: string, sha: string) {
+  return git(directory, ["rev-parse", `${sha}^{tree}`]);
+}
+
 function pullFixture(
   number: number,
   landing: string,
@@ -179,6 +183,198 @@ async function linear(context: TestContext, format = "sha1") {
 function hasCode(code: PullRequestAssociationError["code"]) {
   return (error: unknown) => error instanceof PullRequestAssociationError && error.code === code;
 }
+
+async function individuallySquashedStack(context: TestContext) {
+  const directory = await repository(context);
+  const base = await createCommit(directory, "chore: bootstrap");
+  await git(directory, ["tag", "v1.0.0", base]);
+  await git(directory, ["switch", "-c", "stack"]);
+  const api = http();
+  const heads = [base];
+  const landings = [base];
+  let precedingHead = base;
+  let precedingLanding = base;
+  let precedingBranch = "main";
+  for (const [index, branch] of ["root", "middle", "tip"].entries()) {
+    const number = index + 1;
+    const title = `fix(app): add ${branch}`;
+    await writeFile(join(directory, "entries"), String(number));
+    await git(directory, ["add", "entries"]);
+    const head = await createCommit(directory, title);
+    const tree = await commitTree(directory, head);
+    const landing = await git(directory, [
+      "commit-tree",
+      tree,
+      "-p",
+      precedingLanding,
+      "-m",
+      `${title} (#${number})`,
+    ]);
+    heads.push(head);
+    landings.push(landing);
+
+    const metadata = pullFixture(number, landing, head, 1, {
+      title,
+      body: "",
+      base: {
+        ref: precedingBranch,
+        sha: precedingHead,
+        repo: { id: 1, full_name: "example/project" },
+      },
+      head: { sha: head, ref: branch, repo: { id: 1 } },
+    });
+    api.pulls.set(number, metadata);
+    api.originals.set(number, [await original(directory, head)]);
+    api.links.set(landing, [metadata]);
+    api.overrides.set(`/git/commits/${head}`, () =>
+      Response.json({ sha: head, tree: { sha: tree } }),
+    );
+    precedingHead = head;
+    precedingLanding = landing;
+    precedingBranch = branch;
+  }
+  const range = await inspectPendingRelease(
+    directory,
+    { kind: "tag", name: "v1.0.0" },
+    precedingLanding,
+  );
+  const request = {
+    repository: "example/project",
+    releaseBranch: "main",
+    localRepository: directory,
+    range,
+    token,
+  };
+  const config = {
+    schemaVersion: 1,
+    repository: request.repository,
+    repositoryId: 1,
+    releaseBranch: "main",
+    releasePolicy: "release-policy-v1",
+    contextPolicy: "optional",
+  } as const;
+  return { api, config, request, heads, landings };
+}
+
+void test("individually squashed stack landings retain separate PR owners and replay exactly", async (context) => {
+  const { api, config, request, landings } = await individuallySquashedStack(context);
+  const associated = await collectMergedPullRequests(request, api.read);
+  assert.deepEqual(
+    associated.pullRequests.map((pull) => [
+      pull.number,
+      ...pull.landedCommits.map(({ sha }) => sha),
+    ]),
+    landings.slice(1).map((sha, index) => [index + 1, sha]),
+  );
+  const serialized = await serializeReleaseSnapshot(
+    await captureReleaseSnapshot(associated, config),
+  );
+  const reads = api.calls.length;
+  const replayed = await replayReleaseSnapshot(serialized, config);
+  assert.deepEqual(
+    replayed.normalized.pullRequests.map(({ number }) => number),
+    [1, 2, 3],
+  );
+  assert.equal(await serializeReleaseSnapshot(replayed), serialized);
+  assert.equal(api.calls.length, reads);
+  const tampered = {
+    ...replayed,
+    input: {
+      ...replayed.input,
+      pullRequests: replayed.input.pullRequests.map((pull) =>
+        pull.squashStack
+          ? {
+              ...pull,
+              squashStack: { ...pull.squashStack, originalHeadTree: request.range.sourceCommitSha },
+            }
+          : pull,
+      ),
+    },
+  };
+  await assert.rejects(
+    replayReleaseSnapshot(JSON.stringify(tampered), config),
+    /must match the consecutive landed trees/u,
+  );
+});
+
+void test("rejects an individually squashed stack with mismatched trees or competing landing links", async (context) => {
+  const { api, request, heads, landings } = await individuallySquashedStack(context);
+  const [, , middleHead] = heads;
+  const [, , middleLanding] = landings;
+  const middle = api.pulls.get(2);
+  assert.ok(middle && middleHead && middleLanding);
+  const path = `/git/commits/${middleHead}`;
+  const tree = api.overrides.get(path);
+  assert.ok(tree);
+  api.overrides.set(path, () => Response.json({ sha: middleHead, tree: { sha: middleLanding } }));
+  await assert.rejects(
+    collectMergedPullRequests(request, api.read),
+    /must match the consecutive landed trees/u,
+  );
+  api.overrides.set(path, tree);
+
+  api.links.set(middleLanding, [middle, { ...middle, number: 4 }]);
+  await assert.rejects(
+    collectMergedPullRequests(request, api.read),
+    hasCode("ambiguous-association"),
+  );
+});
+
+void test("requires the preceding PR of an individually squashed stack within the captured range", async (context) => {
+  const { api, request, landings } = await individuallySquashedStack(context);
+  const [, rootLanding] = landings;
+  assert.ok(rootLanding);
+  await git(request.localRepository, ["tag", "v1.0.1", rootLanding]);
+  const range = await inspectPendingRelease(
+    request.localRepository,
+    { kind: "tag", name: "v1.0.1" },
+    request.range.sourceCommitSha,
+  );
+  await assert.rejects(
+    collectMergedPullRequests({ ...request, range }, api.read),
+    hasCode("unassociated-commit"),
+  );
+});
+
+void test("keeps individually squashed commits at or before onboarding under historical attribution", async (context) => {
+  const { api, config, request, landings } = await individuallySquashedStack(context);
+  const [baselineSha] = landings;
+  assert.ok(baselineSha);
+  const onboardingSha = request.range.sourceCommitSha;
+  const range = await inspectPendingRelease(
+    request.localRepository,
+    { kind: "bootstrap", commitSha: baselineSha },
+    onboardingSha,
+  );
+  const associated = await collectMergedPullRequests(
+    { ...request, range, onboardingSha },
+    api.read,
+  );
+  assert.deepEqual(
+    associated.pullRequests.map(({ number }) => number),
+    [1],
+  );
+  assert.deepEqual(
+    associated.bootstrapCommits?.map(({ sha }) => sha).toSorted(),
+    landings.slice(2).toSorted(),
+  );
+  assert.equal(
+    api.calls.some(({ path }) => path.startsWith("/git/commits/")),
+    false,
+  );
+  const bootstrap = {
+    ...config,
+    schemaVersion: 2 as const,
+    bootstrap: { baselineSha, onboardingSha },
+  };
+  const serialized = await serializeReleaseSnapshot(
+    await captureReleaseSnapshot(associated, bootstrap),
+  );
+  assert.equal(
+    await serializeReleaseSnapshot(await replayReleaseSnapshot(serialized, bootstrap)),
+    serialized,
+  );
+});
 
 void test("collects one PR per landing, retains raw evidence, and never selects by merge date", async (context) => {
   const fixture = await linear(context);

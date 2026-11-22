@@ -523,7 +523,7 @@ export async function inspectGitTreeWithCommit(repository: string, commitSha: st
   return { tree, commit: parseCommitEvidence(tree.commitSha, raw) };
 }
 
-async function inspectGitTreeObject(repository: string, commitSha: string) {
+async function readCommitTreeHeader(repository: string, commitSha: string) {
   const commit = await resolveCommit(repository, commitSha);
   const raw = requireSuccess(
     await runGit(repository, ["cat-file", "commit", commit]),
@@ -532,7 +532,15 @@ async function inspectGitTreeObject(repository: string, commitSha: string) {
   const match = /^tree ([a-f0-9]{40}|[a-f0-9]{64})\n/u.exec(raw);
   if (!match?.[1])
     throw new GitInspectionError("git-command-failed", "Malformed Git commit tree header.");
-  const treeSha = requireObjectSha(match[1]);
+  return { commit, raw, treeSha: requireObjectSha(match[1]) };
+}
+
+export async function inspectCommitTreeSha(repository: string, commitSha: string): Promise<string> {
+  return (await readCommitTreeHeader(repository, commitSha)).treeSha;
+}
+
+async function inspectGitTreeObject(repository: string, commitSha: string) {
+  const { commit, raw, treeSha } = await readCommitTreeHeader(repository, commitSha);
   const listing = requireSuccess(
     await runGit(repository, ["ls-tree", "--full-tree", "-r", "-t", "-z", treeSha]),
     "Could not read the complete captured Git tree.",

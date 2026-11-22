@@ -50,6 +50,72 @@ export function isFirstParentLanding(
   return false;
 }
 
+export function validateSquashStackMember(
+  pull: AssociatedPullRequest,
+  preceding: AssociatedPullRequest,
+  releaseBranch: string,
+  fail: (message: string) => never,
+): void {
+  const evidence = pull.squashStack;
+  const [landing] = pull.landedCommits;
+  const [parent] = preceding.landedCommits;
+  if (
+    !evidence ||
+    pull.stackBase ||
+    preceding.stackBase ||
+    pull.landingKind !== "linear" ||
+    preceding.landingKind !== "linear" ||
+    pull.landedCommits.length !== 1 ||
+    preceding.landedCommits.length !== 1 ||
+    landing?.sha !== pull.mergeCommitSha ||
+    parent?.sha !== preceding.mergeCommitSha ||
+    landing.parentShas.length !== 1 ||
+    parent.parentShas.length !== 1 ||
+    landing.parentShas[0] !== parent.sha ||
+    pull.headRepositoryId !== pull.baseRepositoryId ||
+    preceding.headRepositoryId !== pull.baseRepositoryId ||
+    preceding.baseRepositoryId !== pull.baseRepositoryId ||
+    evidence.base.ref !== preceding.headRef ||
+    evidence.base.ref === releaseBranch ||
+    evidence.base.sha !== preceding.headSha ||
+    pull.headRef === evidence.base.ref ||
+    pull.headRef === releaseBranch
+  )
+    return fail("requires consecutive same-repository landings and a matching previous PR head");
+
+  let originalParent = evidence.base.sha;
+  const originalIds = new Set([originalParent]);
+  for (const original of pull.originalCommits) {
+    if (
+      originalIds.has(original.sha) ||
+      original.parentShas.length !== 1 ||
+      original.parentShas[0] !== originalParent
+    )
+      return fail(
+        "the original PR commits must form a complete linear sequence from the stack base",
+      );
+    originalIds.add(original.sha);
+    originalParent = original.sha;
+  }
+  if (originalParent !== pull.headSha || pull.originalCommits.length !== pull.commitCount)
+    return fail("the original PR sequence does not account for the captured head and commit count");
+
+  const trees = [
+    evidence.originalBaseTree,
+    evidence.originalHeadTree,
+    evidence.landedBaseTree,
+    evidence.landedHeadTree,
+  ];
+  if (trees.some((tree) => tree.length !== landing.sha.length))
+    return fail("tree IDs mix Git object formats");
+  if (
+    evidence.originalBaseTree !== evidence.landedBaseTree ||
+    evidence.originalHeadTree !== evidence.landedHeadTree ||
+    (preceding.squashStack && preceding.squashStack.landedHeadTree !== evidence.landedBaseTree)
+  )
+    return fail("the original base and head trees must match the consecutive landed trees");
+}
+
 // The same graph rules assign live ownership and verify the assignment on replay.
 export function stackedLandingOwners(
   landing: GitCommitEvidence,
