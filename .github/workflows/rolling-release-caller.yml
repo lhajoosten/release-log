@@ -1,4 +1,4 @@
-name: Rolling Release self-publication
+name: Publish Rolling Release
 
 on:
   push:

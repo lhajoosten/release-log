@@ -1,6 +1,6 @@
 export default {
   lang: "en-US",
-  title: "release-log",
+  title: "Rolling Release",
   description: "Deterministic PR-based changelogs and AI-assisted release notes",
   base: "/release-log/",
   srcExclude: ["reviews/**"],
@@ -11,13 +11,21 @@ export default {
     nav: [
       { text: "Overview", link: "/" },
       { text: "Use the CLI", link: "/cli" },
-      { text: "Automate releases", link: "/release-workflow" },
+      { text: "Set up Rolling Release", link: "/consumer-setup" },
+      { text: "Maintain Rolling Release", link: "/maintain-rolling-release" },
       {
         text: "Contributing",
         link: "https://github.com/lhajoosten/release-log/blob/main/CONTRIBUTING.md",
       },
     ],
     sidebar: [
+      {
+        text: "Rolling Release",
+        items: [
+          { text: "Set up Rolling Release", link: "/consumer-setup" },
+          { text: "Maintain Rolling Release", link: "/maintain-rolling-release" },
+        ],
+      },
       {
         text: "Project",
         items: [
@@ -51,7 +59,7 @@ export default {
           { text: "Release input snapshots", link: "/release-snapshot" },
           { text: "Release version planning", link: "/release-plan" },
           { text: "Deterministic changelog", link: "/changelog" },
-          { text: "Read-only release rehearsal", link: "/release-rehearsal" },
+          { text: "Verify published image", link: "/release-rehearsal" },
           { text: "Release proposal controller", link: "/release-proposal" },
         ],
       },

@@ -22,13 +22,17 @@ AI must not determine release membership, classification, or breaking-change sta
 
 The [accepted release policy](release-policy.md) defines bootstrap, membership, versioning, orchestration, and safety rules with worked acceptance examples. The [repository README](https://github.com/lhajoosten/rolling-release#readme) describes the product direction in more detail.
 
-## Start here
+## For consumers
 
-- To run the CLI: use the [published image and digest](container-release.md#pull-and-run), then follow the [mounted-input examples](container.md#run-with-mounted-inputs) and [command reference](cli.md).
-- To automate a repository: read the [rolling workflow setup and recovery](release-workflow.md), select its [initial adoption boundary](initial-adoption.md), and configure [PR metadata/context](pr-readiness.md).
-- To contribute: follow the [contribution guide](https://github.com/lhajoosten/rolling-release/blob/main/CONTRIBUTING.md) and run `pnpm verify`.
+Install the release and PR readiness workflows in one step, preview your release, and turn on writes. [Set up Rolling Release](consumer-setup.md)
 
-## Core workflow and deterministic components
+## For maintainers
+
+Verify the published image or resume an interrupted release from one guide. [Maintain Rolling Release](maintain-rolling-release.md)
+
+Run the CLI from the [published image and digest](container-release.md#pull-and-run) or use the [command reference](cli.md). Contributors can follow the [contribution guide](https://github.com/lhajoosten/rolling-release/blob/main/CONTRIBUTING.md).
+
+## Behind the scenes
 
 - [Rolling release workflow](release-workflow.md): the accepted scope, manual-merge/automatic-tag lifecycle, source-pinned live caller, successive sandbox cycles, matching-tag retry evidence, and remaining validation.
 - [Release policy](release-policy.md): deterministic membership, metadata, versioning, and changelog rules.
@@ -46,7 +50,7 @@ The [accepted release policy](release-policy.md) defines bootstrap, membership, 
 
 - [Deterministic CLI](cli.md): route rolling release events, collect online, replay/plan/render offline, and prepare Node/Python proposal files with explicit opt-in writes.
 
-- [Read-only release rehearsal](release-rehearsal.md): exercise the installed CLI against an explicit main baseline without creating proposals or publishing.
+- [Verify published image](release-rehearsal.md): exercise the installed CLI against an explicit main baseline.
 
 - [Rolling release proposal controller](release-proposal.md): preview or explicitly create/refresh a proposal, with conflict checks and remaining safety gates.
 

@@ -1,6 +1,6 @@
-# Read-only self-release rehearsal
+# Verify published image
 
-The manual **Read-only release rehearsal** workflow in `.github/workflows/release-rehearsal.yml` exercises the latest published stable CLI against this repository's captured main revision. It is an early planning rehearsal, not the complete publication lifecycle in [#25](https://github.com/lhajoosten/release-log/issues/25) or a general consumer CI integration completing [#24](https://github.com/lhajoosten/release-log/issues/24).
+The manual **Verify published image** workflow in `.github/workflows/release-rehearsal.yml` exercises the latest published stable CLI against this repository's captured main revision. It verifies the image's planning and replay commands.
 
 ## Prerequisites and historical bootstrap runs
 
@@ -15,7 +15,7 @@ The owner approved the initial commit `bb0033fb274e69a8aabad6a17d71f18ec9292f60`
 
 ## Dispatch inputs
 
-Use Actions → **Read-only release rehearsal** → **Run workflow**, selecting **main**:
+In Actions, open **Verify published image**, select **Run workflow**, and choose **main**.
 
 | Input             | Bootstrap                                         | Established release                         |
 | ----------------- | ------------------------------------------------- | ------------------------------------------- |

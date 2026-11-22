@@ -31,18 +31,21 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Node.js
+      - &setup-node
+        name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           package-manager-cache: false
 
-      - name: Set up pnpm
+      - &setup-pnpm-with-cache
+        name: Set up pnpm
         uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
         with:
           cache: true
 
-      - name: Install locked dependencies without lifecycle scripts
+      - &install-dependencies
+        name: Install locked dependencies without lifecycle scripts
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build and smoke-test the local image without registry publication
@@ -75,19 +78,9 @@ jobs:
         if: github.event_name != 'pull_request' || steps.lint-action-policy.outputs.available == 'true'
         uses: lhajoosten/lint-gate@cd328f5ec8fa196bac2139afe69daf53c8417548
 
-      - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .node-version
-          package-manager-cache: false
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
-        with:
-          cache: true
-
-      - name: Install locked dependencies without lifecycle scripts
-        run: pnpm install --frozen-lockfile --ignore-scripts
+      - *setup-node
+      - *setup-pnpm-with-cache
+      - *install-dependencies
 
       - name: Verify formatting, lint, types, and architecture
         if: *needs-full-ci
@@ -139,19 +132,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .node-version
-          package-manager-cache: false
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
-        with:
-          cache: true
-
-      - name: Install locked dependencies without lifecycle scripts
-        run: pnpm install --frozen-lockfile --ignore-scripts
+      - *setup-node
+      - *setup-pnpm-with-cache
+      - *install-dependencies
 
       - name: Run Node coverage and record file timings
         env:

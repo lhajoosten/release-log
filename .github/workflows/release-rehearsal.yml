@@ -1,4 +1,4 @@
-name: Rolling Release read-only rehearsal
+name: Verify published image
 
 on:
   workflow_dispatch:
