@@ -487,13 +487,17 @@ void test("the shared consumer keeps preview and immutable writer independent", 
   const steps = preview.steps.map(record);
   const app = steps.find((step) => step.id === "app");
   const image = steps.find((step) => step.id === "images");
+  const resolveHistory = steps.find((step) => step.id === "history");
   const render = steps.find((step) => step.name === "Render a read-only preview");
-  assert.ok(app && image && render);
+  assert.ok(app && image && render && resolveHistory);
   assert.equal(record(app.with)["permission-contents"], "read");
   assert.equal(record(app.with)["permission-pull-requests"], "read");
-  const reviewHistory = record(image.env).HISTORY;
-  const writerHistory = record(history.steps[0]);
-  assert.equal(reviewHistory, record(writerHistory.env).HISTORY);
+  assert.deepEqual(history.steps[0], resolveHistory);
+  const writerHistory = record(history.steps[1]);
+  assert.equal(record(image.env).HISTORY, "${{ steps.history.outputs.records }}");
+  assert.equal(record(writerHistory.env).HISTORY, record(image.env).HISTORY);
+  const inputs = record(record(record(workflow.on).workflow_call).inputs);
+  assert.equal(record(inputs["replay-history"]).default, "[]");
   assert.doesNotMatch(String(image.run), /workflow_dispatch|GITHUB_EVENT_NAME/u);
   assert.match(String(render.run), /roll[\s\S]*--producer-runtimes[\s\S]*--dry-run/u);
   assert.match(
@@ -505,28 +509,11 @@ void test("the shared consumer keeps preview and immutable writer independent", 
   assert.match(String(writerInputs["tool-sha"]), /^[a-f0-9]{40}$/u);
   assert.equal(record(writerHistory.env).WRITER_SHA, writerInputs["tool-sha"]);
   assert.match(String(writerHistory.run), /select\(\.sha != \$writer\)/u);
-  const producers: unknown = JSON.parse(String(reviewHistory));
-  assert.ok(Array.isArray(producers));
-  const active = producers.map(record).find((pin) => pin.sha === writerInputs["tool-sha"]);
-  assert.ok(active);
-  assert.equal(active.legacy, false);
-  assert.match(String(active.digest), /^[a-f0-9]{64}$/u);
-  assert.deepEqual(active.repositories, [
-    "1449294542",
-    "1458711968",
-    "1460584468",
-    "1466066310",
-    "1466479881",
-  ]);
-  assert.deepEqual(
-    producers
-      .map(record)
-      .filter((pin) => !("digest" in pin))
-      .map((pin) => pin.repositories),
-    [["1460584468"], ["1460584468"], ["1460584468"]],
-  );
-  for (const step of [image, writerHistory])
-    assert.match(String(step.run), /\.repositories \| index\(\$id\)/u);
+  assert.equal(record(resolveHistory.env).WRITER_SHA, writerInputs["tool-sha"]);
+  assert.match(String(record(resolveHistory.env).WRITER_DIGEST), /^[a-f0-9]{64}$/u);
+  assert.equal(record(resolveHistory.env).REQUESTED_HISTORY, "${{ inputs.replay-history }}");
+  assert.match(String(resolveHistory.run), /map\(\.sha\) \| unique/u);
+  assert.doesNotMatch(JSON.stringify(workflow), /github\.repository_id\s*==\s*['"]\d+/u);
   const build = steps.find(
     (step) => step.name === "Build reviewed historical runtimes before authentication",
   );
