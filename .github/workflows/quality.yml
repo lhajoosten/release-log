@@ -122,7 +122,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.sha }}
-        run: pnpm check:commit-range --from "$BASE_SHA" --to "$HEAD_SHA"
+        run: pnpm check:commit-range --from "$BASE_SHA" --to "$HEAD_SHA" --allow-scopes
 
   tests:
     name: tests (${{ matrix.shard }})
