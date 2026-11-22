@@ -56,9 +56,9 @@ The npm package remains private at `0.2.1`. The Linux/amd64 image `ghcr.io/lhajo
 
 ## Set up release automation
 
-Start with the [minimal consumer workflow](docs/release-workflow.md#minimal-consumer-workflow) and its read-only preview to review bootstrap history or verify an existing release boundary. The [release caller](examples/rolling-release.yml) uses provider-managed defaults and replay history. The [pre-merge metadata caller](examples/release-metadata-caller.yml) checks conventional PR titles and release context.
+Install Rolling Release once to get PR readiness checks, a read-only preview and releases after merge. [Set up Rolling Release](docs/consumer-setup.md)
 
-The newer controller also supports opt-in [release PR self-upgrades and GitHub Releases](docs/release-workflow.md#self-upgrades-and-github-releases). This repository’s self-release workflow selects a reviewed producer revision and retains prior verification runtimes; the operations guide records the bootstrap’s required App permissions and read-only verification evidence.
+Use the maintainer guide to check the published image or resume an interrupted release. [Maintain Rolling Release](docs/maintain-rolling-release.md)
 
 PRs use conventional titles and the [version 1 release-context block](docs/release-context.md). Context is required by default; consumers can explicitly select the [optional policy](docs/release-context.md#consumer-context-policy). This repository keeps it required.
 

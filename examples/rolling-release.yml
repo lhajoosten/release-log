@@ -1,6 +1,6 @@
 # Review this template before installing it. Set RELEASE_LOG_WRITE_ENABLED=false
 # before rehearsing the caller. Approve the repository-scoped App separately.
-name: Rolling release caller
+name: Rolling Release
 on:
   workflow_dispatch:
   pull_request_target:
