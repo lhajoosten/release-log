@@ -101,7 +101,7 @@ Both policies accept the conventional types `build`, `chore`, `ci`, `docs`, `fea
 
 `pnpm check:commit-range` uses Git's `--no-merges` filter so GitHub-generated merge commits do not fail after an otherwise valid PR is merged. It invokes the same Commitlint configuration as the commit hook for each selected message; the pinned Commitlint version does not reliably forward `--git-log-args` filters. This excludes commits with multiple parents, not messages matching a pattern. Commits from merged branches are still checked; the traversal is not restricted to the first parent. Direct message validation (including PR titles and the `commit-msg` hook) remains strict.
 
-Merge commits, squash merges, and rebase merges are supported by this CI policy. Squash messages and ordinary commits must remain unscoped and conventional. When squash merging, edit the generated commit subject to remove the PR title's scope (for example, `feat(exports): add CSV output` becomes `feat: add CSV output`). The release metadata validator still rejects non-conventional merge messages; this CI exception does not define a release classification or PR-association policy. Do not rewrite existing published history just to apply the convention retroactively.
+GitHub uses squash-only merging with the PR title as the default squash subject and a blank body. Main-push CI accepts scoped conventional subjects from squash merges and unscoped conventional subjects from earlier landings. The commit hook and PR commit-range check still require unscoped authored commits. Release classification and GitHub PR association are checked independently. The approved release flow documents the exact squash subject it verifies.
 
 ## PR release context
 
