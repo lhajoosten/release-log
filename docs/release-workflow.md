@@ -51,6 +51,14 @@ Git/PR capture, snapshots, version calculation, Node, Python, and Cargo version 
 
 ## Reusable workflow and callers
 
+### Website pilot with one workflow pin
+
+The website pilot calls `.github/workflows/consumer-release.yml` at one reviewed full Rolling Release commit. The caller supplies its existing release configuration, release branch, App ID, bot user ID, and App private-key secret. The provider owns the immutable writer and the website's reviewed historical producer registry. Existing consumers can continue using the writer entry point below.
+
+Trigger the pilot on `pull_request_target: closed` for the configured default branch and add a separate `workflow_dispatch` trigger. Grant the caller Contents and Pull requests read. Pass `vars.RELEASE_LOG_WRITE_ENABLED != 'false'` as the `write-enabled` input. The write job only runs after an eligible merged PR, independently of the preview. On manual dispatch from the default branch, the preview uses the captured commit and local tags to verify the selected release boundary, then prepares a plan with `--dry-run`. It carries a read-only App token for online reads and disconnects the container from the network for preparation.
+
+Rehearse the first migration with writes paused. Compare a manual preview and normal-merge preview with the old caller, and verify replay of a generated proposal from the previous writer before enabling writes on the new caller. Keep the prior reviewed caller revision as the rollback path.
+
 Use the inactive `examples/rolling-release.yml` template with `write: false` during setup. Replace both `REVIEWED_FULL_COMMIT_SHA` placeholders with the same reviewed immutable revision containing `roll`, supply the agreed configuration and App setup, and install the caller as `.github/workflows/rolling-release-caller.yml`. New consumers supply their own agreed boundaries and repository identity. Existing consumers retain their recorded boundaries.
 
 Install and exercise the [pre-merge metadata gate](pr-readiness.md#consumer-setup-and-migration) on the same release branch. Require the observed check in GitHub before relying on automation, then run [read-only onboarding verification](pr-readiness.md#read-only-onboarding-verification). Existing consumers can add the gate without changing the release controller's permissions.
