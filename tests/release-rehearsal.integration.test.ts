@@ -514,6 +514,12 @@ void test("the shared consumer keeps preview and immutable writer independent", 
   assert.equal(record(resolveHistory.env).REQUESTED_HISTORY, "${{ inputs.replay-history }}");
   assert.match(String(resolveHistory.run), /map\(\.sha\) \| unique/u);
   assert.doesNotMatch(JSON.stringify(workflow), /github\.repository_id\s*==\s*['"]\d+/u);
+  const installer = steps.find(
+    (step) => step.name === "Check out the reviewed source-runtime installer",
+  );
+  assert.ok(installer);
+  assert.equal(record(installer.with).ref, writerInputs["tool-sha"]);
+
   const build = steps.find(
     (step) => step.name === "Build reviewed historical runtimes before authentication",
   );

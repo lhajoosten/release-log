@@ -141,7 +141,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: lhajoosten/rolling-release
-          ref: 3929887fbbb8309a55ad819a3d4f0063928a5340
+          ref: *writer-sha
           path: release-runtime-installer
           persist-credentials: false
 
