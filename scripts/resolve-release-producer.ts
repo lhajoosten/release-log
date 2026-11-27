@@ -1,3 +1,4 @@
+import { githubCommitSignature, verifiedAppCommit } from "../src/controller/commit-verification.ts";
 import { execFile } from "node:child_process";
 import { appendFile, readFile } from "node:fs/promises";
 import { promisify } from "node:util";
@@ -67,10 +68,13 @@ async function main() {
     throw new Error("Expected a bot-owned release proposal in this repository.");
   const commit = await get(`commits/${headSha}`);
   if (
-    commit.sha !== headSha ||
-    object(commit.committer).login !== bot ||
-    object(commit.committer).type !== "Bot" ||
-    object(object(commit.commit).verification).verified !== true
+    !(await verifiedAppCommit(
+      commit,
+      headSha,
+      bot,
+      () => githubCommitSignature(repo, headSha, token),
+      repo,
+    ))
   )
     throw new Error("The proposal head lacks verified bot ownership.");
   const file = await get(`contents/.rolling-release/review.json?ref=${headSha}`);

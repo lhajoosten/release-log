@@ -109,13 +109,7 @@ async function verifyHead(root: string, remote: Remote, head: string, existingNo
   const record = object(JSON.parse(text));
   const { baseline, previousVersion } = await boundary(root, source, sha(record.baseline));
   const changes = captured(record.changes);
-  const commit = object(await remote.request("commits/" + head));
-  if (
-    object(object(commit.commit).verification).verified !== true ||
-    commit.sha !== head ||
-    object(commit.committer).login !== remote.bot ||
-    object(commit.committer).type !== "Bot"
-  )
+  if (!(await remote.verifiedAppCommit(head)))
     throw new Error("Release proposal head was not committed by the trusted App");
   const numbers = await releaseMembers(root, remote.repository, baseline, source);
   if (JSON.stringify(numbers) !== JSON.stringify(changes.map((change) => change.number)))
@@ -288,14 +282,7 @@ export async function checkProposal(root: string, remote: Remote) {
     throw new Error("Proposal is stale or differs from reviewed files");
 }
 export async function verifyBackfillCommit(remote: Remote, head: string) {
-  const committed = object(await remote.request("commits/" + head));
-  if (
-    object(object(committed.commit).verification).verified !== true ||
-    committed.sha !== head ||
-    object(committed.committer).login !== remote.bot ||
-    object(committed.committer).type !== "Bot"
-  )
-    throw new Error("Unverified backfill commit");
+  if (!(await remote.verifiedAppCommit(head))) throw new Error("Unverified backfill commit");
 }
 export async function verifyBackfillLanding(
   root: string,

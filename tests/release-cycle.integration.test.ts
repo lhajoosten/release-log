@@ -157,6 +157,22 @@ void test("consumer commands refresh a stacked release, verify its landing, reco
   globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : input),
       method = init?.method ?? "GET";
+    if (url.pathname === "/graphql") {
+      if (typeof init?.body !== "string") throw new Error("Missing signature query");
+      const body = object(JSON.parse(init.body));
+      const queryVariables = object(body.variables);
+      return Response.json({
+        data: {
+          repository: {
+            nameWithOwner: repository,
+            object: {
+              oid: queryVariables.oid,
+              signature: { isValid: true, wasSignedByGitHub: true, signer: { login: "web-flow" } },
+            },
+          },
+        },
+      });
+    }
     if (url.hostname === "ghcr.io") {
       if (url.pathname === "/token") return Response.json({ token: "fixture" });
       const config = JSON.stringify({
@@ -296,7 +312,8 @@ void test("consumer commands refresh a stacked release, verify its landing, reco
     if (path.startsWith("commits/"))
       return response({
         sha: path.slice(8),
-        committer: path.slice(8) === backfillHead ? commitAuthor : author,
+        author: path.slice(8) === backfillHead ? commitAuthor : author,
+        committer: { id: 19864447, login: "web-flow", type: "User" },
         commit: {
           verification: {
             verified: path.slice(8) === backfillHead ? commitVerified : true,
