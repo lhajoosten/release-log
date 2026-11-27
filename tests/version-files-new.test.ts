@@ -71,6 +71,60 @@ void test("plans pnpm shared workspace members and local dependency ranges", asy
   }
 });
 
+void test("preserves pnpm 12 config document and edits only workspace specifiers", async () => {
+  const root = await mkdtemp(join(tmpdir(), "release-pnpm-documents-"));
+  try {
+    await mkdir(join(root, "packages/core"), { recursive: true });
+    await writeFile(
+      join(root, "package.json"),
+      '{"name":"root","version":"1.2.3","dependencies":{"core":"^1.2.3"}}\n',
+    );
+    await writeFile(
+      join(root, "packages/core/package.json"),
+      '{"name":"core","version":"1.2.3"}\n',
+    );
+    await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n");
+    const lock =
+      "---\nlockfileVersion: '9.0'\nimporters:\n  .:\n    configDependencies: {}\n    packageManagerDependencies:\n      pnpm:\n        specifier: 12.14.0\n        version: 12.14.0\n\n---\nlockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      core:\n        specifier: '^1.2.3' # keep\n        version: link:packages/core\n  packages/core: {}\n\npackages: {}\n";
+    await writeFile(join(root, "pnpm-lock.yaml"), lock);
+    const files = await planVersionFiles(root, "1.2.3", "1.3.0");
+    assert.equal(files.get("pnpm-lock.yaml"), lock.replace("'^1.2.3'", "'^1.3.0'"));
+    await writeFile(
+      join(root, "pnpm-lock.yaml"),
+      lock.replace("specifier: '^1.2.3' # keep", "specifier: |-\n          ^1.2.3"),
+    );
+    await assert.rejects(planVersionFiles(root, "1.2.3", "1.3.0"), /specifier layout/u);
+    await writeFile(
+      join(root, "pnpm-lock.yaml"),
+      lock + "---\nlockfileVersion: '9.0'\nimporters: {}\n",
+    );
+    await assert.rejects(planVersionFiles(root, "1.2.3", "1.3.0"), /pnpm lockfile documents/u);
+    await writeFile(
+      join(root, "pnpm-lock.yaml"),
+      lock.replace("packageManagerDependencies:", "dependencies:"),
+    );
+    await assert.rejects(planVersionFiles(root, "1.2.3", "1.3.0"), /document layout/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("accepts the repository's pnpm 12 lockfile without rewriting it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "release-pnpm-real-"));
+  try {
+    await writeFile(join(root, "package.json"), '{"name":"root","version":"1.2.3"}\n');
+    await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - .\n");
+    await writeFile(
+      join(root, "pnpm-lock.yaml"),
+      await readFile(join(process.cwd(), "pnpm-lock.yaml"), "utf8"),
+    );
+    const files = await planVersionFiles(root, "1.2.3", "1.3.0");
+    assert.equal(files.has("pnpm-lock.yaml"), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 void test("plans Bun text lock workspaces while preserving external resolutions", async () => {
   const root = await mkdtemp(join(tmpdir(), "release-bun-"));
   try {
