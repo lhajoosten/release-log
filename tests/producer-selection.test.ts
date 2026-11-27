@@ -26,6 +26,11 @@ void test("only an immutable producer in the trusted provider ancestry can be se
     await git("update-ref", "refs/remotes/origin/main", current);
     assert.equal(await selectProducer(directory, current, first), first);
     assert.equal(await selectProducer(directory, current, current), current);
+    // A stale pull-request base cannot validate a producer added to main later.
+    await git("checkout", "-q", "--detach", first);
+    await assert.rejects(selectProducer(directory, first, current), /outside protected/u);
+    await git("checkout", "-q", "--detach", current);
+    assert.equal(await selectProducer(directory, await git("rev-parse", "HEAD"), current), current);
     await assert.rejects(selectProducer(directory, current, "main"), /full commit SHAs/u);
     await git("checkout", "-q", "--orphan", "untrusted");
     await git("commit", "--allow-empty", "-qm", "untrusted");
@@ -37,6 +42,21 @@ void test("only an immutable producer in the trusted provider ancestry can be se
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+void test("quality resolves the protected main checkout while consumers retain their workflow revision", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const workflow = await readFile(
+    new URL("../.github/workflows/release-quality.yaml", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    workflow,
+    /github\.repository_id == '1449550207' && 'refs\/heads\/main' \|\| job\.workflow_sha/u,
+  );
+  assert.match(workflow, /git -C "\$GITHUB_WORKSPACE\/tool" rev-parse HEAD/u);
+  assert.match(workflow, /RELEASE_WORKFLOW_SHA: \$\{\{ steps\.runtime\.outputs\.sha \}\}/u);
+  assert.doesNotMatch(workflow, /github\.event\.pull_request\.base\.sha/u);
 });
 
 void test("verification workflows build the selected provider before write credentials and retain the current writer", async () => {

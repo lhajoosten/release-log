@@ -18,13 +18,20 @@ const branch = "release/next";
 const recordPath = ".rolling-release/review.json";
 const title = (version: string) => "chore(release): prepare v" + version;
 
-export function prependRelease(previous: string | null, section: string) {
-  if (!previous) return "# Changelog\n\n" + section;
+function changelogParts(previous: string | null) {
+  if (!previous) return { prefix: "# Changelog\n\n", suffix: "" };
   const heading = previous.search(/^## /mu);
-  if (heading >= 0) return previous.slice(0, heading) + section + "\n" + previous.slice(heading);
-  return (
-    previous + (previous.endsWith("\n\n") ? "" : previous.endsWith("\n") ? "\n" : "\n\n") + section
-  );
+  if (heading >= 0)
+    return { prefix: previous.slice(0, heading), suffix: "\n" + previous.slice(heading) };
+  return {
+    prefix: previous + (previous.endsWith("\n\n") ? "" : previous.endsWith("\n") ? "\n" : "\n\n"),
+    suffix: "",
+  };
+}
+
+export function prependRelease(previous: string | null, section: string) {
+  const { prefix, suffix } = changelogParts(previous);
+  return prefix + section + suffix;
 }
 
 async function checkedOut<T>(
@@ -223,6 +230,21 @@ async function verifyHead(root: string, remote: Remote, head: string, existingNo
   }
   return review;
 }
+// Recover the generated section from the signed tree, then validate it with verifyHead.
+async function headNotes(root: string, head: string) {
+  const source = sha((await git(root, "rev-parse", head + "^1")).trim());
+  const previous = await blob(root, source, "CHANGELOG.md");
+  const current = await blob(root, head, "CHANGELOG.md");
+  if (current === null) throw new Error("Missing generated changelog");
+  const { prefix, suffix } = changelogParts(previous);
+  if (
+    !current.startsWith(prefix) ||
+    !current.endsWith(suffix) ||
+    current.length < prefix.length + suffix.length
+  )
+    throw new Error("Proposal text differs from its generated head");
+  return current.slice(prefix.length, current.length - suffix.length);
+}
 export async function ensureProposalHead(
   root: string,
   remote: Remote,
@@ -406,17 +428,41 @@ export async function propose(
       matchingRelease(release, tag, review.markdown);
     }
   }
-  let old = null;
-  if (pr) {
-    await ensureProposalHead(root, remote, pr.pull);
-    old = await verifyHead(root, remote, pr.head, pr.body);
-    if (pr.body !== old.markdown || pr.title !== title(old.version))
-      throw new Error("Proposal text differs from its generated head; review before retrying");
-  }
   if (plan.kind === "pending") {
     if (pr) throw new Error("Pending changes cannot authorize the existing release proposal");
     console.log(JSON.stringify({ kind: "pending", changes }));
     return;
+  }
+  let old = null;
+  if (pr) {
+    await ensureProposalHead(root, remote, pr.pull);
+    old = await verifyHead(root, remote, pr.head, await headNotes(root, pr.head));
+    if (pr.body !== old.markdown || pr.title !== title(old.version)) {
+      const parents = (await git(root, "show", "-s", "--format=%P", pr.head)).trim().split(" ");
+      if (parents.length !== 2)
+        throw new Error("Proposal text differs from its generated head; review before retrying");
+      const previous = await verifyHead(root, remote, sha(parents[1]), pr.body);
+      if (pr.title !== title(previous.version) || pr.body !== previous.markdown)
+        throw new Error("Proposal text differs from its generated head; review before retrying");
+      if (!preview) {
+        await remote.updateProposalText({
+          source,
+          branch,
+          head: pr.head,
+          number: pr.number,
+          expectedTitle: pr.title,
+          expectedBody: pr.body,
+          title: title(old.version),
+          body: old.markdown,
+          recheck: async () => {
+            if (previousVersion && (await remote.tag("v" + previousVersion)) !== baseline)
+              throw new Error("Baseline moved");
+          },
+        });
+        pr.title = title(old.version);
+        pr.body = old.markdown;
+      }
+    }
   }
   const files = await generated(root, source, plan.version, previousVersion, plan.markdown);
   const record = createReview({

@@ -72,10 +72,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: lhajoosten/rolling-release
-          ref: ${{ github.repository_id == '1449550207' && github.event.pull_request.base.sha || job.workflow_sha }}
+          ref: ${{ github.repository_id == '1449550207' && 'refs/heads/main' || job.workflow_sha }}
           path: tool
           fetch-depth: 0
           persist-credentials: false
+      - name: Record checked-out trusted runtime
+        id: runtime
+        run: echo "sha=$(git -C "$GITHUB_WORKSPACE/tool" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Check out proposal history as data
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -93,7 +96,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           ROLLING_RELEASE_BOT: ${{ inputs.bot || vars.ROLLING_RELEASE_BOT }}
-          RELEASE_WORKFLOW_SHA: ${{ github.repository_id == '1449550207' && github.event.pull_request.base.sha || job.workflow_sha }}
+          RELEASE_WORKFLOW_SHA: ${{ steps.runtime.outputs.sha }}
           RELEASE_PROVIDER_PATH: tool
         run: node "$GITHUB_WORKSPACE/tool/scripts/resolve-release-producer.ts"
 
