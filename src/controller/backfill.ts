@@ -1,4 +1,4 @@
-import { ensureProposalHead } from "./cycle.ts";
+import { ensureProposalHead, verifyBackfillCommit } from "./cycle.ts";
 import { renderRelease, type Change } from "../release/core.ts";
 import { readChanges } from "./history.ts";
 import { ancestor, blob, git, stableHistory, type StableTag } from "./local.ts";
@@ -102,6 +102,7 @@ export async function runBackfill(root: string, repository: string) {
     if (!pr || prior !== pr.head)
       throw new Error("Unowned or conflicting historical changelog proposal");
     await ensureProposalHead(root, remote, pr.pull);
+    await verifyBackfillCommit(remote, prior);
     const parent = sha((await git(root, "rev-parse", prior + "^")).trim());
     if (
       (await git(root, "diff", "--name-only", "-z", parent, prior)) !== "CHANGELOG.md\0" ||

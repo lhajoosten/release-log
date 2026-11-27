@@ -147,6 +147,9 @@ void test("consumer commands refresh a stacked release, verify its landing, reco
   }
   const writes: string[] = [];
   let release: Record<string, unknown> | null = null;
+  let commitVerified = true;
+  let commitAuthor = author;
+  let backfillHead = "";
   let failRelease = true,
     imageVersion = false;
   let landing = "";
@@ -293,8 +296,13 @@ void test("consumer commands refresh a stacked release, verify its landing, reco
     if (path.startsWith("commits/"))
       return response({
         sha: path.slice(8),
-        committer: author,
-        commit: { verification: { verified: true, reason: "valid" } },
+        committer: path.slice(8) === backfillHead ? commitAuthor : author,
+        commit: {
+          verification: {
+            verified: path.slice(8) === backfillHead ? commitVerified : true,
+            reason: "valid",
+          },
+        },
       });
     if (path === "releases" && method === "POST") {
       if (failRelease) {
@@ -401,6 +409,7 @@ void test("consumer commands refresh a stacked release, verify its landing, reco
   );
   assert.ok(backfill);
   const rebuild = String(object(backfill.head).sha);
+  backfillHead = rebuild;
   assert.equal(git(["diff", "--name-only", main, rebuild]), "CHANGELOG.md");
   const notes = git(["show", rebuild + ":CHANGELOG.md"]);
   assert.match(notes, /feat|bootstrap/u);
@@ -411,6 +420,14 @@ void test("consumer commands refresh a stacked release, verify its landing, reco
   assert.equal(writes.length, end);
   land(45, "docs: update guide", "alice", "guide", "main", main);
   const advanced = main;
+  const beforeUntrusted = writes.length;
+  commitVerified = false;
+  await assert.rejects(run("backfill"), /Unverified backfill commit/u);
+  commitVerified = true;
+  commitAuthor = { ...author, login: "other[bot]" };
+  await assert.rejects(run("backfill"), /Unverified backfill commit/u);
+  commitAuthor = author;
+  assert.equal(writes.length, beforeUntrusted);
   const savedBackfillBody = backfill.body;
   backfill.body = "Maintainer edit";
   const beforeEdit = writes.length;

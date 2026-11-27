@@ -287,6 +287,16 @@ export async function checkProposal(root: string, remote: Remote) {
   )
     throw new Error("Proposal is stale or differs from reviewed files");
 }
+export async function verifyBackfillCommit(remote: Remote, head: string) {
+  const committed = object(await remote.request("commits/" + head));
+  if (
+    object(object(committed.commit).verification).verified !== true ||
+    committed.sha !== head ||
+    object(committed.committer).login !== remote.bot ||
+    object(committed.committer).type !== "Bot"
+  )
+    throw new Error("Unverified backfill commit");
+}
 export async function verifyBackfillLanding(
   root: string,
   remote: Remote,
@@ -300,15 +310,11 @@ export async function verifyBackfillLanding(
     throw new Error("Expected a merged backfill PR from the configured App");
   const head = await ensureProposalHead(root, remote, pull),
     landing = sha(pull.merge_commit_sha);
-  const committed = object(await remote.request("commits/" + head));
+  await verifyBackfillCommit(remote, head);
   const main = await remote.ref("heads/main");
   if (
-    object(object(committed.commit).verification).verified !== true ||
-    committed.sha !== head ||
     !main ||
     !(await ancestor(root, landing, main)) ||
-    object(committed.committer).login !== remote.bot ||
-    object(committed.committer).type !== "Bot" ||
     !(await git(root, "ls-tree", head, "--", "CHANGELOG.md")).startsWith("100644 blob ")
   )
     throw new Error("Unverified backfill commit");
