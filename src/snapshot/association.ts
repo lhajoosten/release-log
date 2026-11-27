@@ -1,5 +1,4 @@
 import type { GitCommitEvidence, PendingReleaseInspection } from "../git.ts";
-import type { VerifiedReleaseApproval } from "../approval/record.ts";
 
 export interface PullRequestCommitEvidence {
   readonly sha: string;
@@ -52,6 +51,4 @@ export interface PullRequestAssociation {
   readonly releaseBranch: string;
   readonly range: PendingReleaseInspection;
   readonly pullRequests: readonly AssociatedPullRequest[];
-  readonly bootstrapCommits?: readonly GitCommitEvidence[];
-  readonly verifiedAutomation?: readonly VerifiedReleaseApproval[];
 }

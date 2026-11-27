@@ -1,0 +1,91 @@
+name: Release backfill
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      bot:
+        description: Expected GitHub App bot login
+        type: string
+        required: true
+      start-sha:
+        description: Optional reviewed starting boundary
+        type: string
+        required: false
+        default: ""
+      app-id:
+        description: GitHub App ID for repository writes
+        type: string
+        required: true
+    secrets:
+      app-private-key:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: rolling-release-${{ github.repository }}
+  queue: max
+
+jobs:
+  backfill:
+    if: github.event_name == 'workflow_dispatch' && vars.RELEASE_LOG_WRITE_ENABLED != 'false' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && vars.RELEASE_LOG_WRITE_ENABLED != 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out the reviewed provider runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: lhajoosten/rolling-release
+          ref: ${{ job.workflow_sha }}
+          path: tool
+          persist-credentials: false
+
+      - name: Check out consumer history as data
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/heads/${{ github.event.repository.default_branch }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: tool/.node-version
+          package-manager-cache: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
+        with:
+          package_json_file: tool/package.json
+          cache: false
+
+      - name: Install and build trusted runtime before issuing credentials
+        working-directory: tool
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm build
+
+      - name: Mint scoped repository token
+        id: app
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ inputs.app-id || vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.app-private-key || secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Run backfill against the consumer
+        working-directory: source
+        env:
+          GITHUB_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          ROLLING_RELEASE_BOT: ${{ inputs.bot || vars.ROLLING_RELEASE_BOT }}
+          ROLLING_RELEASE_START_SHA: ${{ inputs.start-sha || vars.ROLLING_RELEASE_START_SHA }}
+        run: node "$GITHUB_WORKSPACE/tool/dist/src/cli.js" backfill

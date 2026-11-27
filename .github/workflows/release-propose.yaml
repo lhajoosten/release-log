@@ -1,0 +1,103 @@
+name: Release propose
+
+on:
+  workflow_call:
+    inputs:
+      refresh:
+        description: Refresh after a completed release
+        type: boolean
+        default: false
+      bot:
+        description: Expected GitHub App bot login
+        type: string
+        required: true
+      start-sha:
+        description: Optional reviewed starting boundary
+        type: string
+        required: false
+        default: ""
+      app-id:
+        description: GitHub App ID for repository writes
+        type: string
+        required: true
+    secrets:
+      app-private-key:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: rolling-release-${{ github.repository }}
+  queue: max
+
+jobs:
+  propose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out the reviewed provider runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: lhajoosten/rolling-release
+          ref: ${{ job.workflow_sha }}
+          path: tool
+          persist-credentials: false
+
+      - name: Check out consumer history as data
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/heads/${{ github.event.repository.default_branch }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: tool/.node-version
+          package-manager-cache: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
+        with:
+          package_json_file: tool/package.json
+          cache: false
+
+      - name: Install and build trusted runtime before issuing credentials
+        working-directory: tool
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm build
+
+      - name: Mint scoped repository token
+        if: github.event_name != 'workflow_dispatch'
+        id: app
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.app-private-key }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Run propose against the consumer
+        working-directory: source
+        env:
+          GITHUB_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          ROLLING_RELEASE_PRODUCER_SHA: ${{ job.workflow_sha }}
+          ROLLING_RELEASE_BOT: ${{ inputs.bot }}
+          ROLLING_RELEASE_START_SHA: ${{ inputs.start-sha }}
+          RELEASE_REFRESH: ${{ inputs.refresh }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            node "$GITHUB_WORKSPACE/tool/dist/src/cli.js" preview
+          elif [[ "$RELEASE_REFRESH" == true ]]; then
+            node "$GITHUB_WORKSPACE/tool/dist/src/cli.js" refresh
+          else
+            node "$GITHUB_WORKSPACE/tool/dist/src/cli.js" propose
+          fi

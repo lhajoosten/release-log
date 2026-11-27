@@ -1,0 +1,14 @@
+{
+  "title": "chore(release): prepare v0.8.3",
+  "body": "<!-- release-log:proposal:v1 eyJzY2hlbWFWZXJzaW9uIjoxLCJwcm9kdWNlclNoYSI6IjNhYmVlMjg0NDJkNzQ3NDJkZWFkYTZiOGJjMGJmZjg3ODQxNTEzNTMiLCJib2R5Rm9ybWF0IjoiY2hhbmdlbG9nLXYxIiwicmVwb3NpdG9yeUlkIjoxNDQ5NTUwMjA3LCJyZWxlYXNlQnJhbmNoIjoibWFpbiIsImJvdFVzZXJJZCI6MzU2OTAyODQ4LCJzb3VyY2VTaGEiOiIyOTZmZmY4ZWMxYzI2MWQ5MTk4ZTdmODQwMzNiZjU0MjAyNGFkOTMwIiwiYmFzZWxpbmUiOnsia2luZCI6InRhZyIsIm5hbWUiOiJ2MC44LjIiLCJvYmplY3RTaGEiOiI3M2IzZjg0MjhiODc2YjMxZGI5YzY4YWRkZTQzZDE3Yjg3YTI4YWI1IiwiY29tbWl0U2hhIjoiNzNiM2Y4NDI4Yjg3NmIzMWRiOWM2OGFkZGU0M2QxN2I4N2EyOGFiNSJ9LCJzbmFwc2hvdElkIjoiZmVlMzNlZGY1YjRkZGFmYTg0NzcwN2U0ZjBlYjZkMjJhMTdkZjg2ZjI1YTg2ZWM2YjcyZTY0ZDRhZmVhOTgwNSIsImNvbmZpZ3VyYXRpb25JZCI6ImMwYTc3MDdhMjIwNjQyOTRlM2Y1ZmQyN2E1NjYwZDhkOTAxYjAwMGI1ZmMwNmYwOGQ3OGNmMWJjMTZjMmNiYWUiLCJ2ZXJzaW9uIjp7ImtpbmQiOiJyZWxlYXNlZCIsImN1cnJlbnRWZXJzaW9uIjoiMC44LjIifSwicHJldmlvdXNIZWFkU2hhIjoiNDI0ZWFlMmU4MzNhYjRlYzE0ZTY2ZTJhMWU3NWEzMTgxN2E1MzAzZCIsImZpbGVzIjpbeyJwYXRoIjoicGFja2FnZS5qc29uIiwic2hhMjU2IjoiZTk2YWJiMzQ5NTJjNzQ1OTcyOWMyMmRmMzM0MjI3NDYxNzg5NTBmOWI0YmY5YTQ5Yjk5ZGNlZDIyODg2YzgyMyJ9LHsicGF0aCI6Ii5naXRodWIvd29ya2Zsb3dzL3JvbGxpbmctcmVsZWFzZS1jYWxsZXIueW1sIiwic2hhMjU2IjoiYzhhM2UzM2JkOGE1ZGU0MzhjZDE4ZjNjMGE0ZjcxYTYxMDgyM2Q5YmU2YmUxMzIxMTVkMzgzYmI3MWI2MmJhNCJ9LHsicGF0aCI6IkNIQU5HRUxPRy5tZCIsInNoYTI1NiI6IjQ2OTYyMDJlMzM3YzhmMTYwNGM3NDE3YzExYmM0YzFkNjVjZjdiZDZjZmNkYmFhNWZiMGRhMDZhYWExODRmMzgifSx7InBhdGgiOiIucmVsZWFzZS1sb2cvaW5wdXRzLmpzb24iLCJzaGEyNTYiOiJkYWY1MzQxNTU2NDliN2ZiODI1ZDJjNGRiOTM2NWNkNzg0NDQ1ZDgzNjU4YjYyZGU3MzFmM2IwNzZkOWQxNGMzIn1dfQ -->",
+  "user": { "id": 356902848, "login": "rolling-release-log[bot]", "type": "Bot" },
+  "merged": true,
+  "state": "closed",
+  "merge_commit_sha": "443764fe6e08690f969b86b332bff69af71a2002",
+  "head": {
+    "sha": "bca0029e345852682a8d90335938c4b52101b58f",
+    "ref": "release-log/main",
+    "repo": { "full_name": "lhajoosten/rolling-release" }
+  },
+  "base": { "ref": "main", "repo": { "id": 1449550207, "full_name": "lhajoosten/rolling-release" } }
+}

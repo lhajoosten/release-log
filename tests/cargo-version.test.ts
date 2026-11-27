@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { updateCargoVersions } from "../src/cargo-version.ts";
+import { updateCargoVersions } from "../src/release/cargo-version.ts";
 
 const plan = { currentVersion: "1.2.3", nextVersion: "2.0.0" };
 const root = `[workspace]

@@ -1,45 +1,25 @@
 # Set up Rolling Release
 
-Rolling Release checks PR titles and release context before merge, then prepares releases after merge. It provides the release policy, GitHub Release and changelog defaults. Your repository supplies its release App credentials and any settings it wants to override.
+Use a GitHub repository whose release branch is `main`. Install a GitHub App with repository contents and pull request write access. Set `RELEASE_APP_ID`, `ROLLING_RELEASE_BOT` (the App login including `[bot]`) and the secret `RELEASE_APP_PRIVATE_KEY`. Allow the publication job to write the repository's GHCR package. Reserve the two branches `release/next` and `release/changelog-backfill` for this App. Make the release workflow the sole writer of version and candidate image tags.
 
-## Install once
+Copy the release-cycle, release-quality and manual backfill callers from the provider's examples. Set their provider references to the same reviewed provider revision that contains the replacement workflows. The proposed `consumer-v1` channel needs to be activated before a consumer can use that ref. For the first release without a stable tag, set `ROLLING_RELEASE_START_SHA` to the reviewed exclusive starting commit. The first releasable batch starts at 0.1.0. Returning consumers can adopt an existing stable tag.
 
-From a checkout of your repository, use an authenticated GitHub CLI to run this after Rolling Release has activated `consumer-v1`. It fetches both workflows from the same promoted revision. If your repository already uses Rolling Release, follow the [migration steps](release-workflow.md#one-time-migration-and-recovery) to preserve its settings and required checks.
+Use conventional PR titles. A feature bumps minor, a fix, performance improvement or revert bumps patch, and a breaking title bumps major (minor before 1.0). Documentation and maintenance wait for the next releasable batch. An optional single `Required action: ...` line in a PR description appears in the changelog.
 
-```sh
-sh <<'SH'
-set -eu
-cd "$(git rev-parse --show-toplevel)"
-provider=lhajoosten/rolling-release
-workflows=.github/workflows
-release=rolling-release-caller.yml
-readiness=release-metadata-caller.yml
+Manually dispatch the release cycle to preview. After an ordinary PR lands the App refreshes one release PR. Review its changelog, version changes and captured metadata. Merging it authorizes a tag at the landing, a versioned Docker image and a GitHub Release with the reviewed notes. Configure your consumer Dockerfile at the repository root. Inspect the source and digest reported by GHCR when recovering publication.
 
-for file in "$release" "$readiness"; do
-  if [ -e "$workflows/$file" ] || [ -L "$workflows/$file" ]; then
-    printf 'Already installed: %s\n' "$workflows/$file" >&2
-    exit 1
-  fi
-done
+Run the separate manual changelog backfill to reconstruct historical sections from stable tags and available PR metadata. Review its changelog-only PR. A missing or ambiguous association blocks the rebuild and identifies the affected release.
 
-revision=$(gh api "repos/$provider/git/ref/heads/consumer-v1" --jq .object.sha)
-staging=$(mktemp -d)
-trap 'rm -rf "$staging"' EXIT
-gh api --method GET "repos/$provider/contents/examples/rolling-release.yml" \
-  -H 'Accept: application/vnd.github.raw+json' -f ref="$revision" > "$staging/$release"
-gh api --method GET "repos/$provider/contents/examples/release-metadata-caller.yml" \
-  -H 'Accept: application/vnd.github.raw+json' -f ref="$revision" > "$staging/$readiness"
-mkdir -p "$workflows"
-cp "$staging/$release" "$staging/$readiness" "$workflows/"
-SH
-```
+## Version files
 
-If your default branch differs from `main`, set `release-branch` and its matching literal branch filter in both files. For immutable updates, replace `@consumer-v1` with the same promoted full SHA in both files. Put deliberate overrides or a reviewed starting point in [`.release-log/settings.json`](release-workflow.md#minimal-consumer-workflow).
+| Project | Managed files                                                                                                                                                                  |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| npm     | Root and shared `package.json` versions and first-party references, plus `package-lock.json` or `npm-shrinkwrap.json` mirrors                                                  |
+| pnpm    | Shared packages selected by `pnpm-workspace.yaml` and their local importer entries in `pnpm-lock.yaml`                                                                         |
+| Bun     | Shared package manifests and the text `bun.lock` format. Migrate older binary `bun.lockb` with Bun before adoption.                                                            |
+| Python  | Static versions in `pyproject.toml`; local project entries in `uv.lock` or Poetry 2.1 lockfiles. Generated or backend-computed versions require a static version for adoption. |
+| Rust    | Single crates and shared Cargo workspaces with inherited versions, local dependency requirements, and `Cargo.lock`                                                             |
 
-## Preview and turn on releases
+The writer expects participating packages to share the previous stable version. Ambiguous ownership or independently versioned packages require maintainer review. An image-only repository can release using the changelog and reviewed record alone.
 
-1. Install the release App on the repository with **Contents** and **Pull requests** write access. Set `RELEASE_APP_ID` and `RELEASE_BOT_USER_ID` as Actions variables, set `RELEASE_APP_PRIVATE_KEY` as an Actions secret, and set `RELEASE_LOG_WRITE_ENABLED` to `false`.
-2. Review and land the setup. In the repository's Actions tab, select **Rolling Release** and choose **Run workflow** on the default branch. Review the release preview and confirm the existing release boundary. For a first release, review the suggested starting point, record it in the settings file, and preview again. [Initial adoption](initial-adoption.md)
-3. Observe **Check PR readiness** on an ordinary PR. Require `release-log / metadata` from GitHub Actions in branch protection and verify title edits trigger a new result. After preview agrees with what you expect, enable writes by setting `RELEASE_LOG_WRITE_ENABLED` to `true`. Verify the metadata check on the App's generated release PR before merging it. [Readiness and branch protection](pr-readiness.md#consumer-setup-and-migration)
-
-If a release run stops halfway, follow the [maintainer guide](maintain-rolling-release.md#resume-publication).
+The review record also retains the provider commit that generated it. Quality, promotion and publication select that producer from verified provider history for replay. If it is unavailable, restore access to the reviewed provider revision and rerun the original release event. Set `RELEASE_LOG_WRITE_ENABLED=false` to pause automatic writes while retaining manual preview.

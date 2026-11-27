@@ -1,0 +1,13 @@
+name: Release proposal quality
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  release-quality:
+    uses: lhajoosten/rolling-release/.github/workflows/release-quality.yaml@consumer-v1
+    with:
+      bot: ${{ vars.ROLLING_RELEASE_BOT }}
+      start-sha: ${{ vars.ROLLING_RELEASE_START_SHA }}

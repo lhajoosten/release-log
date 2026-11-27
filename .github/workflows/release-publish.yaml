@@ -1,0 +1,129 @@
+name: Release publish
+
+on:
+  workflow_call:
+    inputs:
+      bot:
+        description: Expected GitHub App bot login
+        type: string
+        required: true
+      start-sha:
+        description: Optional reviewed starting boundary
+        type: string
+        required: false
+        default: ""
+      app-id:
+        description: GitHub App ID for repository writes
+        type: string
+        required: true
+    secrets:
+      app-private-key:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: rolling-release-${{ github.repository }}
+  queue: max
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: read
+      packages: write
+    steps:
+      - name: Check out the reviewed provider runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: lhajoosten/rolling-release
+          ref: ${{ job.workflow_sha }}
+          path: tool
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out consumer history as data
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/heads/${{ github.event.repository.default_branch }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: tool/.node-version
+          package-manager-cache: false
+
+      - name: Resolve reviewed producer from trusted provider history
+        id: producer
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ROLLING_RELEASE_BOT: ${{ inputs.bot }}
+          RELEASE_WORKFLOW_SHA: ${{ job.workflow_sha }}
+          RELEASE_PROVIDER_PATH: tool
+        run: node "$GITHUB_WORKSPACE/tool/scripts/resolve-release-producer.ts"
+
+      - name: Check out the verified reviewed producer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: lhajoosten/rolling-release
+          ref: ${{ steps.producer.outputs.sha }}
+          path: tool-reviewed
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
+        with:
+          package_json_file: tool/package.json
+          cache: false
+
+      - name: Install and build trusted runtime before issuing credentials
+        working-directory: tool
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm build
+
+      - name: Build the verified reviewed producer before credentials
+        working-directory: tool-reviewed
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm build
+
+      - name: Mint scoped repository token
+        id: app
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.app-private-key }}
+          permission-contents: write
+          permission-pull-requests: read
+
+      - name: Run publish against the consumer
+        working-directory: source
+        env:
+          GITHUB_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          ROLLING_RELEASE_BOT: ${{ inputs.bot }}
+          ROLLING_RELEASE_START_SHA: ${{ inputs.start-sha }}
+          ROLLING_RELEASE_REVIEW_RUNTIME: ${{ github.workspace }}/tool-reviewed
+          ROLLING_RELEASE_REVIEW_SHA: ${{ steps.producer.outputs.sha }}
+          ROLLING_RELEASE_REVIEW_HEAD: ${{ steps.producer.outputs.head }}
+          GHCR_TOKEN: ${{ github.token }}
+          ROLLING_RELEASE_SCAN_SCRIPT: ${{ github.repository_id == '1449550207' && format('{0}/tool/scripts/scan-container.ts', github.workspace) || '' }}
+          ROLLING_RELEASE_SCAN_OUTPUT: ${{ runner.temp }}/release-image-scan
+        run: node "$GITHUB_WORKSPACE/tool/dist/src/cli.js" publish
+
+      - name: Preserve provider image scan evidence
+        if: always() && github.repository_id == '1449550207'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-image-scan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-image-scan/
+          if-no-files-found: warn
+          retention-days: 90

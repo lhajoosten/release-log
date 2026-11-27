@@ -1,0 +1,116 @@
+name: Release quality
+
+on:
+  workflow_call:
+    inputs:
+      bot:
+        type: string
+        required: false
+      start-sha:
+        type: string
+        required: false
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  verify:
+    if: github.repository_id == '1449550207'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
+      - name: Install locked dependencies without lifecycle scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify
+        run: pnpm verify
+      - name: Build
+        run: pnpm build
+
+  proposal:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.ref == 'release/next' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == (inputs.bot || vars.ROLLING_RELEASE_BOT)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out trusted base runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: lhajoosten/rolling-release
+          ref: ${{ github.repository_id == '1449550207' && github.event.pull_request.base.sha || job.workflow_sha }}
+          path: tool
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check out proposal history as data
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: tool/.node-version
+          package-manager-cache: false
+      - name: Resolve reviewed producer from trusted provider history
+        id: producer
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ROLLING_RELEASE_BOT: ${{ inputs.bot || vars.ROLLING_RELEASE_BOT }}
+          RELEASE_WORKFLOW_SHA: ${{ github.repository_id == '1449550207' && github.event.pull_request.base.sha || job.workflow_sha }}
+          RELEASE_PROVIDER_PATH: tool
+        run: node "$GITHUB_WORKSPACE/tool/scripts/resolve-release-producer.ts"
+
+      - name: Check out the verified reviewed producer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: lhajoosten/rolling-release
+          ref: ${{ steps.producer.outputs.sha }}
+          path: tool-reviewed
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
+        with:
+          package_json_file: tool/package.json
+      - name: Build the trusted runtime
+        working-directory: tool
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm build
+      - name: Build the verified reviewed producer before credentials
+        working-directory: tool-reviewed
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm build
+
+      - name: Verify proposal against current source and reviewed inputs
+        working-directory: source
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ROLLING_RELEASE_BOT: ${{ inputs.bot || vars.ROLLING_RELEASE_BOT }}
+          ROLLING_RELEASE_START_SHA: ${{ inputs.start-sha || vars.ROLLING_RELEASE_START_SHA }}
+          ROLLING_RELEASE_REVIEW_RUNTIME: ${{ github.workspace }}/tool-reviewed
+          ROLLING_RELEASE_REVIEW_SHA: ${{ steps.producer.outputs.sha }}
+          ROLLING_RELEASE_REVIEW_HEAD: ${{ steps.producer.outputs.head }}
+        run: node "$GITHUB_WORKSPACE/tool/dist/src/cli.js" check-proposal

@@ -1,727 +1,411 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
-import type { TestContext } from "node:test";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import test from "node:test";
+import { run } from "../src/cli.ts";
+import { object } from "../src/controller/remote.ts";
 
-import { selectConsumerProducers } from "../src/consumer-producers.ts";
-import { withProducerRuntimes } from "../src/producer-runtime.ts";
-import { prepareReleaseFileContents } from "../src/proposal-files.ts";
-import { describe } from "../src/proposal-identity.ts";
-import { replayReleaseSnapshot } from "../src/release-snapshot.ts";
-import { reconcileReleaseProposal } from "../src/release-proposal.ts";
-import {
-  captureReleaseReview,
-  finalizeReleaseApproval,
-  verifyReleaseApproval,
-} from "../src/release-approval.ts";
-import { ReleaseCycleError, selectReleaseCycle } from "../src/release-cycle.ts";
-import type { ReleaseCycleRequest } from "../src/release-cycle.ts";
-import type { GitHubRead } from "../src/github.ts";
-import { fixture, json, object, text } from "./proposal-fixture.ts";
+const hash = (s: string) => "sha256:" + createHash("sha256").update(s).digest("hex");
 
-async function mergedProposal(
-  context: TestContext,
-  kind: "merge" | "squash" = "merge",
-  mode: "node" | "python" | "python-uv" | "both" = "node",
-) {
-  const f = await fixture(context, mode);
-  const proposalRequest = await f.request(true);
-  const proposal = await reconcileReleaseProposal(proposalRequest, f.transport);
-  assert.equal(proposal.outcome, "created");
-  assert.ok(proposal.pullNumber);
-  assert.ok(proposal.headSha);
+const response = (v: unknown) =>
+  v === undefined ? Response.json({}, { status: 404 }) : Response.json(v);
 
-  const sourceSha = proposal.sourceSha;
-  const treeSha = f.git(["rev-parse", `${proposal.headSha}^{tree}`]).trim();
-  const landingSha = f
-    .git(
-      [
-        "commit-tree",
-        treeSha,
-        "-p",
-        sourceSha,
-        ...(kind === "merge" ? ["-p", proposal.headSha] : []),
-      ],
-      "chore: merge release proposal\n",
-    )
-    .trim();
-  f.git(["update-ref", "refs/heads/main", landingSha, sourceSha]);
-  const pull = f.pulls[0];
-  assert.ok(pull);
-  Object.assign(pull, {
-    state: "closed",
-    merged_at: "2026-11-14T12:00:00Z",
-    merge_commit_sha: landingSha,
-    merged_by: { id: 7, type: "User" },
-  });
+function objectAssignHead(pull: Record<string, unknown>, sha: string) {
+  pull.head = { ...object(pull.head), sha };
+}
 
-  const request: ReleaseCycleRequest = {
-    configuration: proposalRequest.configuration,
-    automation: proposalRequest.automation,
-    token: proposalRequest.token,
-    sourceSha: landingSha,
+void test("consumer commands refresh a stacked release, verify its landing, recover publication and backfill independently", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "release-cycle-"));
+  const event = join(root, "event");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repository = "acme/widget",
+    bot = "release-app[bot]";
+  const variables = {
+    GITHUB_TOKEN: "synthetic",
+    GITHUB_REPOSITORY: repository,
+    ROLLING_RELEASE_ROOT: root,
+    ROLLING_RELEASE_PRODUCER_SHA: "f".repeat(40),
+    ROLLING_RELEASE_BOT: bot,
+    GITHUB_ACTOR: "fixture",
+    GHCR_TOKEN: "synthetic",
+    GITHUB_EVENT_PATH: event,
+    ROLLING_RELEASE_START_SHA: "",
   };
-  return { f, request, sourceSha, landingSha, pull };
-}
-
-async function openProposal(context: TestContext) {
-  const f = await fixture(context);
-  const proposalRequest = await f.request(true);
-  const proposal = await reconcileReleaseProposal(proposalRequest, f.transport);
-  assert.equal(proposal.outcome, "created");
-  return {
-    f,
-    request: {
-      configuration: proposalRequest.configuration,
-      automation: proposalRequest.automation,
-      token: proposalRequest.token,
-      sourceSha: proposal.sourceSha,
-    } satisfies ReleaseCycleRequest,
-  };
-}
-
-function cycleTransport(f: Awaited<ReturnType<typeof fixture>>): GitHubRead {
-  return async (url, options) => {
-    const target = new URL(url);
-    const path = decodeURIComponent(target.pathname.slice("/repos/example/project".length));
-    const method = options.method ?? "GET";
-
-    if (method === "GET" && path.startsWith("/git/tags/")) {
-      const sha = path.slice("/git/tags/".length);
-      f.calls.push({ method, path, body: null });
-      const lines = f.git(["cat-file", "-p", sha]).split("\n");
-      const objectHeader = lines.find((line) => line.startsWith("object "));
-      const typeHeader = lines.find((line) => line.startsWith("type "));
-      assert.ok(objectHeader && typeHeader);
-      return json({
-        sha,
-        object: { sha: objectHeader.slice(7), type: typeHeader.slice(5) },
-      });
-    }
-
-    const response = await f.transport(url, options);
-    if (!response.ok) return response;
-
-    if (method === "GET" && path === "/pulls") {
-      const pulls: unknown = await response.json();
-      assert.ok(Array.isArray(pulls));
-      return json(
-        pulls.map((value: unknown) => {
-          const pull = object(value);
-          delete pull.merged_by;
-          const original = f.pulls.find((item) => item.number === pull.number);
-          if (pull.state === "closed" && original) pull.head = original.head;
-          return pull;
-        }),
-      );
-    }
-
-    if (method === "GET" && /^\/pulls\/[0-9]+$/u.test(path)) {
-      const data = object(await response.json());
-      const original = f.pulls.find((item) => item.number === data.number);
-      if (data.state === "closed" && original) data.head = original.head;
-      return json(data);
-    }
-
-    if (method === "GET" && path.startsWith("/git/ref/tags/")) {
-      const data = object(await response.json());
-      const targetObject = object(data.object);
-      const type = f.git(["cat-file", "-t", text(targetObject.sha)]).trim();
-      return json({ ...data, object: { ...targetObject, type } });
-    }
-
-    if (method === "GET" && path.startsWith("/compare/")) {
-      const data = object(await response.json());
-      const [baseSha, targetSha] = path.slice("/compare/".length).split("...");
-      assert.ok(baseSha && targetSha);
-      const mergeBaseSha = f.git(["merge-base", baseSha, targetSha]).trim();
-      const aheadBy = Number(f.git(["rev-list", "--count", targetSha, "--not", baseSha]).trim());
-      const behindBy = Number(f.git(["rev-list", "--count", baseSha, "--not", targetSha]).trim());
-      const status =
-        aheadBy === 0 && behindBy === 0
-          ? "identical"
-          : aheadBy > 0 && behindBy === 0
-            ? "ahead"
-            : aheadBy === 0 && behindBy > 0
-              ? "behind"
-              : "diverged";
-      return json({
-        ...data,
-        status,
-        ahead_by: aheadBy,
-        behind_by: behindBy,
-        base_commit: { ...object(data.base_commit), sha: baseSha },
-        merge_base_commit: { ...object(data.merge_base_commit), sha: mergeBaseSha },
-      });
-    }
-
-    return response;
-  };
-}
-
-function assertReadOnly(calls: readonly { readonly method: string }[], start: number): void {
-  assert.ok(calls.slice(start).every(({ method }) => method === "GET"));
-}
-
-void test("an explicit bootstrap baseline is selected only when its ancestry reaches the source", async (context) => {
-  const f = await fixture(context, "node", "feat(api): export rows", {
-    bootstrap: true,
-    bootstrapCommit: true,
-    adoption: true,
-  });
-  const inputs = await f.request();
-  const sourceSha = f.ref("heads/main");
-  assert.ok(sourceSha);
-  assert.equal(inputs.configuration.schemaVersion, 2);
-  const before = f.calls.length;
-
-  const result = await selectReleaseCycle(
-    {
-      configuration: inputs.configuration,
-      automation: inputs.automation,
-      token: inputs.token,
-      sourceSha,
-    },
-    cycleTransport(f),
+  for (const [key, value] of Object.entries(variables)) {
+    const previous = process.env[key];
+    process.env[key] = value;
+    t.after(() => {
+      if (previous === undefined) delete process.env[key];
+      else process.env[key] = previous;
+    });
+  }
+  const git = (args: string[], input?: string | Buffer, index?: string) =>
+    execFileSync("git", ["-C", root, ...args], {
+      encoding: "utf8",
+      input,
+      env: { ...process.env, ...(index ? { GIT_INDEX_FILE: index } : {}) },
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+  git(["init", "-q", "-b", "main"]);
+  git(["config", "user.name", "Fixture"]);
+  git(["config", "user.email", "test@example.invalid"]);
+  git(["commit", "--allow-empty", "-qm", "Start"]);
+  const start = git(["rev-parse", "HEAD"]);
+  process.env.ROLLING_RELEASE_START_SHA = start;
+  const old = "# Changelog\n\n## v1.2.3\n\n- Previously released text.\n";
+  writeFileSync(join(root, "CHANGELOG.md"), old);
+  writeFileSync(
+    join(root, "Cargo.toml"),
+    '[workspace]\nmembers = ["crates/core"]\n[workspace.package]\nversion = "1.2.3"\n',
   );
-
-  assert.deepEqual(result, {
-    outcome: "selected",
-    sourceSha,
-    baseline: { kind: "bootstrap", commitSha: f.baseline },
-    version: { kind: "bootstrap", initialVersion: "0.1.0" },
-  });
-  assertReadOnly(f.calls, before);
-});
-
-void test("a stale captured source cannot select the bootstrap baseline", async (context) => {
-  const f = await fixture(context, "node", "feat(api): export rows", {
-    bootstrap: true,
-    bootstrapCommit: true,
-    adoption: true,
-  });
-  const inputs = await f.request();
-  const before = f.calls.length;
-
-  await assert.rejects(
-    selectReleaseCycle(
-      {
-        configuration: inputs.configuration,
-        automation: inputs.automation,
-        token: inputs.token,
-        sourceSha: f.baseline,
-      },
-      cycleTransport(f),
-    ),
-    (error: unknown) => error instanceof ReleaseCycleError && error.code === "source-not-current",
+  mkdirSync(join(root, "crates/core"), { recursive: true });
+  writeFileSync(
+    join(root, "crates/core/Cargo.toml"),
+    '[package]\nname = "widget"\nversion.workspace = true\n',
   );
-  assertReadOnly(f.calls, before);
-});
-
-void test("a merged list-pulls item without merged_by reaches detail verification and reports tag pending", async (context) => {
-  const state = await mergedProposal(context);
-  const before = state.f.calls.length;
-
-  const result = await selectReleaseCycle(state.request, cycleTransport(state.f));
-
-  assert.deepEqual(result, {
-    outcome: "release-tag-pending",
-    sourceSha: state.landingSha,
-    tag: "v1.3.0",
-    landingSha: state.landingSha,
-    pullNumber: 1,
-  });
-  assert.equal(state.f.ref("tags/v1.3.0"), null);
-  assertReadOnly(state.f.calls, before);
-});
-
-void test("a verified annotated tag selects its exact landing as the current baseline", async (context) => {
-  const state = await mergedProposal(context);
-  state.f.git(["tag", "-a", "v1.3.0", state.landingSha, "-m", "release v1.3.0"]);
-  await state.f.advance("fix(api): preserve later changes");
-  const sourceSha = state.f.ref("heads/main");
-  assert.ok(sourceSha);
-  const before = state.f.calls.length;
-
-  const result = await selectReleaseCycle({ ...state.request, sourceSha }, cycleTransport(state.f));
-
-  assert.deepEqual(result, {
-    outcome: "selected",
-    sourceSha,
-    baseline: {
-      kind: "tag",
-      name: "v1.3.0",
-      objectSha: state.f.ref("tags/v1.3.0"),
-      commitSha: state.landingSha,
-      pullNumber: 1,
-    },
-    version: { kind: "released", currentVersion: "1.3.0" },
-  });
-  assertReadOnly(state.f.calls, before);
-});
-
-void test("a stale source before the latest release landing cannot fall back to an older baseline", async (context) => {
-  const state = await mergedProposal(context);
-  const before = state.f.calls.length;
-
-  await assert.rejects(
-    selectReleaseCycle({ ...state.request, sourceSha: state.sourceSha }, cycleTransport(state.f)),
-    (error: unknown) =>
-      error instanceof ReleaseCycleError && error.code === "source-not-descendant",
+  writeFileSync(
+    join(root, "Cargo.lock"),
+    'version = 4\n\n[[package]]\nname = "widget"\nversion = "1.2.3"\n',
   );
-  assertReadOnly(state.f.calls, before);
-});
-
-void test("closed unmerged proposals are reported separately from merged-but-untagged releases", async (context) => {
-  const state = await openProposal(context);
-  const pull = state.f.pulls[0];
-  assert.ok(pull);
-  Object.assign(pull, { state: "closed" });
-  const before = state.f.calls.length;
-
-  const result = await selectReleaseCycle(state.request, cycleTransport(state.f));
-
-  assert.deepEqual(result, {
-    outcome: "closed-unmerged",
-    sourceSha: state.request.sourceSha,
-    pullNumbers: [1],
-  });
-  assertReadOnly(state.f.calls, before);
-});
-
-void test("divergent merged landings are ambiguous rather than ordered by PR metadata", async (context) => {
-  const state = await mergedProposal(context);
-  const siblingTree = state.f.git(["rev-parse", `${state.f.baseline}^{tree}`]).trim();
-  const siblingLanding = state.f
-    .git(["commit-tree", siblingTree, "-p", state.f.baseline], "chore: unrelated release landing\n")
-    .trim();
-  const competingPull = structuredClone(state.pull);
-  Object.assign(competingPull, { number: 2, merge_commit_sha: siblingLanding });
-  state.f.pulls.push(competingPull);
-  const before = state.f.calls.length;
-
-  await assert.rejects(
-    selectReleaseCycle(state.request, cycleTransport(state.f)),
-    (error: unknown) =>
-      error instanceof ReleaseCycleError && error.code === "ambiguous-release-history",
+  mkdirSync(join(root, "packages", "shared λ"), { recursive: true });
+  writeFileSync(
+    join(root, "package.json"),
+    JSON.stringify({ name: "widget", version: "1.2.3", workspaces: ["packages/*"] }),
   );
-  assertReadOnly(state.f.calls, before);
-});
-
-void test("ancestry selects the latest release even when an older PR has a larger number", async (context) => {
-  const state = await mergedProposal(context);
-  Object.assign(state.pull, { number: 2 });
-  const olderPull = structuredClone(state.pull);
-  Object.assign(olderPull, { number: 99, merge_commit_sha: state.sourceSha });
-  state.f.pulls.push(olderPull);
-  const before = state.f.calls.length;
-
-  const result = await selectReleaseCycle(state.request, cycleTransport(state.f));
-
-  assert.deepEqual(result, {
-    outcome: "release-tag-pending",
-    sourceSha: state.landingSha,
-    tag: "v1.3.0",
-    landingSha: state.landingSha,
-    pullNumber: 2,
-  });
-  assertReadOnly(state.f.calls, before);
-});
-
-void test("without merged proposal history, schema-1 configuration does not infer a tag", async (context) => {
-  const f = await fixture(context);
-  const inputs = await f.request();
-  const sourceSha = f.ref("heads/main");
-  assert.ok(sourceSha);
-  const before = f.calls.length;
-
-  await assert.rejects(
-    selectReleaseCycle(
-      {
-        configuration: inputs.configuration,
-        automation: inputs.automation,
-        token: inputs.token,
-        sourceSha,
-      },
-      cycleTransport(f),
-    ),
-    (error: unknown) => error instanceof ReleaseCycleError && error.code === "baseline-unavailable",
+  writeFileSync(
+    join(root, "packages", "shared λ", "package.json"),
+    JSON.stringify({ name: "shared", version: "1.2.3" }),
   );
-  assertReadOnly(f.calls, before);
-});
-
-void test("multiple open reserved proposals fail closed", async (context) => {
-  const state = await openProposal(context);
-  const first = state.f.pulls[0];
-  assert.ok(first);
-  const competing = structuredClone(first);
-  Object.assign(competing, { number: 2 });
-  state.f.pulls.push(competing);
-  const before = state.f.calls.length;
-
-  await assert.rejects(
-    selectReleaseCycle(state.request, cycleTransport(state.f)),
-    (error: unknown) =>
-      error instanceof ReleaseCycleError && error.code === "ambiguous-open-proposals",
-  );
-  assertReadOnly(state.f.calls, before);
-});
-
-void test("a missing release tag stops proposal writes with release-tag-pending", async (context) => {
-  const state = await mergedProposal(context);
-  state.f.git(["tag", "v1.3.0", state.landingSha]);
-  state.f.git(["read-tree", "--reset", "-u", "HEAD"]);
-  await state.f.advance("fix(api): preserve later changes");
-  const snapshot = await state.f.snapshot("v1.3.0");
-  state.f.git(["tag", "-d", "v1.3.0"]);
-  const before = state.f.calls.length;
-  await assert.rejects(
-    reconcileReleaseProposal(
-      {
-        configuration: state.request.configuration,
-        automation: state.request.automation,
-        token: state.request.token,
-        write: true,
-        snapshot,
-        version: { kind: "released", currentVersion: "1.3.0" },
-      },
-      cycleTransport(state.f),
-    ),
-    /release-tag-pending/u,
-  );
-  assertReadOnly(state.f.calls, before);
-});
-
-for (const [kind, retained] of [
-  ["merge", true],
-  ["merge", false],
-  ["squash", true],
-  ["squash", false],
-] as const) {
-  void test(`a ${kind}-landed tagged release starts a new cycle with the prior branch ${retained ? "retained" : "deleted"}`, async (context) => {
-    const state = await mergedProposal(
-      context,
-      kind,
-      retained && kind === "merge" ? "python-uv" : "node",
-    );
-    const priorHead = text(object(state.pull.head).sha);
-    state.f.git(["tag", "v1.3.0", state.landingSha]);
-    if (!retained) state.f.git(["update-ref", "-d", "refs/heads/release-log/main"]);
-    state.f.git(["read-tree", "--reset", "-u", "HEAD"]);
-    await state.f.advance("fix(api): preserve later changes");
-    const snapshot = await state.f.snapshot("v1.3.0");
-    const before = state.f.calls.length;
-    await assert.rejects(
-      reconcileReleaseProposal(
-        {
-          configuration: state.request.configuration,
-          automation: state.request.automation,
-          token: state.request.token,
-          write: true,
-          snapshot,
-          version: { currentVersion: "1.2.3", kind: "released" },
-        },
-        cycleTransport(state.f),
-      ),
-      /baseline or version is not the latest verified release/u,
-    );
-    assertReadOnly(state.f.calls, before);
-    const next = await reconcileReleaseProposal(
-      {
-        configuration: state.request.configuration,
-        automation: state.request.automation,
-        token: state.request.token,
-        write: true,
-        snapshot,
-        version: { currentVersion: "1.3.0", kind: "released" },
-      },
-      cycleTransport(state.f),
-    );
-    assert.equal(next.outcome, "created");
-    assert.equal(next.pullNumber, 2);
-    assert.ok(next.headSha);
-    const parents = state.f.git(["show", "-s", "--format=%P", next.headSha]).trim().split(" ");
-    assert.equal(parents[1], priorHead);
-    assert.equal(state.f.ref("heads/release-log/main"), next.headSha);
-    if (retained && kind === "merge") {
-      for (const path of ["pyproject.toml", "uv.lock"])
-        assert.equal(
-          state.f.git(["show", `${next.headSha}:${path}`]),
-          state.f.git(["show", `${priorHead}:${path}`]).replace("1.3.0", "1.3.1"),
-        );
-    }
-    const changelog = state.f.git(["show", `${next.headSha}:CHANGELOG.md`]);
-    assert.match(changelog, /1\.3\.0/u);
-    assert.match(changelog, /1\.3\.1/u);
-    assert.match(changelog, /### Fixes/u);
-    const repeated = await reconcileReleaseProposal(
-      {
-        configuration: state.request.configuration,
-        automation: state.request.automation,
-        token: state.request.token,
-        write: true,
-        snapshot: await state.f.snapshot("v1.3.0"),
-        version: { kind: "released", currentVersion: "1.3.0" },
-      },
-      cycleTransport(state.f),
-    );
-    assert.equal(repeated.outcome, "unchanged");
-    assert.equal(repeated.headSha, next.headSha);
-    const capture = {
-      repository: state.f.directory,
-      configuration: state.request.configuration,
-      policy: { schemaVersion: 1 as const, botUserId: 42, approverUserIds: [7] },
-      target: {
-        schemaVersion: 1 as const,
-        pullNumber: next.pullNumber,
-        headSha: next.headSha,
-        approverUserId: 7,
-      },
-      token: state.request.token,
-    };
-    const review = await captureReleaseReview(capture, cycleTransport(state.f));
-    const tree = state.f.git(["rev-parse", `${next.headSha}^{tree}`]).trim();
-    const landing = state.f
-      .git(["commit-tree", tree, "-p", next.sourceSha, "-p", next.headSha], "Merge release\n")
-      .trim();
-    state.f.git(["update-ref", "refs/heads/main", landing, next.sourceSha]);
-    const nextPull = state.f.pulls[1];
-    assert.ok(nextPull);
-    Object.assign(nextPull, {
+  git(["add", "CHANGELOG.md", "Cargo.toml", "Cargo.lock", "crates", "package.json", "packages"]);
+  git(["commit", "-qm", "Bootstrap"]);
+  const base = git(["rev-parse", "HEAD"]);
+  git(["tag", "v1.2.3", base]);
+  const refs = new Map<string, string>([
+    ["heads/main", base],
+    ["tags/v1.2.3", base],
+  ]);
+  const prs = new Map<number, Record<string, unknown>>();
+  const links = new Map<string, number[]>(),
+    originals = new Map<number, string>();
+  const localRepo = { id: 1, full_name: repository };
+  const author = { id: 99, type: "Bot", login: bot };
+  function register(
+    number: number,
+    landing: string,
+    original: string,
+    title: string,
+    login: string,
+    headRef: string,
+    baseRef: string,
+    baseSha: string,
+    body = "",
+  ) {
+    const pull = {
+      number,
+      id: number + 200,
       state: "closed",
-      merged_at: "2026-11-14T12:00:00Z",
+      merged: true,
+      merged_at: "2026-01-01",
+      updated_at: "2026-01-01",
       merge_commit_sha: landing,
-      merged_by: { id: 7, type: "User" },
-    });
-    const attestation = {
-      ...capture.target,
-      repositoryId: 17,
-      landingSha: landing,
-      mergeKind: "merge" as const,
+      title,
+      body,
+      commits: 1,
+      user: { id: number, login, type: "User" },
+      base: { ref: baseRef, sha: baseSha, repo: localRepo },
+      head: { ref: headRef, sha: original, repo: localRepo },
     };
-    const approval = await finalizeReleaseApproval(
-      { ...capture, review, attestation },
-      cycleTransport(state.f),
-    );
-    await verifyReleaseApproval({ ...capture, approval }, cycleTransport(state.f));
-  });
-}
-
-void test("a conflicting latest version tag is never replaced by an older baseline", async (context) => {
-  const state = await mergedProposal(context);
-  state.f.git(["tag", "v1.3.0", state.sourceSha]);
-  const before = state.f.calls.length;
-
-  await assert.rejects(
-    selectReleaseCycle(state.request, cycleTransport(state.f)),
-    /version tag already points to another commit/u,
-  );
-  assertReadOnly(state.f.calls, before);
-});
-
-for (const mode of ["node", "python", "both"] as const) {
-  void test(`trusted adoption validates ${mode} manifests and rejects a moved tag`, async (context) => {
-    const state = await mergedProposal(context, "merge", mode);
-    const { f, request, landingSha, pull } = state;
-    f.git(["read-tree", "--reset", "-u", "HEAD"]);
-    const blob = f
-      .git(["hash-object", "-w", "--stdin"], "# Changelog\n\n## v1.3.0 (2026-11-18)\n")
-      .trim();
-    f.git(["update-index", "--cacheinfo", "100644", blob, "CHANGELOG.md"]);
-    f.git(["commit", "-m", "chore: finalize replacement release"]);
-    const commitSha = f.git(["rev-parse", "HEAD"]).trim();
-    f.git(["tag", "v1.3.0", commitSha]);
-    const configuration = {
-      ...request.configuration,
-      adoptedRelease: {
-        pullNumber: 1,
-        headSha: text(object(pull.head).sha),
-        landingSha,
-        commitSha,
-        tag: "v1.3.0",
-      },
-    };
-    const selected = await selectReleaseCycle(
-      { ...request, configuration, sourceSha: commitSha },
-      cycleTransport(f),
-    );
-    assert.equal(selected.outcome, "selected");
-    assert.ok(selected.baseline.kind === "tag" && selected.baseline.adopted);
-    assert.equal(selected.baseline.commitSha, commitSha);
-    await assert.rejects(
-      selectReleaseCycle(
-        {
-          ...request,
-          configuration: {
-            ...configuration,
-            adoptedRelease: { ...configuration.adoptedRelease, headSha: landingSha },
+    prs.set(number, pull);
+    links.set(landing, [number]);
+    originals.set(number, original);
+  }
+  register(40, base, base, "feat: bootstrap", "alice", "bootstrap", "main", start);
+  let main = base;
+  function land(
+    number: number,
+    title: string,
+    login: string,
+    headRef: string,
+    baseRef: string,
+    originalBase: string,
+    action = "",
+  ) {
+    writeFileSync(join(root, "feature"), String(number));
+    git(["add", "feature"]);
+    const tree = git(["write-tree"]);
+    const original = git(["commit-tree", tree, "-p", originalBase, "-m", title]);
+    const landing = git(["commit-tree", tree, "-p", main, "-m", "squash " + number]);
+    register(number, landing, original, title, login, headRef, baseRef, originalBase, action);
+    main = landing;
+    refs.set("heads/main", main);
+    git(["reset", "--hard", main]);
+    return original;
+  }
+  const writes: string[] = [];
+  let release: Record<string, unknown> | null = null;
+  let failRelease = true,
+    imageVersion = false;
+  let landing = "";
+  const priorFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input),
+      method = init?.method ?? "GET";
+    if (url.hostname === "ghcr.io") {
+      if (url.pathname === "/token") return Response.json({ token: "fixture" });
+      const config = JSON.stringify({
+        os: "linux",
+        architecture: "amd64",
+        config: {
+          Labels: {
+            "org.opencontainers.image.source": "https://github.com/" + repository,
+            "org.opencontainers.image.revision": landing,
+            "org.opencontainers.image.version": "1.3.0",
           },
-          sourceSha: commitSha,
         },
-        cycleTransport(f),
-      ),
-      /does not match merged history/u,
-    );
-    f.git(["read-tree", "--reset", "-u", "HEAD"]);
-    await f.advance("fix(api): preserve later changes");
-    const sourceSha = f.ref("heads/main");
-    assert.ok(sourceSha);
-    const proposal = await reconcileReleaseProposal(
-      {
-        ...request,
-        configuration,
-        snapshot: await f.snapshot("v1.3.0", configuration),
-        version: { kind: "released", currentVersion: "1.3.0" },
-        write: true,
-      },
-      cycleTransport(f),
-    );
-    assert.equal(proposal.outcome, "created");
-    assert.equal(proposal.baselineSha, commitSha);
-    f.git(["tag", "-f", "v1.3.0", landingSha]);
-    await assert.rejects(
-      selectReleaseCycle({ ...request, configuration, sourceSha }, cycleTransport(f)),
-      /points to a different commit/u,
-    );
-  });
-}
-
-for (const [change, policy] of [
-  ["overrides", { releaseBumps: { feat: "none", refactor: "patch" } }],
-  ["revision", { releasePolicy: "release-policy-v2" }],
-] as const) {
-  void test(`a bump-policy change in ${change} requires an exact tagged predecessor and replays its original policy`, async (context) => {
-    const oldSha = "a".repeat(40);
-    const state = await withProducerRuntimes({ activeSha: oldSha, producers: [] }, () =>
-      mergedProposal(context),
-    );
-    const registry = {
-      activeSha: "b".repeat(40),
-      producers: [
-        {
-          sha: oldSha,
-          legacy: false,
-          replay: (serialized: string, configuration: ReleaseCycleRequest["configuration"]) => {
-            assert.equal(configuration.releasePolicy, "release-policy-v1");
-            assert.equal(Object.hasOwn(configuration, "releaseBumps"), false);
-            return replayReleaseSnapshot(serialized, configuration);
-          },
-          prepare: prepareReleaseFileContents,
-          describe,
-        },
-      ],
-    };
-    await withProducerRuntimes(registry, async () => {
-      const configuration = {
-        ...state.request.configuration,
-        ...policy,
-      } as const;
-      const request = { ...state.request, configuration };
-      const transport = cycleTransport(state.f);
-      const before = state.f.calls.length;
-
-      await assert.rejects(
-        selectReleaseCycle(request, transport),
-        /requires the original release tag/u,
-      );
-      state.f.git(["tag", "v1.3.0", state.sourceSha]);
-      await assert.rejects(
-        selectReleaseCycle(request, transport),
-        /requires the original release tag/u,
-      );
-      state.f.git(["tag", "-f", "v1.3.0", state.landingSha]);
-      const body = state.pull.body;
-      state.pull.body = "edited historical proposal";
-      await assert.rejects(selectReleaseCycle(request, transport), /identity was edited/u);
-      state.pull.body = body;
-
-      const cycle = await selectReleaseCycle(request, transport);
-      assert.equal(cycle.outcome, "selected");
-      if (cycle.outcome === "selected") {
-        assert.equal(cycle.baseline.commitSha, state.landingSha);
-        assert.deepEqual(cycle.version, { kind: "released", currentVersion: "1.3.0" });
+      });
+      const manifest = JSON.stringify({ schemaVersion: 2, config: { digest: hash(config) } });
+      if (url.pathname.includes("/blobs/")) return new Response(config);
+      if (method === "PUT") {
+        imageVersion = true;
+        writes.push("image");
+        return new Response(null, {
+          status: 201,
+          headers: { "docker-content-digest": hash(manifest) },
+        });
       }
-      assertReadOnly(state.f.calls, before);
-
-      state.f.git(["read-tree", "--reset", "-u", "HEAD"]);
-      await state.f.advance("refactor(api): simplify selection");
-      const next = await reconcileReleaseProposal(
-        {
-          configuration,
-          automation: request.automation,
-          token: request.token,
-          write: false,
-          snapshot: await state.f.snapshot("v1.3.0", configuration),
-          version: { kind: "released", currentVersion: "1.3.0" },
+      if (url.pathname.endsWith("/v1.3.0") && !imageVersion)
+        return Response.json({ errors: [{ code: "MANIFEST_UNKNOWN" }] }, { status: 404 });
+      return new Response(manifest, {
+        headers: {
+          "content-type": "application/vnd.oci.image.manifest.v1+json",
+          "docker-content-digest": hash(manifest),
         },
-        transport,
-      );
-      assert.equal(next.outcome, "would-create");
-      assertReadOnly(state.f.calls, before);
-    });
-  });
-}
-
-void test("a promoted producer is resolved by its immutable provider record without a consumer pin", async (context) => {
-  const oldSha = "a".repeat(40);
-  const activeSha = "b".repeat(40);
-  const state = await withProducerRuntimes({ activeSha: oldSha, producers: [] }, () =>
-    openProposal(context),
-  );
-  const { configuration, automation, token } = state.request;
-  const ref = `refs/tags/rolling-release-producer/${oldSha}`;
-  let record: "missing" | "wrong" | "approved" = "missing";
-  const transport: GitHubRead = (url, options) => {
-    if (url === `https://api.github.com/repos/lhajoosten/rolling-release/git/ref/${ref.slice(5)}`) {
-      assert.equal(new Headers(options.headers).has("Authorization"), false);
-      assert.equal(options.method, "GET");
-      if (record === "missing") return Promise.resolve(new Response(null, { status: 404 }));
-      return Promise.resolve(
-        json({ ref, object: { type: "commit", sha: record === "approved" ? oldSha : activeSha } }),
+      });
+    }
+    assert.equal(url.hostname, "api.github.com");
+    const path = url.pathname.slice(("/repos/" + repository + "/").length);
+    const data = typeof init?.body === "string" ? object(JSON.parse(init.body)) : {};
+    if (method !== "GET") writes.push(method + " " + path);
+    if (path.startsWith("git/ref/")) {
+      const value = refs.get(path.slice(8));
+      return response(value ? { object: { sha: value, type: "commit" } } : undefined);
+    }
+    if (path.startsWith("git/commits/")) {
+      const sha = path.slice(12);
+      return response({ sha, tree: { sha: git(["rev-parse", sha + "^{tree}"]) } });
+    }
+    if (path === "git/blobs")
+      return response({
+        sha: git(["hash-object", "-w", "--stdin"], Buffer.from(String(data.content), "base64")),
+      });
+    if (path === "git/trees") {
+      const idx = join(root, ".git", "test-index");
+      git(["read-tree", String(data.base_tree)], undefined, idx);
+      assert.ok(Array.isArray(data.tree));
+      for (const item of data.tree) {
+        const row = object(item);
+        git(
+          [
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            String(row.mode),
+            String(row.sha),
+            String(row.path),
+          ],
+          undefined,
+          idx,
+        );
+      }
+      return response({ sha: git(["write-tree"], undefined, idx) });
+    }
+    if (path === "git/commits") {
+      assert.ok(Array.isArray(data.parents));
+      return response({
+        sha: git([
+          "commit-tree",
+          String(data.tree),
+          ...data.parents.flatMap((p) => ["-p", String(p)]),
+          "-m",
+          String(data.message),
+        ]),
+      });
+    }
+    if (path === "git/refs" || path.startsWith("git/refs/")) {
+      const key = path === "git/refs" ? String(data.ref).slice(5) : path.slice(9);
+      if (path === "git/refs" && refs.has(key)) return Response.json({}, { status: 422 });
+      refs.set(key, String(data.sha));
+      git(["update-ref", "refs/" + key, String(data.sha)]);
+      for (const pull of prs.values())
+        if (pull.state === "open" && key === "heads/" + String(object(pull.head).ref))
+          objectAssignHead(pull, String(data.sha));
+      return response({ object: { sha: data.sha } });
+    }
+    if (path === "pulls" && method === "GET") {
+      const state = url.searchParams.get("state"),
+        head = url.searchParams.get("head")?.split(":")[1];
+      return response(
+        [...prs.values()]
+          .filter((p) => p.state === state && object(p.head).ref === head)
+          .toReversed(),
       );
     }
-    return state.f.transport(url, options);
-  };
-  const discover = () =>
-    selectConsumerProducers(
-      configuration,
-      automation.botUserId,
-      token,
-      activeSha,
-      [],
-      undefined,
-      transport,
-    );
-  await assert.rejects(discover(), /Ask Rolling Release to restore or approve it/u);
-  record = "wrong";
-  await assert.rejects(discover(), /requires producer/u);
-  record = "approved";
-  assert.deepEqual(await discover(), [{ sha: oldSha, legacy: false }]);
-});
-
-void test("reviewed prior configuration is replayed only at its exact published tag", async (context) => {
-  const state = await mergedProposal(context);
-  const oldConfiguration = state.request.configuration;
-  const request = {
-    ...state.request,
-    configuration: { ...oldConfiguration, contextPolicy: "optional" } as const,
-  };
-  const transport = cycleTransport(state.f);
-  await assert.rejects(selectReleaseCycle(request, transport), /configuration/u);
-
-  await withProducerRuntimes(
-    { activeSha: "b".repeat(40), producers: [], configurations: [oldConfiguration] },
-    async () => {
-      await assert.rejects(
-        selectReleaseCycle(request, transport),
-        /requires the original release tag/u,
-      );
-      state.f.git(["tag", "v1.3.0", state.landingSha]);
-      const selected = await selectReleaseCycle(request, transport);
-      assert.equal(selected.outcome, "selected");
-      if (selected.outcome === "selected") {
-        assert.equal(selected.baseline.commitSha, state.landingSha);
-        assert.deepEqual(selected.version, { kind: "released", currentVersion: "1.3.0" });
+    if (path === "pulls") {
+      const number = 100 + prs.size;
+      const pull = {
+        number,
+        title: data.title,
+        body: data.body,
+        user: author,
+        state: "open",
+        merged: false,
+        head: { sha: refs.get("heads/" + String(data.head)), ref: data.head, repo: localRepo },
+        base: { ref: "main", repo: localRepo },
+      };
+      prs.set(number, pull);
+      return response(pull);
+    }
+    if (/^pulls\/\d+$/u.test(path)) {
+      const pull = prs.get(Number(path.split("/")[1]));
+      if (pull && method === "PATCH") Object.assign(pull, data);
+      return response(pull);
+    }
+    if (path.startsWith("pulls/") && path.endsWith("/commits")) {
+      const head = originals.get(Number(path.split("/")[1]));
+      assert.ok(head);
+      return response([
+        {
+          sha: head,
+          commit: { message: git(["show", "-s", "--format=%B", head]) },
+          parents: git(["show", "-s", "--format=%P", head])
+            .split(" ")
+            .filter(Boolean)
+            .map((sha) => ({ sha })),
+        },
+      ]);
+    }
+    if (path.startsWith("commits/") && path.endsWith("/pulls"))
+      return response((links.get(path.split("/")[1] ?? "") ?? []).map((n) => prs.get(n)));
+    if (path.startsWith("commits/"))
+      return response({
+        sha: path.slice(8),
+        committer: author,
+        commit: { verification: { verified: true, reason: "valid" } },
+      });
+    if (path === "releases" && method === "POST") {
+      if (failRelease) {
+        failRelease = false;
+        return Response.json({}, { status: 503 });
       }
-    },
+      release = data;
+      return response(release);
+    }
+    if (path.startsWith("releases/tags/")) return response(release ?? undefined);
+    throw new Error("Unexpected request " + method + " " + path);
+  };
+  t.after(() => {
+    globalThis.fetch = priorFetch;
+  });
+  const trigger = (number: number) =>
+    writeFileSync(event, JSON.stringify({ action: "closed", pull_request: { number } }));
+  const original = land(41, "feat(export): add CSV export", "alice", "export", "main", base);
+  trigger(41);
+  await run("preview");
+  assert.equal(writes.length, 0);
+  await run("propose");
+  const pr = [...prs.values()].find((p) => p.state === "open");
+  assert.ok(pr);
+  const first = object(pr.head).sha;
+  land(42, "feat(export): add column selection", "bob", "columns", "export", original);
+  const beforeFix = main;
+  land(
+    43,
+    "fix: retain export settings",
+    "carol",
+    "settings",
+    "main",
+    beforeFix,
+    "Required action: Restart the export worker.",
   );
+  trigger(43);
+  const savedBody = pr.body;
+  pr.body = "A maintainer edit";
+  const beforeConflict = writes.length;
+  await assert.rejects(run("propose"), /text differs/u);
+  assert.equal(writes.length, beforeConflict);
+  pr.body = savedBody;
+  await run("propose");
+  assert.notEqual(object(pr.head).sha, first);
+  assert.equal([...prs.values()].filter((p) => p.state === "open").length, 1);
+  const head = String(object(pr.head).sha),
+    n = writes.length;
+  await run("propose");
+  assert.equal(writes.length, n);
+  const expected = readFileSync(new URL("./fixtures/release-golden.md", import.meta.url), "utf8");
+  assert.equal(git(["show", head + ":CHANGELOG.md"]) + "\n", expected);
+  assert.match(git(["show", head + ":Cargo.lock"]), /version = "1.3.0"/u);
+  landing = git([
+    "commit-tree",
+    git(["rev-parse", head + "^{tree}"]),
+    "-p",
+    main,
+    "-m",
+    "merge release",
+  ]);
+  Object.assign(pr, {
+    merged: true,
+    state: "closed",
+    merged_at: "2026-01-02",
+    merge_commit_sha: landing,
+  });
+  links.set(landing, [Number(pr.number)]);
+  const edited = prs.get(43);
+  assert.ok(edited);
+  edited.title = "renamed after review";
+  edited.body = "Required action:\nRequired action: edited";
+  main = landing;
+  refs.set("heads/main", main);
+  git(["reset", "--hard", main]);
+  land(44, "docs: later change", "alice", "docs", "main", main);
+  trigger(Number(pr.number));
+  const normalLanding = pr.merge_commit_sha;
+  pr.merge_commit_sha = main;
+  await assert.rejects(run("promote"), /landing differs/u);
+  pr.merge_commit_sha = normalLanding;
+  refs.set("tags/v1.3.0", base);
+  await assert.rejects(run("promote"), /Conflicting tag/u);
+  refs.delete("tags/v1.3.0");
+  await run("promote");
+  assert.equal(refs.get("tags/v1.3.0"), landing);
+  await assert.rejects(run("publish"), /503/u);
+  assert.equal(imageVersion, true);
+  await run("publish");
+  assert.equal(writes.filter((w) => w === "image").length, 1);
+  assert.equal(object(release).body, pr.body);
+  const final = writes.length;
+  await run("promote");
+  await run("publish");
+  assert.equal(writes.length, final);
+  trigger(44);
+  await run("propose");
+  assert.equal(writes.length, final);
+  edited.title = "fix: retain export settings";
+  edited.body = "Required action: Restart the export worker.";
+  await run("backfill");
+  const backfill = [...prs.values()].find(
+    (p) => p.state === "open" && object(p.head).ref === "release/changelog-backfill",
+  );
+  assert.ok(backfill);
+  const rebuild = String(object(backfill.head).sha);
+  assert.equal(git(["diff", "--name-only", main, rebuild]), "CHANGELOG.md");
+  const notes = git(["show", rebuild + ":CHANGELOG.md"]);
+  assert.match(notes, /feat|bootstrap/u);
+  assert.equal(notes.match(/^## v1.3.0$/gmu)?.length, 1);
+  assert.ok(!notes.includes("Previously released text"));
+  const end = writes.length;
+  await run("backfill");
+  assert.equal(writes.length, end);
 });
