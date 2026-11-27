@@ -20,6 +20,8 @@ Run the separate manual changelog backfill to reconstruct historical sections fr
 | Python  | Static versions in `pyproject.toml`; local project entries in `uv.lock` or Poetry 2.1 lockfiles. Generated or backend-computed versions require a static version for adoption. |
 | Rust    | Single crates and shared Cargo workspaces with inherited versions, local dependency requirements, and `Cargo.lock`                                                             |
 
+In uv workspaces, members inherit dependency sources from the root and can override individual sources. The planner updates a pin when the effective source is unconditionally local. If a workspace source is conditional and the planner cannot establish that the pin is local in every case, it stops and names the dependency for review before rewriting the pin.
+
 The writer expects participating packages to share the previous stable version. Ambiguous ownership or independently versioned packages require maintainer review. An image-only repository can release using the changelog and reviewed record alone.
 
 The review record also retains the provider commit that generated it. Quality, promotion and publication select that producer from verified provider history for replay. If it is unavailable, restore access to the reviewed provider revision and rerun the original release event. Set `RELEASE_LOG_WRITE_ENABLED=false` to pause automatic writes while retaining manual preview.

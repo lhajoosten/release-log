@@ -30,14 +30,22 @@ export function updateUvRequirements(
   inheritedSources: ReadonlyMap<string, unknown> = new Map(),
 ): string {
   const sources = new Map([...inheritedSources, ...uvSources(source)]);
-  const local = new Set(
-    [...sources]
-      .filter(([, value]) => record(value) && value.workspace === true)
-      .map(([name]) => name),
-  );
-  for (const name of local)
+  const local = new Set<string>();
+  const ambiguous = new Set<string>();
+  for (const [name, value] of sources) {
+    const alternatives = Array.isArray(value) ? value : [value];
+    const workspace = alternatives.filter(
+      (entry: unknown) => record(entry) && entry.workspace === true,
+    );
+    if (!workspace.length) continue;
     if (!memberNames.has(name)) throw new Error(`Unknown uv workspace dependency: ${name}`);
-  return updateProjectRequirements(source, local, previous, next);
+    const unconditional = workspace.some(
+      (entry: unknown) =>
+        record(entry) && !("marker" in entry) && !("extra" in entry) && !("group" in entry),
+    );
+    (workspace.length === alternatives.length && unconditional ? local : ambiguous).add(name);
+  }
+  return updateProjectRequirements(source, local, previous, next, ambiguous);
 }
 
 /** Change only requirements whose names have a verified local source. */
@@ -46,6 +54,7 @@ export function updateProjectRequirements(
   local: ReadonlySet<string>,
   previous: string,
   next: string,
+  ambiguous: ReadonlySet<string> = new Set(),
 ): string {
   const ast = parseTOML(source);
   const edits: { start: number; end: number; text: string }[] = [];
@@ -64,9 +73,13 @@ export function updateProjectRequirements(
       for (const item of node.value.elements) {
         if (item.type !== "TOMLValue" || item.kind !== "string") continue;
         const match = /^([A-Za-z0-9][A-Za-z0-9._-]*)/u.exec(item.value);
-        if (!match?.[1] || !local.has(normalize(match[1]))) continue;
+        if (!match?.[1]) continue;
+        const name = normalize(match[1]);
+        if (!local.has(name) && !ambiguous.has(name)) continue;
         const raw = source.slice(...item.range);
         const changed = updateConstraint(raw, previous, next);
+        if (changed !== raw && ambiguous.has(name))
+          throw new Error(`Ambiguous uv workspace sources for dependency: ${name}`);
         if (changed !== raw)
           edits.push({ start: item.range[0], end: item.range[1], text: changed });
       }

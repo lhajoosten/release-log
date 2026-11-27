@@ -22,6 +22,41 @@ void test("uv member sources inherit root declarations and shadow normalized nam
   );
 });
 
+void test("uv handles source arrays and rejects ambiguous versioned requirements", () => {
+  const names = new Set(["beta"]);
+  const member = '[project]\ndependencies = ["beta>=1.2.3"]\n';
+  const allLocal = uvSources("[tool.uv.sources]\nbeta = [{ workspace = true }]\n");
+  assert.equal(
+    updateUvRequirements(member, names, "1.2.3", "1.3.0", allLocal),
+    member.replace("1.2.3", "1.3.0"),
+  );
+  const mixed = uvSources(
+    '[tool.uv.sources]\nbeta = [{ workspace = true }, { index = "external" }]\n',
+  );
+  assert.throws(
+    () => updateUvRequirements(member, names, "1.2.3", "1.3.0", mixed),
+    /Ambiguous uv workspace sources/u,
+  );
+  const externalOverride = `${member}[tool.uv.sources]\nBETA = [{ index = "external" }]\n`;
+  assert.equal(
+    updateUvRequirements(externalOverride, names, "1.2.3", "1.3.0", mixed),
+    externalOverride,
+  );
+  const unversioned = member.replace(">=1.2.3", "");
+  assert.equal(updateUvRequirements(unversioned, names, "1.2.3", "1.3.0", mixed), unversioned);
+  for (const qualifier of [
+    'marker = "sys_platform == \\\"linux\\\""',
+    'extra = "test"',
+    'group = "dev"',
+  ]) {
+    const conditional = uvSources(`[tool.uv.sources]\nbeta = { workspace = true, ${qualifier} }\n`);
+    assert.throws(
+      () => updateUvRequirements(member, names, "1.2.3", "1.3.0", conditional),
+      /Ambiguous uv workspace sources/u,
+    );
+  }
+});
+
 void test("uv shared workspace updates each member and the matching lock entries", async () => {
   const root = await mkdtemp(join(tmpdir(), "python-workspace-"));
   try {
