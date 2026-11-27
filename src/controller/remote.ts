@@ -1,3 +1,4 @@
+import { githubCommitSignature, verifiedAppCommit } from "./commit-verification.ts";
 import { GitHubReadError, requestGitHubJson } from "../github.ts";
 
 export function object(value: unknown): Record<string, unknown> {
@@ -45,6 +46,16 @@ export class Remote {
         { method, body },
       )
     ).data;
+  }
+  async verifiedAppCommit(head: string) {
+    const commit = await this.request("commits/" + head);
+    return verifiedAppCommit(
+      commit,
+      head,
+      this.bot,
+      () => githubCommitSignature(this.repository, head, this.#token),
+      this.repository,
+    );
   }
   async optional(path: string): Promise<unknown> {
     try {
