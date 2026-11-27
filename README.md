@@ -1,77 +1,34 @@
 # Rolling Release
 
+Rolling Release is a GitHub Actions release bot for repositories that ship one shared, stable version from `main`. It turns the titles of merged pull requests into a changelog, updates package versions and lockfiles, and keeps those changes together in one standalone release PR. **Merging that release PR is how a maintainer approves a release.**
+
 <img width="2172" height="724" alt="image" src="https://github.com/user-attachments/assets/e414345c-7151-4dbc-8277-d2791a54e147" />
 
-## How it works
+## From merged PR to published release
 
-1. **Merge an ordinary PR.** When the batch warrants a release, the GitHub App creates or refreshes one release PR containing the next version, changelog and captured release inputs.
-2. **Review the release PR.** Each refresh includes the complete range since the previous version tag. Supported Node, Python, and Cargo version files are updated together, and released changelog sections are preserved.
-3. **Merge the release PR.** The workflow creates `vMAJOR.MINOR.PATCH` at that exact merge landing. With `githubRelease: true`, it also publishes that version’s verified changelog as a GitHub Release and requests latest. It does not create another proposal for the release itself.
-4. **Use the tag downstream.** Your repository can trigger image publication, packaging or deployment from that version tag.
+1. **Merge ordinary PRs into `main`.** The bot finds the changes introduced since the last stable tag using Git ancestry and GitHub PR identities. This works with squash merges and supported stacked PRs. A missing or ambiguous association names the blocking commit.
+2. **Review one accumulating release PR.** The first releasable change opens `release/next`. Later merges refresh the same PR. It contains the next version, the changelog, the applicable manifest and lockfile edits, and a small reviewed record. Earlier changelog sections keep their original bytes.
+3. **Merge when ready to ship.** The bot verifies the reviewed files and tags the exact commit where the release PR landed. It publishes the versioned Docker image to GHCR and creates a GitHub Release with the same reviewed notes. A retry verifies existing outputs and finishes missing work, even after `main` has advanced.
 
-Release membership comes from Git reachability, not merge dates. Conventional PR titles classify changes; structured PR context explains their impact and any required action. Captured inputs support deterministic offline replay without fetching mutable PR descriptions again. Invalid metadata and missing associations are surfaced explicitly.
+## How titles determine the version
 
-The [rolling-release workflow guide](docs/release-workflow.md) covers setup, permissions, generated files and recovery. The [release policy](docs/release-policy.md) defines versioning and membership rules.
+| Merged PR title                                   | Effect from `v1.2.3`                                                    |
+| ------------------------------------------------- | ----------------------------------------------------------------------- |
+| `feat(export): add CSV export`                    | Minor → `v1.3.0`                                                        |
+| `fix: retain export settings`                     | Patch → `v1.2.4`. Performance improvements and reverts also bump patch. |
+| `feat(api)!: remove the old endpoint`             | Major → `v2.0.0`. A breaking change before 1.0 bumps minor.             |
+| `docs: explain exports` or `chore: update checks` | Waits for the next releasable batch.                                    |
 
-## Proven behavior
+The highest bump in a batch wins. The title description supplies the changelog text, with a link to the PR and credit for its author when available. A single optional `Required action: ...` line in the PR description supplies a migration instruction. The renderer groups entries under ✨ Features, 🐛 Fixes, 📚 Documentation, 🛠️ Required actions and 🔧 Internal maintenance, omits empty sections, and ends each release after the first with a linked `Full changelog v1.2.3...v1.3.0`.
 
-This repository uses [internal candidates](docs/container-release.md) to gate its own stable publication. Its first release, [v0.1.0](https://github.com/lhajoosten/rolling-release/tree/v0.1.0), tags the exact landing of [release PR #62](https://github.com/lhajoosten/rolling-release/pull/62). Subsequent self-use releases `v0.2.0` and `v0.2.1` also tag their exact release-PR landings, with tag-bound membership and preserved prior changelog content.
+## What the bot updates
 
-A private validation sandbox has also demonstrated:
+The release PR synchronizes supported npm, pnpm and Bun manifests and lockfiles, static Python projects using Poetry or uv, and Cargo packages and workspaces. Shared-version workspace members move together. The [consumer guide](docs/consumer-setup.md) covers setup, supported file formats and the reviewed starting commit for a first release.
 
-- Creating a proposal and refreshing that same PR after another ordinary merge.
-- A subsequent `v0.1.0` → `v0.2.0` cycle using the released tag as its baseline, including only new ordinary changes and preserving the old changelog section byte for byte.
-- Tagging the exact human-merge landing, with no recursive proposal.
-- Repeating a successful tag run with an `unchanged` result and unchanged tags and generated files.
+The current release PR stores its captured inputs in `.rolling-release/review.json`. This small record binds the reviewed titles, credits, required actions and generated file digests to their source commit. The bot can verify the landing and reproduce the notes even after someone edits a PR on GitHub. The older `.release-log/inputs.json` is only relevant when identifying historical releases created by earlier versions of the bot.
 
-The sandbox uses synthetic examples; it proves those lifecycle behaviors, not independent consumer adoption or every failure mode. Controlled stale/tamper, concurrency and missing/conflicting-tag exercises remain outstanding. See [run evidence and remaining validation](docs/release-workflow.md#live-evidence-and-remaining-validation).
+## Preview and historical backfill
 
-## Run the published CLI
+Manually dispatch the release cycle to preview the next proposal without writing to GitHub. To replace an old or missing changelog, run the separate manual `changelog-backfill.yaml` workflow. It walks historical stable tags and their PRs, renders the same format, and opens a changelog-only review PR. It uses the available historical PR metadata and reports incomplete evidence.
 
-On Linux/amd64 with Docker, pull and run the verified `v0.2.1` image without logging in:
-
-```sh
-docker pull --platform linux/amd64 ghcr.io/lhajoosten/release-log:v0.2.1
-docker run --rm --network none --read-only --cap-drop ALL \
-  ghcr.io/lhajoosten/release-log@sha256:1f0ba94d9a78c183942460179721c565f2698cc8523a5f9e868330578ff47c7f --version
-docker run --rm --network none --read-only --cap-drop ALL \
-  ghcr.io/lhajoosten/release-log@sha256:1f0ba94d9a78c183942460179721c565f2698cc8523a5f9e868330578ff47c7f --help
-```
-
-Use the digest reference in automation. The [runtime guide](docs/container.md#run-with-mounted-inputs) shows configuration/snapshot mounts, host UID/GID and explicit writes. Stable version tags and digest references are available. The updated publisher also promotes `ghcr.io/lhajoosten/release-log:latest` to the highest successfully published stable version with the same digest; its first live promotion is pending a release containing that implementation. No arm64 image is provided.
-
-## Build the CLI from source
-
-Use Node.js **26.13.1** and pnpm **12.14.0**:
-
-```sh
-pnpm install --frozen-lockfile
-pnpm build
-node dist/src/cli.js --help
-```
-
-The [CLI guide](docs/cli.md) covers online collection, offline planning/rendering, dry-run preparation, explicit proposal writes and exact-landing tagging. The [container guide](docs/container.md) covers the local Linux/amd64 image and its smoke/security checks.
-
-The npm package remains private at `0.2.1`. The Linux/amd64 image `ghcr.io/lhajoosten/release-log:v0.2.1` is published, and anonymous version/digest pulls plus `--version` and `--help` have passed. Use the [verified pull/run examples and digest](docs/container-release.md#pull-and-run) in automation. The authorized same-event retry retained the digest with `reused: true` and no push. No npm package or GitHub Release assets are distributed.
-
-## Set up release automation
-
-Install Rolling Release once to get PR readiness checks, a read-only preview and releases after merge. [Set up Rolling Release](docs/consumer-setup.md)
-
-Use the maintainer guide to check the published image or resume an interrupted release. [Maintain Rolling Release](docs/maintain-rolling-release.md)
-
-PRs use conventional titles and the [version 1 release-context block](docs/release-context.md). Context is required by default; consumers can explicitly select the [optional policy](docs/release-context.md#consumer-context-policy). This repository keeps it required.
-
-The App maintains proposals and tags; a human reviews and merges release PRs. Matching-tag retries reuse the existing tag. Conflicting tags and unexpected edits stop for review rather than being overwritten. Downstream publishing permissions belong to downstream jobs. Custom approval receipts and the separate publication executor are not prerequisites for this flow.
-
-## User-facing release notes
-
-`release-log notes` renders a separate Markdown draft from captured release evidence for manual review. It preserves recorded impact, breaking warnings, required actions, and source references. See the [CLI usage and review procedure](docs/cli.md#draft-user-facing-release-notes).
-
-Notes and changelog generation work offline without AI credentials. The separate [optional text-generation API and development preview](docs/text-generation.md) support explicit OpenAI, Anthropic, Azure, and OpenAI-compatible connections through AI SDK Core. The [architecture decision](docs/adr/0002-ai-sdk-provider-integration.md) records the provider integration choice.
-
-## Documentation and development
-
-The [documentation overview](docs/index.md) links component and operations guides. [CONTRIBUTING.md](CONTRIBUTING.md) covers toolchain setup, checks, hooks and CI; run `pnpm verify` for the canonical repository checks. [AGENTS.md](AGENTS.md) defines coding-agent guidance.
-
-Licensed under the [MIT License](LICENSE.md).
+See the [release contract and example changelog](docs/spec/186-release-cycle.md), [workflow operations](docs/release-workflow.md), and [container publication details](docs/container-release.md).

@@ -1,0 +1,111 @@
+# Copy into the consumer repository after reviewing the provider ref and settings.
+name: Release cycle
+on:
+  pull_request_target:
+    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  propose:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request_target' && github.event.pull_request.merged &&
+       github.event.pull_request.base.ref == github.event.repository.default_branch &&
+       (github.event.pull_request.head.ref != 'release/next' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login != vars.ROLLING_RELEASE_BOT) && vars.RELEASE_LOG_WRITE_ENABLED != 'false')
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/release-propose.yaml
+    with:
+      bot: ${{ vars.ROLLING_RELEASE_BOT }}
+      start-sha: ${{ vars.ROLLING_RELEASE_START_SHA }}
+      app-id: ${{ vars.RELEASE_APP_ID }}
+    secrets:
+      app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+  promote:
+    if: >-
+      github.event_name == 'pull_request_target' && github.event.pull_request.merged &&
+      github.event.pull_request.base.ref == github.event.repository.default_branch &&
+      github.event.pull_request.head.ref == 'release/next' && github.event.pull_request.head.repo.full_name == github.repository &&
+      vars.RELEASE_LOG_WRITE_ENABLED != 'false' &&
+      github.event.pull_request.user.login == vars.ROLLING_RELEASE_BOT
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: read
+    uses: ./.github/workflows/release-promote.yaml
+    with:
+      bot: ${{ vars.ROLLING_RELEASE_BOT }}
+      start-sha: ${{ vars.ROLLING_RELEASE_START_SHA }}
+      app-id: ${{ vars.RELEASE_APP_ID }}
+    secrets:
+      app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+  publish:
+    needs: promote
+    if: needs.promote.result == 'success'
+    permissions:
+      contents: write
+      pull-requests: read
+      packages: write
+    uses: ./.github/workflows/release-publish.yaml
+    with:
+      bot: ${{ vars.ROLLING_RELEASE_BOT }}
+      start-sha: ${{ vars.ROLLING_RELEASE_START_SHA }}
+      app-id: ${{ vars.RELEASE_APP_ID }}
+    secrets:
+      app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+  refresh:
+    needs: publish
+    if: needs.publish.result == 'success' && vars.RELEASE_LOG_WRITE_ENABLED != 'false'
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/release-propose.yaml
+    with:
+      refresh: true
+      bot: ${{ vars.ROLLING_RELEASE_BOT }}
+      start-sha: ${{ vars.ROLLING_RELEASE_START_SHA }}
+      app-id: ${{ vars.RELEASE_APP_ID }}
+    secrets:
+      app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+  consumer-channel:
+    needs: publish
+    if: needs.publish.result == 'success' && github.repository_id == '1449550207' && vars.CONSUMER_PROMOTION_ENABLED == 'true'
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: rolling-release-provider-channel
+      queue: max
+    steps:
+      - name: Mint the provider channel token
+        id: app
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ vars.CONSUMER_PROMOTION_APP_ID }}
+          private-key: ${{ secrets.CONSUMER_PROMOTION_PRIVATE_KEY }}
+          permission-contents: write
+          permission-workflows: write
+      - name: Advance the existing protected channel after verified publication
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          LANDING: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          [[ "$LANDING" =~ ^[a-f0-9]{40}$ ]]
+          base="repos/$GITHUB_REPOSITORY"
+          current=$(gh api "$base/git/ref/heads/consumer-v1" --jq .object.sha)
+          [[ "$current" =~ ^[a-f0-9]{40}$ ]]
+          relation=$(gh api "$base/compare/$current...$LANDING" --jq .status)
+          case "$relation" in
+            identical|behind) exit 0 ;;
+            ahead) gh api --method PATCH "$base/git/refs/heads/consumer-v1" -f sha="$LANDING" -F force=false --jq .object.sha ;;
+            *) echo "The protected provider channel diverged" >&2; exit 1 ;;
+          esac

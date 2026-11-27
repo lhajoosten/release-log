@@ -1,16 +1,7 @@
-import {
-  inspectCommit,
-  inspectCommitTreeSha,
-  inspectOnboardingRange,
-  inspectPendingRelease,
-} from "./git.ts";
+import { inspectCommit, inspectCommitTreeSha, inspectPendingRelease } from "./git.ts";
 import type { GitCommitEvidence, PendingReleaseInspection } from "./git.ts";
 import { GitHubReadError, readGitHubJson } from "./github.ts";
 import type { GitHubRead } from "./github.ts";
-import { parseReleaseExclusionAuthorities } from "./approval/exclusion.ts";
-import { verifyReleaseApproval } from "./approval/verify.ts";
-import type { ReleaseExclusionAuthority, VerifiedReleaseApproval } from "./approval/record.ts";
-
 import type {
   AssociatedPullRequest,
   CapturedPullRequest,
@@ -24,10 +15,17 @@ export type {
   PullRequestCommitEvidence,
 } from "./snapshot/association.ts";
 
-import { isReservedReleaseBranch } from "./config/repository.ts";
-import type { CandidateLandingPin, PreviousSeriesLanding } from "./config/repository.ts";
 import type { StackBase } from "./snapshot/association.ts";
 import { stackedLandingOwners, validateSquashStackMember } from "./snapshot/stacked-landing.ts";
+
+function isReserved(branch: string) {
+  return (
+    branch === "release/next" ||
+    branch === "release/changelog-backfill" ||
+    branch.startsWith("release-log/") ||
+    branch.startsWith("release-log-series/")
+  );
+}
 
 export type AssociationErrorCode =
   | "invalid-input"
@@ -105,7 +103,7 @@ function summary(value: unknown): {
   };
 }
 
-function capturePull(
+function capturePullEvidence(
   value: unknown,
   repository: string,
   branch: string,
@@ -208,10 +206,7 @@ export async function collectMergedPullRequests(
     readonly localRepository: string;
     readonly range: PendingReleaseInspection;
     readonly token: string;
-    readonly onboardingSha?: string;
-    readonly automation?: readonly ReleaseExclusionAuthority[];
-    readonly candidateLandings?: readonly CandidateLandingPin[];
-    readonly freshSeries?: { readonly previousLandings: readonly PreviousSeriesLanding[] };
+    readonly membershipOnly?: boolean;
   },
   read: GitHubRead = fetch,
 ): Promise<PullRequestAssociation> {
@@ -229,10 +224,6 @@ export async function collectMergedPullRequests(
       "Supply a repository identity, release branch, read-only token, and a captured ancestral Git range.",
     );
   }
-  const authorities =
-    request.automation === undefined
-      ? []
-      : parseReleaseExclusionAuthorities({ schemaVersion: 1, approvals: request.automation });
   const verified = await inspectPendingRelease(
     request.localRepository,
     request.range.baseline,
@@ -255,27 +246,6 @@ export async function collectMergedPullRequests(
       "collection-limit",
       "Collection supports at most 1000 range commits; use an explicitly reviewed baseline rather than silently truncating history.",
     );
-  let historical: ReadonlySet<string> | null = null;
-
-  if (request.onboardingSha !== undefined) {
-    if (request.range.baseline.kind !== "bootstrap")
-      throw new PullRequestAssociationError(
-        "invalid-input",
-        "An onboarding SHA applies only to an explicit bootstrap range.",
-      );
-
-    const legacy = await inspectOnboardingRange(
-      request.localRepository,
-      verified,
-      request.onboardingSha,
-    );
-    historical = new Set(legacy.commitShas);
-  }
-
-  const previousSeriesLandings =
-    verified.baseline.kind === "bootstrap" ? (request.freshSeries?.previousLandings ?? []) : [];
-  const previousSeriesByPull = new Map(previousSeriesLandings.map((pin) => [pin.pullNumber, pin]));
-  const pinnedLandings = [...(request.candidateLandings ?? []), ...previousSeriesLandings];
   const inRange = new Set(verified.commitShas);
   const apiBase = `https://api.github.com/repos/${request.repository.split("/").map(encodeURIComponent).join("/")}`;
   const signal = AbortSignal.timeout(300_000);
@@ -293,49 +263,6 @@ export async function collectMergedPullRequests(
       signal: AbortSignal.any([signal, ...(options.signal ? [options.signal] : [])]),
     });
   };
-  const verifiedAutomation: VerifiedReleaseApproval[] = [];
-  const verifyAuthority = async (authority: ReleaseExclusionAuthority) => {
-    if (
-      authority.configuration.repository !== request.repository ||
-      authority.configuration.releaseBranch !== request.releaseBranch
-    )
-      throw new PullRequestAssociationError(
-        "invalid-input",
-        "Exclusion authority belongs to another repository or release branch.",
-      );
-
-    return verifyReleaseApproval(
-      {
-        repository: request.localRepository,
-        configuration: authority.configuration,
-        policy: authority.policy,
-        approval: authority.approval,
-        token: request.token,
-      },
-      boundedRead,
-    );
-  };
-
-  for (const authority of authorities) {
-    const proof = await verifyAuthority(authority);
-
-    await inspectPendingRelease(
-      request.localRepository,
-      { kind: "bootstrap", commitSha: proof.landingSha },
-      verified.sourceCommitSha,
-    );
-
-    const overlap = proof.automationCommitShas.filter((id) => inRange.has(id));
-
-    if (overlap.length !== 0 && overlap.length !== proof.automationCommitShas.length)
-      throw new PullRequestAssociationError(
-        "partial-membership",
-        "A trusted release footprint crosses the captured range boundary.",
-      );
-
-    verifiedAutomation.push(proof);
-  }
-
   async function get(path: string) {
     try {
       return await readGitHubJson(`${apiBase}${path}`, request.token, boundedRead, signal);
@@ -344,6 +271,12 @@ export async function collectMergedPullRequests(
         throw new PullRequestAssociationError("github-read-failed", error.message);
       throw error;
     }
+  }
+  function capturePull(value: unknown, repository: string, branch: string, number: number) {
+    const evidence = capturePullEvidence(value, repository, branch, number);
+    if (!request.membershipOnly) return evidence;
+    // Promotion rechecks ownership while rendering from the reviewed PR text.
+    return { ...evidence, title: "", body: "", updatedAt: "", authorLogin: null };
   }
   const pulls = new Map<number, CapturedPullRequest>();
   const associations = new Map<string, readonly number[]>();
@@ -409,41 +342,10 @@ export async function collectMergedPullRequests(
             "metadata-changed",
             `PR #${item.number} landing evidence changed during collection; retry explicitly.`,
           );
-        const proof = verifiedAutomation.find((entry) => entry.pullNumber === pull.number);
-
         if (
-          proof &&
-          (pull.authorType !== "Bot" ||
-            pull.authorId !== proof.pull.botUserId ||
-            pull.headRepositoryId !== proof.repositoryId ||
-            pull.baseRepositoryId !== proof.repositoryId ||
-            pull.headRef !== `release-log/${proof.releaseBranch}` ||
-            pull.headSha !== proof.headSha ||
-            pull.mergeCommitSha !== proof.landingSha ||
-            pull.title !== proof.pull.title ||
-            pull.body !== proof.pull.body)
-        )
-          throw new PullRequestAssociationError(
-            "automation-unverified",
-            "Captured automation identity or metadata differs from freshly verified approval.",
-          );
-
-        if (
-          !proof &&
-          !pinnedLandings.some(
-            (pin) =>
-              pin.pullNumber === pull.number &&
-              pin.botUserId === pull.authorId &&
-              pin.headSha === pull.headSha &&
-              pin.landingSha === pull.mergeCommitSha,
-          ) &&
           pull.authorType === "Bot" &&
           pull.headRepositoryId === pull.baseRepositoryId &&
-          isReservedReleaseBranch(
-            pull.headRef,
-            request.releaseBranch,
-            request.freshSeries !== undefined,
-          )
+          isReserved(pull.headRef)
         ) {
           throw new PullRequestAssociationError(
             "automation-unverified",
@@ -651,34 +553,11 @@ export async function collectMergedPullRequests(
   const owners = new Map<string, number>();
   for (const pull of [...pulls.values()].toSorted((a, b) => a.number - b.number)) {
     const landing = await local(pull.mergeCommitSha);
-    const previousSeries = previousSeriesByPull.get(pull.number);
-    if (previousSeries) {
-      if (
-        previousSeries.headSha !== pull.headSha ||
-        previousSeries.landingSha !== landing.sha ||
-        (await originalTree(pull.headSha)) !== (await originalTree(landing.sha))
-      )
-        throw new PullRequestAssociationError(
-          "automation-unverified",
-          `PR #${pull.number} prior-series landing differs from its reviewed bot head and tree.`,
-        );
-    }
     let landed: readonly GitCommitEvidence[];
     let landingKind: "merge" | "linear";
-    if (
-      landing.parentShas.length === 2 &&
-      landing.parentShas[1] !== pull.headSha &&
-      !verifiedAutomation.some((proof) => proof.pullNumber === pull.number)
-    ) {
+    if (landing.parentShas.length === 2 && landing.parentShas[1] !== pull.headSha) {
       for (const member of await stack(pull, landing)) {
-        if (
-          member.authorType === "Bot" &&
-          isReservedReleaseBranch(
-            member.headRef,
-            request.releaseBranch,
-            request.freshSeries !== undefined,
-          )
-        )
+        if (member.authorType === "Bot" && isReserved(member.headRef))
           throw new PullRequestAssociationError(
             "automation-unverified",
             `PR #${member.number} shared landing ${landing.sha} includes the reserved automation branch.`,
@@ -748,14 +627,6 @@ export async function collectMergedPullRequests(
         `PR #${pull.number} has an unsupported landing parent structure.`,
       );
     }
-    // A stacked PR can be linked only to its intermediate branch. For a fully
-    // historical merge, the matching original commit list and Git footprint
-    // corroborate the introduced commits even when that link is filtered out.
-    const historicalMerge =
-      landingKind === "merge" &&
-      historical !== null &&
-      landed.every((commit) => historical.has(commit.sha));
-
     for (const commit of landed) {
       if (!inRange.has(commit.sha))
         throw new PullRequestAssociationError(
@@ -769,7 +640,7 @@ export async function collectMergedPullRequests(
         );
       const linked = await candidates(commit.sha);
       if (
-        (linked.length === 0 && commit.parentShas.length < 2 && !historicalMerge) ||
+        (linked.length === 0 && commit.parentShas.length < 2) ||
         (linked.length > 0 && !linked.includes(pull.number))
       )
         throw new PullRequestAssociationError(
@@ -809,13 +680,7 @@ export async function collectMergedPullRequests(
     }
 
     const byNumber = new Map(result.map((pull) => [pull.number, pull]));
-    const protectedPulls = new Set([
-      ...pinnedLandings.map((pin) => pin.pullNumber),
-      ...verifiedAutomation.map((proof) => proof.pullNumber),
-    ]);
     for (const landing of firstParents.toReversed()) {
-      // Keep the reviewed onboarding history under its existing attribution rules.
-      if (historical?.has(landing.sha)) continue;
       const [parent] = landing.parentShas;
       if (!parent || landing.parentShas.length !== 1) continue;
       const precedingNumber = owners.get(parent);
@@ -824,8 +689,7 @@ export async function collectMergedPullRequests(
         !preceding ||
         preceding.stackBase ||
         preceding.landingKind !== "linear" ||
-        preceding.landedCommits.length !== 1 ||
-        protectedPulls.has(preceding.number)
+        preceding.landedCommits.length !== 1
       )
         continue;
       const exact = (stackLinks.get(landing.sha) ?? []).filter(
@@ -850,15 +714,7 @@ export async function collectMergedPullRequests(
           "metadata-changed",
           `PR #${pull.number} landing evidence changed during collection; retry explicitly.`,
         );
-      if (
-        protectedPulls.has(pull.number) ||
-        (pull.authorType === "Bot" &&
-          isReservedReleaseBranch(
-            pull.headRef,
-            request.releaseBranch,
-            request.freshSeries !== undefined,
-          ))
-      )
+      if (pull.authorType === "Bot" && isReserved(pull.headRef))
         throw new PullRequestAssociationError(
           "automation-unverified",
           `PR #${pull.number} claims protected release automation in a stack squash.`,
@@ -886,34 +742,11 @@ export async function collectMergedPullRequests(
     }
   }
 
-  const bootstrapCommits: GitCommitEvidence[] = [];
-
-  for (const commitSha of verified.commitShas) {
-    if (owners.has(commitSha)) continue;
-
-    const commit = await local(commitSha);
-    if (
-      request.range.baseline.kind === "bootstrap" &&
-      (historical === null ? commit.parentShas.length === 1 : historical.has(commitSha)) &&
-      associations.get(commitSha)?.length === 0
-    ) {
-      bootstrapCommits.push(commit);
-      continue;
-    }
-
-    throw new PullRequestAssociationError(
-      "unassociated-commit",
-      `Commit ${commitSha} has no verified merged-PR landing footprint. ${request.onboardingSha ? `Review the fixed onboarding cutoff ${request.onboardingSha} or supply missing PR evidence.` : "Only unassociated single-parent commits in an explicit bootstrap range may use commit-only evidence."}`,
-    );
-  }
-
-  for (const commit of bootstrapCommits) {
-    associations.delete(commit.sha);
-
-    if ((await candidates(commit.sha)).length !== 0)
+  for (const id of verified.commitShas) {
+    if (!owners.has(id))
       throw new PullRequestAssociationError(
-        "metadata-changed",
-        `Bootstrap commit ${commit.sha} acquired a qualifying PR association during collection; collect again.`,
+        "unassociated-commit",
+        `Commit ${id} has no verified merged PR landing.`,
       );
   }
 
@@ -956,25 +789,10 @@ export async function collectMergedPullRequests(
       );
   }
 
-  for (const authority of authorities) {
-    const final = await verifyAuthority(authority);
-
-    if (
-      final.verificationId !==
-      verifiedAutomation.find((proof) => proof.pullNumber === final.pullNumber)?.verificationId
-    )
-      throw new PullRequestAssociationError(
-        "metadata-changed",
-        "Exclusion verification changed during collection; capture again.",
-      );
-  }
-
   return {
     repository: request.repository,
     releaseBranch: request.releaseBranch,
     range: request.range,
     pullRequests: result.toSorted((a, b) => a.number - b.number),
-    bootstrapCommits,
-    ...(request.automation === undefined ? {} : { verifiedAutomation }),
   };
 }

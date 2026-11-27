@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 
 const execute = promisify(execFile);
@@ -67,7 +66,7 @@ interface GitResult {
   readonly stderr: string;
 }
 
-async function runGit(repository: string, args: readonly string[]): Promise<GitResult> {
+export function gitEnvironment(): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {
     ...process.env,
     GIT_NO_LAZY_FETCH: "1",
@@ -88,6 +87,10 @@ async function runGit(repository: string, args: readonly string[]): Promise<GitR
     delete environment[variable];
   }
 
+  return environment;
+}
+
+async function runGit(repository: string, args: readonly string[]): Promise<GitResult> {
   try {
     const { stdout, stderr } = await execute(
       "git",
@@ -97,7 +100,7 @@ async function runGit(repository: string, args: readonly string[]): Promise<GitR
         encoding: "utf8",
         timeout: 10_000,
         maxBuffer: 16 * 1024 * 1024,
-        env: environment,
+        env: gitEnvironment(),
       },
     );
 
@@ -300,45 +303,6 @@ export async function inspectTagRange(
   return { from, to, fromIsAncestor, commitShas };
 }
 
-export async function inspectTagDate(
-  repository: string,
-  tag: ResolvedTag,
-): Promise<{
-  readonly date: string;
-  readonly source: "annotated tag" | "tagged commit committer";
-}> {
-  const annotated = tag.objectSha !== tag.commitSha;
-  const raw = requireSuccess(
-    await runGit(repository, [
-      "cat-file",
-      annotated ? "tag" : "commit",
-      requireObjectSha(tag.objectSha),
-    ]),
-    "Could not read the captured release tag date.",
-  );
-  const header = raw.split("\n\n", 1)[0] ?? "";
-  const record = header
-    .split("\n")
-    .find((line) => line.startsWith(annotated ? "tagger " : "committer "));
-  const seconds = record && / ([+-]?\d+) [+-]\d{4}$/u.exec(record)?.[1];
-  const milliseconds = seconds ? Number(seconds) * 1000 : NaN;
-  if (!Number.isSafeInteger(milliseconds) || Math.abs(milliseconds) > 8_640_000_000_000_000)
-    throw new GitInspectionError(
-      "git-command-failed",
-      "The release tag has no supported recorded date.",
-    );
-  const timestamp = new Date(milliseconds).toISOString();
-  if (!/^\d{4}-/u.test(timestamp))
-    throw new GitInspectionError(
-      "git-command-failed",
-      "The release tag date must have a four-digit year.",
-    );
-  return {
-    date: timestamp.slice(0, 10),
-    source: annotated ? "annotated tag" : "tagged commit committer",
-  };
-}
-
 export async function inspectCommit(
   repository: string,
   commitSha: string,
@@ -411,34 +375,6 @@ export async function inspectPendingRelease(
   };
 }
 
-export async function inspectOnboardingRange(
-  repository: string,
-  range: PendingReleaseInspection,
-  onboardingSha: string,
-): Promise<PendingReleaseInspection> {
-  const legacy = await inspectPendingRelease(repository, range.baseline, onboardingSha);
-  await inspectPendingRelease(
-    repository,
-    { kind: "bootstrap", commitSha: onboardingSha },
-    range.sourceCommitSha,
-  );
-  return legacy;
-}
-
-export async function inspectBranchSource(repository: string, ref: string): Promise<string> {
-  if (ref !== "HEAD" && (await runGit(repository, ["check-ref-format", ref])).exitCode !== 0)
-    throw new GitInspectionError(
-      "git-command-failed",
-      "The selected release branch is not a valid Git ref.",
-    );
-  return requireObjectSha(
-    requireSuccess(
-      await runGit(repository, ["rev-parse", "--verify", "--end-of-options", ref]),
-      "The selected Git ref is unavailable. Fetch the release branch and tags, or supply its full source SHA.",
-    ),
-  );
-}
-
 export async function inspectRootBaseline(repository: string, sourceSha: string): Promise<string> {
   await requireCompleteHistory(repository);
   const source = await resolveCommit(repository, sourceSha);
@@ -448,79 +384,6 @@ export async function inspectRootBaseline(repository: string, sourceSha: string)
       "Could not find the first commit on the captured branch.",
     ),
   );
-}
-
-export async function inspectStableTags(repository: string): Promise<readonly string[]> {
-  const refs = requireSuccess(
-    await runGit(repository, ["for-each-ref", "--format=%(refname:strip=2)", "refs/tags/v*"]),
-    "Could not inspect local release tags.",
-  );
-  return refs
-    .split("\n")
-    .filter((tag) => /^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(tag));
-}
-
-export async function recommendOnboardingCutoff(
-  repository: string,
-  range: PendingReleaseInspection,
-  legacyShas: readonly string[],
-): Promise<string> {
-  if (legacyShas.length === 0) return range.baseline.commitSha;
-  const commits = requireSuccess(
-    await runGit(repository, [
-      "rev-list",
-      "--first-parent",
-      "--reverse",
-      range.sourceCommitSha,
-      "--not",
-      range.baseline.commitSha,
-      "--",
-    ]),
-    "Could not enumerate candidate onboarding cutoffs.",
-  )
-    .trim()
-    .split("\n")
-    .map(requireObjectSha);
-  const required = new Set(legacyShas);
-  let low = 0;
-  let high = commits.length - 1;
-  while (low < high) {
-    const middle = Math.floor((low + high) / 2);
-    const candidate = commits[middle] ?? range.sourceCommitSha;
-    const covers =
-      (await isAncestor(repository, range.baseline.commitSha, candidate)) &&
-      (
-        await inspectPendingRelease(
-          repository,
-          { kind: "bootstrap", commitSha: range.baseline.commitSha },
-          candidate,
-        )
-      ).commitShas.filter((sha) => required.has(sha)).length === required.size;
-    if (covers) high = middle;
-    else low = middle + 1;
-  }
-  return commits[low] ?? range.sourceCommitSha;
-}
-
-export interface GitTreeInspection {
-  readonly commitSha: string;
-  readonly treeSha: string;
-  readonly entries: ReadonlyMap<
-    string,
-    { readonly sha: string; readonly mode: string; readonly type: string }
-  >;
-}
-
-export async function inspectGitTree(
-  repository: string,
-  commitSha: string,
-): Promise<GitTreeInspection> {
-  return (await inspectGitTreeObject(repository, commitSha)).tree;
-}
-
-export async function inspectGitTreeWithCommit(repository: string, commitSha: string) {
-  const { tree, raw } = await inspectGitTreeObject(repository, commitSha);
-  return { tree, commit: parseCommitEvidence(tree.commitSha, raw) };
 }
 
 async function readCommitTreeHeader(repository: string, commitSha: string) {
@@ -537,72 +400,4 @@ async function readCommitTreeHeader(repository: string, commitSha: string) {
 
 export async function inspectCommitTreeSha(repository: string, commitSha: string): Promise<string> {
   return (await readCommitTreeHeader(repository, commitSha)).treeSha;
-}
-
-async function inspectGitTreeObject(repository: string, commitSha: string) {
-  const { commit, raw, treeSha } = await readCommitTreeHeader(repository, commitSha);
-  const listing = requireSuccess(
-    await runGit(repository, ["ls-tree", "--full-tree", "-r", "-t", "-z", treeSha]),
-    "Could not read the complete captured Git tree.",
-  );
-  const entries = new Map<string, { sha: string; mode: string; type: string }>();
-  for (const row of listing.split("\0").filter(Boolean)) {
-    const entry = /^([0-9]{6}) (blob|tree|commit) ([a-f0-9]{40}|[a-f0-9]{64})\t([\s\S]+)$/u.exec(
-      row,
-    );
-    const [, mode, type, sha, path] = entry ?? [];
-    if (
-      !mode ||
-      !type ||
-      !sha ||
-      !path ||
-      path.includes("\uFFFD") ||
-      path.length > 4096 ||
-      entries.has(path) ||
-      entries.size >= 50_000
-    )
-      throw new GitInspectionError(
-        "git-command-failed",
-        "Git tree paths must be unique, bounded UTF-8 with at most 50000 entries.",
-      );
-    entries.set(path, { sha: requireObjectSha(sha), mode, type });
-  }
-  const tree: GitTreeInspection = { commitSha: commit, treeSha, entries };
-  return { tree, raw };
-}
-
-export async function readGitBlob(repository: string, blobSha: string): Promise<string> {
-  const sha = requireObjectSha(blobSha);
-  const kind = requireSuccess(
-    await runGit(repository, ["cat-file", "-t", sha]),
-    "Could not read the expected Git blob object.",
-  ).trim();
-  if (kind !== "blob")
-    throw new GitInspectionError(
-      "git-command-failed",
-      "Expected a Git blob, not another object type.",
-    );
-  const size = Number(
-    requireSuccess(
-      await runGit(repository, ["cat-file", "-s", sha]),
-      "Could not determine the Git blob size.",
-    ).trim(),
-  );
-  if (!Number.isSafeInteger(size) || size < 0 || size > 2 * 1024 * 1024)
-    throw new GitInspectionError("git-command-failed", "Git input blobs must not exceed 2 MiB.");
-  const text = requireSuccess(
-    await runGit(repository, ["cat-file", "blob", sha]),
-    "Could not read the complete Git blob contents.",
-  );
-  const bytes = Buffer.from(text, "utf8");
-  const actual = createHash(sha.length === 40 ? "sha1" : "sha256")
-    .update(`blob ${bytes.length}\0`)
-    .update(bytes)
-    .digest("hex");
-  if (bytes.length !== size || actual !== sha)
-    throw new GitInspectionError(
-      "git-command-failed",
-      "Git input blobs must be complete, hash-matching UTF-8 text.",
-    );
-  return text;
 }

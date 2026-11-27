@@ -1,0 +1,14 @@
+{
+  "title": "chore(release): prepare v0.1.0",
+  "body": "<!-- release-log:proposal:v1 eyJzY2hlbWFWZXJzaW9uIjoxLCJyZXBvc2l0b3J5SWQiOjE0NDk1NTAyMDcsInJlbGVhc2VCcmFuY2giOiJtYWluIiwiYm90VXNlcklkIjozNTY5MDI4NDgsInNvdXJjZVNoYSI6IjlmM2NhYjc1Y2VmZjc1YTJkOGQyNWVhODM1MGJjOWVlNWEwZGNkNmUiLCJiYXNlbGluZSI6eyJraW5kIjoiYm9vdHN0cmFwIiwiY29tbWl0U2hhIjoiYmIwMDMzZmIyNzRlNjlhOGFhYmFkNmExN2Q3MWYxOGVjOTI5MmY2MCJ9LCJzbmFwc2hvdElkIjoiNWZiZGI3N2M2NDEzOTM3YjQ5YjdjN2U0OGViMmQ5MzEyZTcxMTIyMzE4MjVjOTU4MDZjZjBmYmM1ODdhMGQ3MCIsImNvbmZpZ3VyYXRpb25JZCI6IjY3YzBkYjljNTA3N2M1NTVhNWI0NjQ4NmNhZGI1YTQ1Nzg1YmQ3MDgxMGMzZjgzZTY4YTdkOGMwOGIxMzM0MmYiLCJ2ZXJzaW9uIjp7ImtpbmQiOiJib290c3RyYXAiLCJpbml0aWFsVmVyc2lvbiI6IjAuMS4wIn0sInByZXZpb3VzSGVhZFNoYSI6Ijk2ZDk2ZTk0YzVkMmY5MDA5YTU1ZTYzZjY1MjgxYWM0NGZjNTMwNTUiLCJmaWxlcyI6W3sicGF0aCI6InBhY2thZ2UuanNvbiIsInNoYTI1NiI6ImQ2YTcxYjJjNGJhYTZlYTg1Mzc0MzQ0MzQyZWI0NzI4YzdlMDc2MzJkMDM4NzMzYTk3OGMyMGVjYTkyNjE0YjEifSx7InBhdGgiOiJDSEFOR0VMT0cubWQiLCJzaGEyNTYiOiI1ZjNiOTc2N2NhOTQwODNiYWMyZWNiMTBkYWRhYmU2MWZkYWMzYjMzNWNmYjA2MGEzZTY3Y2NiMjdhM2I2NWU3In0seyJwYXRoIjoiLnJlbGVhc2UtbG9nL2lucHV0cy5qc29uIiwic2hhMjU2IjoiODQ5OWYyZDM1YjQwODA2MDkyNmFmZmNjMmI1ZTFhODczNGI3MDE0NzExNDBiODdiZTg2OTFhMDk3YTIzNzU3MCJ9XX0 -->",
+  "user": { "id": 356902848, "login": "rolling-release-log[bot]", "type": "Bot" },
+  "merged": true,
+  "state": "closed",
+  "merge_commit_sha": "53eaaf949d242b848108fed106a6809cadf74416",
+  "head": {
+    "sha": "2fb24f45efe6509c2dc4b6d3d94c1f044088f949",
+    "ref": "release-log/main",
+    "repo": { "full_name": "lhajoosten/rolling-release" }
+  },
+  "base": { "ref": "main", "repo": { "id": 1449550207, "full_name": "lhajoosten/rolling-release" } }
+}

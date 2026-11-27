@@ -6,7 +6,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
 
 concurrency:
   group: pr-metadata-${{ github.event.pull_request.number }}
@@ -18,50 +17,21 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      # Replay shares this setup and reports a separate check result.
-      - &trusted-checkout
-        name: Check out trusted base validator only
+      - name: Check out trusted base validator
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: ${{ github.repository }}
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
-
-      - &setup-node
-        name: Set up Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           package-manager-cache: false
-
-      - &setup-pnpm
-        name: Set up pnpm
+      - name: Set up pnpm
         uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
-        with:
-          cache: false
-
-      - &install
-        name: Install trusted locked dependencies without lifecycle scripts
+      - name: Install locked dependencies without lifecycle scripts
         run: pnpm install --frozen-lockfile --ignore-scripts
-
-      - name: Validate current PR metadata through read-only API calls
+      - name: Validate PR title
         env:
-          RELEASE_LOG_CONTEXT_POLICY: required
-          GITHUB_TOKEN: ${{ github.token }}
-        run: pnpm check:pr-metadata
-
-  release-proposal-replay:
-    name: release-proposal-replay
-    if: github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'release-log/main'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - *trusted-checkout
-      - *setup-node
-      - *setup-pnpm
-      - *install
-      - name: Replay the proposal using trusted post-merge runtimes
-        env:
-          BOT_USER_ID: ${{ vars.RELEASE_BOT_USER_ID }}
-          GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/check-release-proposal.ts
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$PR_TITLE" | pnpm check:pr-title

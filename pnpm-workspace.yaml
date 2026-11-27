@@ -6,5 +6,4 @@ saveExact: true
 
 allowBuilds:
   lefthook: false
-patchedDependencies:
-  "@ai-sdk/provider-utils@4.0.66": patches/@ai-sdk__provider-utils@4.0.66.patch
+  esbuild: false

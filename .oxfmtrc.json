@@ -4,8 +4,9 @@
     ".worktrees",
     "pnpm-lock.yaml",
     "CHANGELOG.md",
-    ".release-log/inputs.json",
     "docs/.vitepress/cache/**",
-    "docs/.vitepress/dist/**"
+    "docs/.vitepress/dist/**",
+    ".rolling-release/review.json",
+    "docs/engineering/**"
   ]
 }
