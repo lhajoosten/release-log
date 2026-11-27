@@ -1,0 +1,27 @@
+{
+  "number": 183,
+  "title": "chore(release): prepare v0.9.0",
+  "body": "<!-- release-log:proposal:v1 eyJzY2hlbWFWZXJzaW9uIjoxLCJwcm9kdWNlclNoYSI6IjI5NmZmZjhlYzFjMjYxZDkxOThlN2Y4NDAzM2JmNTQyMDI0YWQ5MzAiLCJib2R5Rm9ybWF0IjoiY2hhbmdlbG9nLXYxIiwicmVwb3NpdG9yeUlkIjoxNDQ5NTUwMjA3LCJyZWxlYXNlQnJhbmNoIjoibWFpbiIsImJvdFVzZXJJZCI6MzU2OTAyODQ4LCJzb3VyY2VTaGEiOiJmZmJmZjczYzZlYjc4MzZiZmMyMDk2MGEzMTcxY2QzYWZiZGViNjg1IiwiYmFzZWxpbmUiOnsia2luZCI6InRhZyIsIm5hbWUiOiJ2MC44LjMiLCJvYmplY3RTaGEiOiI0NDM3NjRmZTZlMDg2OTBmOTY5Yjg2YjMzMmJmZjY5YWY3MWEyMDAyIiwiY29tbWl0U2hhIjoiNDQzNzY0ZmU2ZTA4NjkwZjk2OWI4NmIzMzJiZmY2OWFmNzFhMjAwMiJ9LCJzbmFwc2hvdElkIjoiNWQ0NzJkNDQ0M2E2YmJmMDQ0ODcyODQ0Y2I3MTM1YWJiNTA2MDc1Mzg1ODNlZDY4ZDVkNjNjNzhiODcwMzA5MyIsImNvbmZpZ3VyYXRpb25JZCI6ImMwYTc3MDdhMjIwNjQyOTRlM2Y1ZmQyN2E1NjYwZDhkOTAxYjAwMGI1ZmMwNmYwOGQ3OGNmMWJjMTZjMmNiYWUiLCJ2ZXJzaW9uIjp7ImtpbmQiOiJyZWxlYXNlZCIsImN1cnJlbnRWZXJzaW9uIjoiMC44LjMifSwicHJldmlvdXNIZWFkU2hhIjoiYmM0ZWU2MTZkNzdhNWRjMWIzMjU5NDg2NWM0NDJmMGNmMGQ0YmM3MCIsImZpbGVzIjpbeyJwYXRoIjoicGFja2FnZS5qc29uIiwic2hhMjU2IjoiMTExYWQ2NTE2MjdkODU1NTI2ZTdlYTdhZmY3NjEzMmEyYzYwZWI2NDZhOTFlMjYwNTI2OGM4YjAwZjVlNGI3MSJ9LHsicGF0aCI6Ii5naXRodWIvd29ya2Zsb3dzL3JvbGxpbmctcmVsZWFzZS1jYWxsZXIueW1sIiwic2hhMjU2IjoiODQ5MTIzNzNkMzViNWRiNWQ2ZjkxYTk3MmEyYTBjZDBlYjc2YzhkZmNkYzQ4ODYwNjdjNDMyZmNkZDYyNDY2OSJ9LHsicGF0aCI6IkNIQU5HRUxPRy5tZCIsInNoYTI1NiI6ImRhYjgwODU0ZDJjZDMyMTdhYTZjMjE4OGQ3ZjEwZWMyYTg2NDBlZjdjYzEzZTkxNTA5NmJmNTQ4Y2QzNzZlZmMifSx7InBhdGgiOiIucmVsZWFzZS1sb2cvaW5wdXRzLmpzb24iLCJzaGEyNTYiOiIzMGRmMTYzODk1OWRlNmY0ZmY3NTZhOTE1YjA5NjhmZGY3ZDk2MzUwMTMzZjY0ZTVlNGRmZWEwMDk4MDA4MzU2In1dfQ -->\n\n## Proposed release v0.9.0\n\nSource: ffbff73c6eb7836bfc20960a3171cd3afbdeb685\nBaseline: 443764fe6e08690f969b86b332bff69af71a2002\nSnapshot: 5d472d4443a6bbf044872844cb7135abb50607538583ed68d5d63c78b8703093\nProposal: 44b9414092fd794ac56b00196f8dcaa65291021394f5372af158b88731624cb3\n\nReview the generated version fields, changelog and captured inputs before merging. This PR does not publish a release.\n\n```release-log\nversion: 1\naudience: internal\nsummary: Prepare the proposed v0.9.0 release.\nimpact: Propose the captured version, changelog and release inputs for review.\nrequired_action: Review the version, changelog and captured snapshot before merging.\n```\n\n## v0.9.0 (2026-11-22)\n\n### ✨ Features\n\n- Use one stable Rolling Release workflow reference and provider&#45;managed release defaults&#46; ([#181](https://github.com/lhajoosten/rolling-release/pull/181)) by [&#64;lhajoosten](https://github.com/lhajoosten)\n\n### 📚 Documentation\n\n- Set up Rolling Release and PR readiness in one step&#46; ([#184](https://github.com/lhajoosten/rolling-release/pull/184)) by [&#64;lhajoosten](https://github.com/lhajoosten)\n\n### 🛠️ Required actions\n\n- Migrate once from an immutable caller to consumer&#45;v1 after the provider activates it&#46; Move reviewed bootstrap values and deliberate overrides into &#46;release&#45;log&#47;settings&#46;json&#46; ([#181](https://github.com/lhajoosten/rolling-release/pull/181))\n\nFull changelog: [v0&#46;8&#46;3&#8230;ffbff73c6eb7836bfc20960a3171cd3afbdeb685](https://github.com/lhajoosten/rolling-release/compare/v0.8.3...ffbff73c6eb7836bfc20960a3171cd3afbdeb685) (captured source).\n",
+  "user": {
+    "id": 356902848,
+    "login": "rolling-release-log[bot]",
+    "type": "Bot"
+  },
+  "state": "closed",
+  "merged": true,
+  "merge_commit_sha": "f35f7ed711cc564d6fd71d51d9c781792a84f31c",
+  "head": {
+    "sha": "e25fc8788f98738cd1a9fcb24d281f7e68e34f0e",
+    "ref": "release-log/main",
+    "repo": {
+      "full_name": "lhajoosten/rolling-release"
+    }
+  },
+  "base": {
+    "ref": "main",
+    "repo": {
+      "id": 1449550207,
+      "full_name": "lhajoosten/rolling-release"
+    }
+  }
+}

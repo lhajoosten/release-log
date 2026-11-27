@@ -1,6 +1,6 @@
 import { glob, lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { isScalar, parse as parseYaml, parseAllDocuments, stringify as stringifyYaml } from "yaml";
 import { jsonPropertyRange, record, updatePackageVersion } from "./version-adapters.ts";
 
 async function readRootFile(root: string, path: string): Promise<string> {
@@ -302,9 +302,44 @@ export async function planNodeWorkspace(
   if (pnpm !== null) {
     try {
       const lockSource = await readRootFile(root, "pnpm-lock.yaml");
-      const lock: unknown = parseYaml(lockSource);
-      if (!record(lock) || !record(lock.importers)) throw new Error("Invalid pnpm lockfile.");
-      let lockChanged = false;
+      const documents = parseAllDocuments(lockSource);
+      if (
+        documents.length < 1 ||
+        documents.length > 2 ||
+        documents.some((doc) => doc.errors.length)
+      )
+        throw new Error("Invalid pnpm lockfile documents.");
+      const locks: unknown[] = documents.map((doc) => doc.toJS());
+      if (locks.some((value) => !record(value) || !record(value.importers)))
+        throw new Error("Invalid pnpm lockfile.");
+      if (locks.length === 2) {
+        const config = locks[0];
+        const project = locks[1];
+        if (
+          !record(config) ||
+          !record(config.importers) ||
+          Object.keys(config.importers).length !== 1 ||
+          !record(config.importers["."]) ||
+          Object.keys(config.importers["."]).length === 0 ||
+          Object.keys(config.importers["."]).some(
+            (key) => !["configDependencies", "packageManagerDependencies"].includes(key),
+          ) ||
+          !record(project) ||
+          !record(project.importers) ||
+          Object.values(project.importers).some(
+            (importer) =>
+              record(importer) &&
+              ("configDependencies" in importer || "packageManagerDependencies" in importer),
+          )
+        )
+          throw new Error("Unsupported pnpm lockfile document layout.");
+      }
+      const lock = locks.at(-1);
+      const document = documents.at(-1);
+      if (!record(lock) || !record(lock.importers) || !document)
+        throw new Error("Invalid pnpm lockfile.");
+      const edits: { start: number; end: number; text: string }[] = [];
+      let singleDocumentChanged = false;
       for (const [key, importer] of Object.entries(lock.importers)) {
         if (!record(importer)) throw new Error("Invalid pnpm importer.");
         for (const field of ["dependencies", "devDependencies", "optionalDependencies"]) {
@@ -321,12 +356,36 @@ export async function planNodeWorkspace(
             )
               throw new Error(`Invalid pnpm local lock entry ${name} in ${key}.`);
             const updatedSpecifier = rangeVersion(entry.specifier, previous, next);
-            lockChanged ||= updatedSpecifier !== entry.specifier;
-            entry.specifier = updatedSpecifier;
+            if (updatedSpecifier !== entry.specifier) {
+              if (documents.length === 1) {
+                entry.specifier = updatedSpecifier;
+                singleDocumentChanged = true;
+                continue;
+              }
+              const node = document.getIn(["importers", key, field, name, "specifier"], true);
+              if (!isScalar(node) || !node.range)
+                throw new Error("Unsupported pnpm specifier layout.");
+              const [start, end] = node.range;
+              const original = lockSource.slice(start, end);
+              if (
+                original !== entry.specifier &&
+                original !== `'${entry.specifier}'` &&
+                original !== JSON.stringify(entry.specifier)
+              )
+                throw new Error("Unsupported pnpm specifier layout.");
+              const quote = original.startsWith("'") ? "'" : original.startsWith('"') ? '"' : "";
+              edits.push({ start, end, text: quote + updatedSpecifier + quote });
+            }
           }
         }
       }
-      if (lockChanged) files.set("pnpm-lock.yaml", stringifyYaml(lock));
+      if (singleDocumentChanged) files.set("pnpm-lock.yaml", stringifyYaml(lock));
+      else if (edits.length) {
+        let updated = lockSource;
+        for (const edit of edits.toSorted((a, b) => b.start - a.start))
+          updated = updated.slice(0, edit.start) + edit.text + updated.slice(edit.end);
+        files.set("pnpm-lock.yaml", updated);
+      }
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
     }
