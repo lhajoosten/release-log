@@ -3,7 +3,7 @@ import { ancestor, blob, git } from "./local.ts";
 import { ensureProposalHead } from "./cycle.ts";
 import { object, sha, type Remote } from "./remote.ts";
 
-/** Recognize a previously tagged release-log proposal from its reviewed evidence. */
+/** Recognize a historical release-log proposal from its reviewed evidence. */
 export async function verifyHistoricalRelease(
   root: string,
   remote: Remote,
@@ -33,11 +33,23 @@ export async function verifyHistoricalRelease(
     head = await ensureProposalHead(root, remote, pull);
   const source = sha(marker.sourceSha),
     tag = `v${version}`;
-  const localTag = sha(
-    (await git(root, "rev-parse", "--verify", `refs/tags/${tag}^{commit}`)).trim(),
-  );
-  if (localTag !== landing || (await remote.tag(tag)) !== landing)
-    throw new Error(`Historical tag ${tag} does not independently resolve to the landing.`);
+  // The publisher's quality gate failed for this landing, so it was never tagged or published.
+  const cutoverIdentity =
+    remote.repository === "lhajoosten/rolling-release" &&
+    pull.number === 183 &&
+    landing === "f35f7ed711cc564d6fd71d51d9c781792a84f31c";
+  if (
+    cutoverIdentity &&
+    (version !== "0.9.0" || head !== "e25fc8788f98738cd1a9fcb24d281f7e68e34f0e")
+  )
+    throw new Error("Unpublished cutover proposal identity is inconsistent.");
+  if (!cutoverIdentity) {
+    const localTag = sha(
+      (await git(root, "rev-parse", "--verify", `refs/tags/${tag}^{commit}`)).trim(),
+    );
+    if (localTag !== landing || (await remote.tag(tag)) !== landing)
+      throw new Error(`Historical tag ${tag} does not independently resolve to the landing.`);
+  }
   const main = await remote.ref("heads/main");
   if (!main || !(await ancestor(root, landing, main)))
     throw new Error("Historical release is outside main.");

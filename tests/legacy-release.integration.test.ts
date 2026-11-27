@@ -107,3 +107,68 @@ for (const [version, number] of [
     assert.equal(await verifyHistoricalRelease(root, remote, pull), landing);
   });
 }
+
+void test("the unpublished cutover verifies reviewed evidence independently of later v0.9.0 tags", async (context) => {
+  const root = process.cwd();
+  const landing = "f35f7ed711cc564d6fd71d51d9c781792a84f31c";
+  try {
+    await exec("git", ["-C", root, "cat-file", "-e", `${landing}^{commit}`]);
+  } catch {
+    context.skip("historical landing is not available in this checkout");
+    return;
+  }
+  const pull: Record<string, unknown> = JSON.parse(
+    await readFile(join(root, "tests/fixtures/legacy-release-183.json"), "utf8"),
+  );
+  const head = sha(object(pull.head).sha);
+  const remote = new Remote("lhajoosten/rolling-release", "synthetic", "rolling-release-log[bot]");
+  Object.defineProperties(remote, {
+    tag: {
+      value: async () => {
+        throw new Error("cutover must not consult version tag");
+      },
+    },
+    ref: { value: async () => landing },
+    request: { value: async () => ({ sha: head, commit: { verification: { verified: true } } }) },
+  });
+  assert.equal(await verifyHistoricalRelease(root, remote, pull), landing);
+
+  await assert.rejects(
+    verifyHistoricalRelease(root, remote, { ...pull, title: "chore(release): prepare v0.9.1" }),
+    /cutover proposal identity/u,
+  );
+  await assert.rejects(
+    verifyHistoricalRelease(root, remote, {
+      ...pull,
+      head: { ...object(pull.head), sha: landing },
+    }),
+    /cutover proposal identity/u,
+  );
+  await assert.rejects(verifyHistoricalRelease(root, remote, { ...pull, number: 184 }));
+  await assert.rejects(verifyHistoricalRelease(root, remote, { ...pull, merge_commit_sha: head }));
+  const body = String(pull.body);
+  const encoded = /<!-- release-log:proposal:v1 ([A-Za-z0-9_-]+) -->/u.exec(body)?.[1];
+  assert.ok(encoded);
+  const marker: Record<string, unknown> = JSON.parse(Buffer.from(encoded, "base64url").toString());
+  marker.snapshotId = "tampered";
+  const tampered = Buffer.from(JSON.stringify(marker)).toString("base64url");
+  await assert.rejects(
+    verifyHistoricalRelease(root, remote, { ...pull, body: body.replace(encoded, tampered) }),
+    /snapshot disagrees/u,
+  );
+  await assert.rejects(
+    verifyHistoricalRelease(root, remote, { ...pull, user: { ...object(pull.user), id: 1 } }),
+    /identity is inconsistent/u,
+  );
+  const other = new Remote("acme/widget", "synthetic", "rolling-release-log[bot]");
+  const otherPull = {
+    ...pull,
+    head: { ...object(pull.head), repo: { full_name: "acme/widget" } },
+    base: {
+      ...object(pull.base),
+      repo: { ...object(object(pull.base).repo), full_name: "acme/widget" },
+    },
+  };
+  Object.defineProperty(other, "tag", { value: async () => null });
+  await assert.rejects(verifyHistoricalRelease(root, other, otherPull));
+});
