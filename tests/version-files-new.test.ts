@@ -66,6 +66,12 @@ void test("plans pnpm shared workspace members and local dependency ranges", asy
     assert.equal(files.get("packages/core/package.json"), '{"name":"core","version":"1.3.0"}\n');
     assert.match(String(files.get("pnpm-lock.yaml")), /specifier: \^1\.3\.0/u);
     assert.match(String(files.get("pnpm-lock.yaml")), /version: link:packages\/core/u);
+    await writeFile(
+      join(root, "pnpm-lock.yaml"),
+      'lockfileVersion: "9.0"\nimporters:\n  .:\n    dependencies:\n      core:\n        specifier: |-\n          ^1.2.3\n        version: link:packages/core\n  packages/core: {}\n',
+    );
+    const blockFiles = await planVersionFiles(root, "1.2.3", "1.3.0");
+    assert.match(String(blockFiles.get("pnpm-lock.yaml")), /specifier: \^1\.3\.0/u);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

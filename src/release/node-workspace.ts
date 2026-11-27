@@ -1,6 +1,6 @@
 import { glob, lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isScalar, parse as parseYaml, parseAllDocuments } from "yaml";
+import { isScalar, parse as parseYaml, parseAllDocuments, stringify as stringifyYaml } from "yaml";
 import { jsonPropertyRange, record, updatePackageVersion } from "./version-adapters.ts";
 
 async function readRootFile(root: string, path: string): Promise<string> {
@@ -339,6 +339,7 @@ export async function planNodeWorkspace(
       if (!record(lock) || !record(lock.importers) || !document)
         throw new Error("Invalid pnpm lockfile.");
       const edits: { start: number; end: number; text: string }[] = [];
+      let singleDocumentChanged = false;
       for (const [key, importer] of Object.entries(lock.importers)) {
         if (!record(importer)) throw new Error("Invalid pnpm importer.");
         for (const field of ["dependencies", "devDependencies", "optionalDependencies"]) {
@@ -356,6 +357,11 @@ export async function planNodeWorkspace(
               throw new Error(`Invalid pnpm local lock entry ${name} in ${key}.`);
             const updatedSpecifier = rangeVersion(entry.specifier, previous, next);
             if (updatedSpecifier !== entry.specifier) {
+              if (documents.length === 1) {
+                entry.specifier = updatedSpecifier;
+                singleDocumentChanged = true;
+                continue;
+              }
               const node = document.getIn(["importers", key, field, name, "specifier"], true);
               if (!isScalar(node) || !node.range)
                 throw new Error("Unsupported pnpm specifier layout.");
@@ -373,7 +379,8 @@ export async function planNodeWorkspace(
           }
         }
       }
-      if (edits.length) {
+      if (singleDocumentChanged) files.set("pnpm-lock.yaml", stringifyYaml(lock));
+      else if (edits.length) {
         let updated = lockSource;
         for (const edit of edits.toSorted((a, b) => b.start - a.start))
           updated = updated.slice(0, edit.start) + edit.text + updated.slice(edit.end);
