@@ -71,7 +71,7 @@ export async function planPythonWorkspace(
     });
     if (updated.content !== text) output.set(path, updated.content);
   }
-  for (const path of [...paths].toSorted()) {
+  for (const path of [...new Set([...paths, "pyproject.toml"])].toSorted()) {
     const original =
       path === "pyproject.toml" ? rootText : await readFile(join(root, path), "utf8");
     const versioned = output.get(path) ?? original;

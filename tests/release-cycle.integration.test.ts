@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { run } from "../src/cli.ts";
-import { object } from "../src/controller/remote.ts";
+import { object, Remote } from "../src/controller/remote.ts";
+import { verifyBackfillLanding } from "../src/controller/cycle.ts";
 
 const hash = (s: string) => "sha256:" + createHash("sha256").update(s).digest("hex");
 
@@ -408,4 +409,42 @@ void test("consumer commands refresh a stacked release, verify its landing, reco
   const end = writes.length;
   await run("backfill");
   assert.equal(writes.length, end);
+  land(45, "docs: update guide", "alice", "guide", "main", main);
+  const advanced = main;
+  const savedBackfillBody = backfill.body;
+  backfill.body = "Maintainer edit";
+  const beforeEdit = writes.length;
+  await assert.rejects(run("backfill"), /Existing backfill proposal differs/u);
+  assert.equal(writes.length, beforeEdit);
+  backfill.body = savedBackfillBody;
+  await run("backfill");
+  const refreshed = String(object(backfill.head).sha);
+  assert.notEqual(refreshed, rebuild);
+  assert.equal(git(["rev-parse", refreshed + "^1"]), advanced);
+  assert.equal(git(["rev-parse", refreshed + "^2"]), rebuild);
+  assert.equal(git(["diff", "--name-only", advanced, refreshed]), "CHANGELOG.md");
+  const afterRefresh = writes.length;
+  await run("backfill");
+  assert.equal(writes.length, afterRefresh);
+  const backfillLanding = git([
+    "commit-tree",
+    git(["rev-parse", refreshed + "^{tree}"]),
+    "-p",
+    advanced,
+    "-m",
+    "merge backfill",
+  ]);
+  Object.assign(backfill, { merged: true, state: "closed", merge_commit_sha: backfillLanding });
+  refs.set("heads/main", backfillLanding);
+  assert.equal(
+    await verifyBackfillLanding(root, new Remote(repository, "synthetic", bot), backfill),
+    backfillLanding,
+  );
+  git(["reset", "--hard", backfillLanding]);
+  const beforeObsolete = writes.length;
+  await run("backfill");
+  assert.equal(writes.length, beforeObsolete);
+  backfill.state = "open";
+  await assert.rejects(run("backfill"), /close the obsolete proposal/u);
+  assert.equal(writes.length, beforeObsolete);
 });

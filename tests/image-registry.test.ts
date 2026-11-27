@@ -5,6 +5,13 @@ import { publishImage } from "../src/registry/publish.ts";
 
 const digest = (value: string) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 
+void test("image publication rejects non-ASCII repository names", async () => {
+  await assert.rejects(
+    publishImage(".", "acme/\u212aelvin", "v1.3.0", "a".repeat(40)),
+    /Invalid image publication identity/u,
+  );
+});
+
 void test("retained candidate publishes exact manifest and retries without another write", async () => {
   const original = globalThis.fetch;
   const oldToken = process.env.GHCR_TOKEN;
@@ -17,7 +24,7 @@ void test("retained candidate publishes exact manifest and retries without anoth
     architecture: "amd64",
     config: {
       Labels: {
-        "org.opencontainers.image.source": "https://github.com/acme/widget",
+        "org.opencontainers.image.source": "https://github.com/Acme/Widget",
         "org.opencontainers.image.revision": sha,
         "org.opencontainers.image.version": "1.3.0",
       },
@@ -29,7 +36,11 @@ void test("retained candidate publishes exact manifest and retries without anoth
   let puts = 0;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (url.includes("/token?")) return Response.json({ token: "synthetic-bearer" });
+    if (url.includes("/token?")) {
+      assert.equal(new URL(url).searchParams.get("scope"), "repository:acme/widget:pull,push");
+      return Response.json({ token: "synthetic-bearer" });
+    }
+    assert.ok(url.startsWith("https://ghcr.io/v2/acme/widget/"));
     if (url.includes("/blobs/")) return new Response(config);
     if (init?.method === "PUT") {
       assert.ok(Buffer.isBuffer(init.body));
@@ -51,8 +62,8 @@ void test("retained candidate publishes exact manifest and retries without anoth
     });
   };
   try {
-    assert.equal(await publishImage(".", "acme/widget", "v1.3.0", sha), manifestDigest);
-    assert.equal(await publishImage(".", "acme/widget", "v1.3.0", sha), manifestDigest);
+    assert.equal(await publishImage(".", "Acme/Widget", "v1.3.0", sha), manifestDigest);
+    assert.equal(await publishImage(".", "Acme/Widget", "v1.3.0", sha), manifestDigest);
     assert.equal(puts, 1);
   } finally {
     globalThis.fetch = original;
@@ -83,7 +94,7 @@ for (const uncertain of [false, true])
     await execute("git", ["-C", repository, "commit", "-qm", "fixture"]);
     const sha = (await execute("git", ["-C", repository, "rev-parse", "HEAD"])).stdout.trim();
     const labels = {
-      "org.opencontainers.image.source": "https://github.com/acme/widget",
+      "org.opencontainers.image.source": "https://github.com/Acme/Widget",
       "org.opencontainers.image.revision": sha,
       "org.opencontainers.image.version": "1.3.0",
     };
@@ -143,9 +154,11 @@ for (const uncertain of [false, true])
       });
     };
     try {
-      if (uncertain) await assert.rejects(publishImage(repository, "acme/widget", "v1.3.0", sha));
-      assert.equal(await publishImage(repository, "acme/widget", "v1.3.0", sha), digest(manifest));
+      if (uncertain) await assert.rejects(publishImage(repository, "Acme/Widget", "v1.3.0", sha));
+      assert.equal(await publishImage(repository, "Acme/Widget", "v1.3.0", sha), digest(manifest));
       const commands = await readFile(log, "utf8");
+      assert.match(commands, /SOURCE_URL=https:\/\/github\.com\/Acme\/Widget/u);
+      assert.match(commands, /ghcr\.io\/acme\/widget:sha-/u);
       assert.equal(commands.split("\n").filter((line) => line.startsWith("build ")).length, 1);
       assert.equal(commands.split("\n").filter((line) => line.includes(" push ")).length, 1);
       assert.equal(writes, 1);
@@ -198,7 +211,7 @@ void test("provider retained image must pass its smoke and scan before version p
     architecture: "amd64",
     config: {
       Labels: {
-        "org.opencontainers.image.source": "https://github.com/lhajoosten/rolling-release",
+        "org.opencontainers.image.source": "https://github.com/LHajoosten/Rolling-Release",
         "org.opencontainers.image.revision": sha,
         "org.opencontainers.image.version": "1.3.0",
       },
@@ -229,11 +242,11 @@ void test("provider retained image must pass its smoke and scan before version p
     });
   };
   try {
-    await assert.rejects(publishImage(".", "lhajoosten/rolling-release", "v1.3.0", sha));
+    await assert.rejects(publishImage(".", "LHajoosten/Rolling-Release", "v1.3.0", sha));
     assert.equal(writes, 0);
     await writeFile(pass, "ok");
     assert.equal(
-      await publishImage(".", "lhajoosten/rolling-release", "v1.3.0", sha),
+      await publishImage(".", "LHajoosten/Rolling-Release", "v1.3.0", sha),
       digest(manifest),
     );
     assert.equal(writes, 1);

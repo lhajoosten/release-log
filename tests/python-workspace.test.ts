@@ -10,10 +10,9 @@ void test("uv shared workspace updates each member and the matching lock entries
   try {
     await mkdir(join(root, "packages/alpha"), { recursive: true });
     await mkdir(join(root, "packages/beta"), { recursive: true });
-    await writeFile(
-      join(root, "pyproject.toml"),
-      '[tool.uv.workspace]\nmembers = ["packages/*"]\n',
-    );
+    const rootManifest =
+      '[tool.uv.workspace]\nmembers = ["packages/*"]\n[dependency-groups]\ndev = ["beta>=1.2.3", "other==1.2.3"] # retain 1.2.3\n[tool.uv.sources]\nbeta = { workspace = true }\n';
+    await writeFile(join(root, "pyproject.toml"), rootManifest);
     await writeFile(
       join(root, "packages/alpha/pyproject.toml"),
       '[project]\nname = "alpha"\nversion = "1.2.3"\n',
@@ -26,7 +25,11 @@ void test("uv shared workspace updates each member and the matching lock entries
       'version = 1\n\n[[package]]\nname = "alpha"\nversion = "1.2.3"\nsource = { editable = "packages/alpha" }\n\n[[package]]\nname = "beta"\nversion = "1.2.3"\nsource = { editable = "packages/beta" }\n';
     await writeFile(join(root, "uv.lock"), lock);
     const files = await planPythonWorkspace(root, "1.2.3", "1.3.0");
-    assert.equal(files?.size, 3);
+    assert.equal(files?.size, 4);
+    assert.equal(
+      files?.get("pyproject.toml"),
+      rootManifest.replace('"beta>=1.2.3"', '"beta>=1.3.0"'),
+    );
     assert.match(files?.get("packages/alpha/pyproject.toml") ?? "", /version = "1.3.0"/u);
     assert.equal(files?.get("uv.lock"), lock.replaceAll('version = "1.2.3"', 'version = "1.3.0"'));
     assert.equal(await readFile(join(root, "uv.lock"), "utf8"), lock);

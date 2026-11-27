@@ -60,7 +60,7 @@ export async function publishImage(
   recheck: () => Promise<void> = () => Promise.resolve(),
 ): Promise<string> {
   if (
-    !/^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/u.test(repository) ||
+    !/^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/u.test(repository) ||
     !/^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(version) ||
     !/^[a-f0-9]{40}$/u.test(landing)
   )
@@ -69,9 +69,10 @@ export async function publishImage(
   const actor = process.env.GITHUB_ACTOR;
   if (!token || !actor) throw new Error("GHCR_TOKEN and GITHUB_ACTOR are required.");
   const source = `https://github.com/${repository}`;
-  const image = `ghcr.io/${repository}`;
-  const endpoint = `https://ghcr.io/v2/${repository}`;
-  const authUrl = `https://ghcr.io/token?scope=${encodeURIComponent(`repository:${repository}:pull,push`)}`;
+  const packageName = repository.toLowerCase();
+  const image = `ghcr.io/${packageName}`;
+  const endpoint = `https://ghcr.io/v2/${packageName}`;
+  const authUrl = `https://ghcr.io/token?scope=${encodeURIComponent(`repository:${packageName}:pull,push`)}`;
   const auth = await fetch(authUrl, {
     headers: { authorization: `Basic ${Buffer.from(`${actor}:${token}`).toString("base64")}` },
     redirect: "error",
@@ -148,7 +149,7 @@ export async function publishImage(
     return { digest, bytes, mediaType, configDigest };
   };
   const providerGate = async (reference: string, pull: boolean): Promise<void> => {
-    if (repository !== "lhajoosten/rolling-release") return;
+    if (packageName !== "lhajoosten/rolling-release") return;
     const scanner = process.env.ROLLING_RELEASE_SCAN_SCRIPT;
     const reports = process.env.ROLLING_RELEASE_SCAN_OUTPUT;
     if (!scanner || !reports)

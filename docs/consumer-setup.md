@@ -8,7 +8,7 @@ Use conventional PR titles. A feature bumps minor, a fix, performance improvemen
 
 Manually dispatch the release cycle to preview. After an ordinary PR lands the App refreshes one release PR. Review its changelog, version changes and captured metadata. Merging it authorizes a tag at the landing, a versioned Docker image and a GitHub Release with the reviewed notes. Configure your consumer Dockerfile at the repository root. Inspect the source and digest reported by GHCR when recovering publication.
 
-Run the separate manual changelog backfill to reconstruct historical sections from stable tags and available PR metadata. Review its changelog-only PR. A missing or ambiguous association blocks the rebuild and identifies the affected release.
+Run the separate manual changelog backfill to reconstruct historical sections from stable tags and available PR metadata. Review its changelog-only PR. If another PR merges into `main` first, rerun backfill before merging so the proposal includes the current tree. A missing or ambiguous association blocks the rebuild and identifies the affected release.
 
 ## Version files
 
