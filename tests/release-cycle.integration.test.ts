@@ -147,6 +147,7 @@ void test("consumer commands refresh a stacked release, verify its landing, reco
   }
   const writes: string[] = [];
   let release: Record<string, unknown> | null = null;
+  let failProposalPatch = 0;
   let commitVerified = true;
   let commitAuthor = author;
   let backfillHead = "";
@@ -290,7 +291,12 @@ void test("consumer commands refresh a stacked release, verify its landing, reco
     }
     if (/^pulls\/\d+$/u.test(path)) {
       const pull = prs.get(Number(path.split("/")[1]));
-      if (pull && method === "PATCH") Object.assign(pull, data);
+      if (pull && method === "PATCH") {
+        if (failProposalPatch > 0 && --failProposalPatch === 0) {
+          return Response.json({}, { status: 503 });
+        }
+        Object.assign(pull, data);
+      }
       return response(pull);
     }
     if (path.startsWith("pulls/") && path.endsWith("/commits")) {
@@ -346,6 +352,12 @@ void test("consumer commands refresh a stacked release, verify its landing, reco
   assert.ok(pr);
   const first = object(pr.head).sha;
   land(42, "feat(export): add column selection", "bob", "columns", "export", original);
+  // Retry the original main event after its stacked continuation lands.
+  failProposalPatch = 1;
+  await assert.rejects(run("propose"), /503/u);
+  const interrupted = String(object(pr.head).sha);
+  assert.notEqual(interrupted, first);
+  assert.equal(git(["rev-parse", interrupted + "^2"]), first);
   const beforeFix = main;
   land(
     43,
@@ -363,11 +375,23 @@ void test("consumer commands refresh a stacked release, verify its landing, reco
   await assert.rejects(run("propose"), /text differs/u);
   assert.equal(writes.length, beforeConflict);
   pr.body = savedBody;
+  failProposalPatch = 2;
+  await assert.rejects(run("propose"), /503/u);
+  const priorBody = pr.body;
+  const refreshed = String(object(pr.head).sha);
+  assert.notEqual(refreshed, interrupted);
   await run("propose");
-  assert.notEqual(object(pr.head).sha, first);
+  assert.equal(object(pr.head).sha, refreshed);
   assert.equal([...prs.values()].filter((p) => p.state === "open").length, 1);
-  const head = String(object(pr.head).sha),
-    n = writes.length;
+  const head = String(object(pr.head).sha);
+  const updatedBody = pr.body;
+  pr.body = priorBody;
+  const commitsBeforeRepair = writes.filter((w) => w === "POST git/commits").length;
+  await run("propose");
+  assert.equal(pr.body, updatedBody);
+  assert.equal(object(pr.head).sha, head);
+  assert.equal(writes.filter((w) => w === "POST git/commits").length, commitsBeforeRepair);
+  const n = writes.length;
   await run("propose");
   assert.equal(writes.length, n);
   const expected = readFileSync(new URL("./fixtures/release-golden.md", import.meta.url), "utf8");
@@ -452,17 +476,17 @@ void test("consumer commands refresh a stacked release, verify its landing, reco
   assert.equal(writes.length, beforeEdit);
   backfill.body = savedBackfillBody;
   await run("backfill");
-  const refreshed = String(object(backfill.head).sha);
-  assert.notEqual(refreshed, rebuild);
-  assert.equal(git(["rev-parse", refreshed + "^1"]), advanced);
-  assert.equal(git(["rev-parse", refreshed + "^2"]), rebuild);
-  assert.equal(git(["diff", "--name-only", advanced, refreshed]), "CHANGELOG.md");
+  const refreshedBackfill = String(object(backfill.head).sha);
+  assert.notEqual(refreshedBackfill, rebuild);
+  assert.equal(git(["rev-parse", refreshedBackfill + "^1"]), advanced);
+  assert.equal(git(["rev-parse", refreshedBackfill + "^2"]), rebuild);
+  assert.equal(git(["diff", "--name-only", advanced, refreshedBackfill]), "CHANGELOG.md");
   const afterRefresh = writes.length;
   await run("backfill");
   assert.equal(writes.length, afterRefresh);
   const backfillLanding = git([
     "commit-tree",
-    git(["rev-parse", refreshed + "^{tree}"]),
+    git(["rev-parse", refreshedBackfill + "^{tree}"]),
     "-p",
     advanced,
     "-m",

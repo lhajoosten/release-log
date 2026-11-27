@@ -145,6 +145,61 @@ export class Remote {
       object(base.repo).full_name === this.repository
     );
   }
+  private async confirmProposal(input: {
+    branch: string;
+    number: number;
+    previous: string;
+    next: string;
+    expectedTitle: unknown;
+    expectedBody: unknown;
+    title: string;
+    body: string;
+    afterPatch: boolean;
+  }) {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const pull = object(await this.request("pulls/" + input.number));
+      const head = sha(object(pull.head).sha);
+      const oldText = pull.title === input.expectedTitle && pull.body === input.expectedBody;
+      const newText = pull.title === input.title && pull.body === input.body;
+      if (
+        pull.number !== input.number ||
+        pull.state !== "open" ||
+        !this.owned(pull, input.branch) ||
+        (head !== input.previous && head !== input.next) ||
+        (!oldText && !(input.afterPatch && newText))
+      )
+        throw new Error("Proposal was edited during refresh; preserve the edit for review");
+      if (head === input.next && (input.afterPatch ? newText : oldText)) return;
+      if (attempt < 5) await new Promise((resolve) => setTimeout(resolve, 200 * 2 ** attempt));
+    }
+    throw new Error("Proposal write was not confirmed");
+  }
+  async updateProposalText(input: {
+    branch: string;
+    source: string;
+    head: string;
+    number: number;
+    expectedTitle: unknown;
+    expectedBody: unknown;
+    title: string;
+    body: string;
+    recheck?: () => Promise<void>;
+  }) {
+    const confirm = (afterPatch: boolean) =>
+      this.confirmProposal({ ...input, previous: input.head, next: input.head, afterPatch });
+    const assertRefs = async () => {
+      if (
+        (await this.ref("heads/main")) !== input.source ||
+        (await this.ref("heads/" + input.branch)) !== input.head
+      )
+        throw new Error("Main or the proposal changed; retry from fresh refs");
+    };
+    await input.recheck?.();
+    await assertRefs();
+    await confirm(false);
+    await this.request("pulls/" + input.number, "PATCH", { title: input.title, body: input.body });
+    await confirm(true);
+  }
   async writeProposal(input: {
     branch: string;
     source: string;
@@ -210,17 +265,30 @@ export class Remote {
     if ((await this.ref("heads/" + branch)) !== next)
       throw new Error("Proposal head changed during update");
     if (number) {
-      const current = await this.openProposal(branch);
-      if (
-        !current ||
-        current.number !== number ||
-        current.head !== next ||
-        current.body !== input.expectedBody ||
-        current.title !== input.expectedTitle
-      )
-        throw new Error("Proposal was edited during refresh; preserve the edit for review");
-      await this.request("pulls/" + number, "PATCH", { title, body });
-    } else await this.request("pulls", "POST", { head: branch, base: "main", title, body });
+      if (!previous) throw new Error("Existing proposal has no previous head");
+      await this.confirmProposal({
+        ...input,
+        expectedTitle: input.expectedTitle,
+        expectedBody: input.expectedBody,
+        number,
+        previous,
+        next,
+        afterPatch: false,
+      });
+      await this.updateProposalText({
+        branch,
+        source,
+        head: next,
+        number,
+        expectedTitle: input.expectedTitle,
+        expectedBody: input.expectedBody,
+        title,
+        body,
+        ...(input.recheck ? { recheck: input.recheck } : {}),
+      });
+      return;
+    }
+    await this.request("pulls", "POST", { head: branch, base: "main", title, body });
     const saved = await this.openProposal(branch);
     if (
       !saved ||
