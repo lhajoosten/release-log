@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.9.0
+
+### ✨ Features
+
+- automate compatible consumer updates ([#181](https://github.com/lhajoosten/rolling-release/pull/181)) by [@lhajoosten](https://github.com/lhajoosten)
+- **Breaking:** replace the PR-driven release cycle and add changelog backfill ([#188](https://github.com/lhajoosten/rolling-release/pull/188)) by [@lhajoosten](https://github.com/lhajoosten)
+
+### 🐛 Fixes
+
+- carry forward changes from the unpublished legacy release ([#189](https://github.com/lhajoosten/rolling-release/pull/189)) by [@lhajoosten](https://github.com/lhajoosten)
+
+### 📚 Documentation
+
+- simplify Rolling Release setup and maintenance ([#184](https://github.com/lhajoosten/rolling-release/pull/184)) by [@lhajoosten](https://github.com/lhajoosten)
+
+### 🛠️ Required actions
+
+- Switch adopting repositories to the replacement callers in &#96;examples/&#96;, configure the release App and GHCR permissions, and preview before enabling automatic writes. ([#188](https://github.com/lhajoosten/rolling-release/pull/188))
+
+[Full changelog v0.8.3...v0.9.0](https://github.com/lhajoosten/rolling-release/compare/v0.8.3...v0.9.0)
+
 ## v0.8.3 (2026-11-22)
 
 ### 🐛 Fixes

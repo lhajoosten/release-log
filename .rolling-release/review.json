@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "producer": "94c08ac3c28e82ca1e89b44a48cec28e156a5254",
+  "repository": "lhajoosten/rolling-release",
+  "branch": "main",
+  "baseline": "443764fe6e08690f969b86b332bff69af71a2002",
+  "source": "94c08ac3c28e82ca1e89b44a48cec28e156a5254",
+  "previousVersion": "0.8.3",
+  "changes": [
+    {
+      "number": 181,
+      "title": "feat(release): automate compatible consumer updates",
+      "author": "lhajoosten",
+      "requiredAction": null
+    },
+    {
+      "number": 184,
+      "title": "docs(release): simplify Rolling Release setup and maintenance",
+      "author": "lhajoosten",
+      "requiredAction": null
+    },
+    {
+      "number": 188,
+      "title": "feat(release)!: replace the PR-driven release cycle and add changelog backfill",
+      "author": "lhajoosten",
+      "requiredAction": "Switch adopting repositories to the replacement callers in `examples/`, configure the release App and GHCR permissions, and preview before enabling automatic writes."
+    },
+    {
+      "number": 189,
+      "title": "fix(release): carry forward changes from the unpublished legacy release",
+      "author": "lhajoosten",
+      "requiredAction": null
+    }
+  ],
+  "version": "0.9.0",
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "sha256": "fc762b37aaedab70036efb620e40fbd0310a81798708e88ca8d2b31aa23a2e0f"
+    },
+    {
+      "path": "package.json",
+      "sha256": "9716ed0f762d6f0f38b277d1f9aa4add1ac7214689203dfc5091ccef90e6acbd"
+    }
+  ]
+}
