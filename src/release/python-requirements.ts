@@ -13,21 +13,27 @@ function updateConstraint(value: string, previous: string, next: string): string
   );
 }
 
+export function uvSources(source: string): ReadonlyMap<string, unknown> {
+  const ast = parseTOML(source);
+  const data: unknown = getStaticTOMLValue(ast);
+  const uv = record(data) && record(data.tool) && record(data.tool.uv) ? data.tool.uv : {};
+  const sources = record(uv.sources) ? uv.sources : {};
+  return new Map(Object.entries(sources).map(([name, value]) => [normalize(name), value]));
+}
+
 /** Change version specifiers only for uv dependencies explicitly sourced from this workspace. */
 export function updateUvRequirements(
   source: string,
   memberNames: ReadonlySet<string>,
   previous: string,
   next: string,
+  inheritedSources: ReadonlyMap<string, unknown> = new Map(),
 ): string {
-  const ast = parseTOML(source);
-  const data: unknown = getStaticTOMLValue(ast);
-  const uv = record(data) && record(data.tool) && record(data.tool.uv) ? data.tool.uv : {};
-  const sources = record(uv.sources) ? uv.sources : {};
+  const sources = new Map([...inheritedSources, ...uvSources(source)]);
   const local = new Set(
-    Object.entries(sources)
+    [...sources]
       .filter(([, value]) => record(value) && value.workspace === true)
-      .map(([name]) => normalize(name)),
+      .map(([name]) => name),
   );
   for (const name of local)
     if (!memberNames.has(name)) throw new Error(`Unknown uv workspace dependency: ${name}`);

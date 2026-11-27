@@ -4,6 +4,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { planPythonWorkspace } from "../src/release/python-workspace.ts";
+import { updateUvRequirements, uvSources } from "../src/release/python-requirements.ts";
+
+void test("uv member sources inherit root declarations and shadow normalized names", () => {
+  const root = "[tool.uv.sources]\nBeta_Pkg = { workspace = true }\ngamma = { workspace = true }\n";
+  const member =
+    '[project]\ndependencies = ["beta.pkg>=1.2.3", "gamma>=1.2.3", "delta>=1.2.3"]\n[tool.uv.sources]\nGAMMA = { index = "external" }\n';
+  assert.equal(
+    updateUvRequirements(
+      member,
+      new Set(["beta-pkg", "gamma", "delta"]),
+      "1.2.3",
+      "1.3.0",
+      uvSources(root),
+    ),
+    member.replace("beta.pkg>=1.2.3", "beta.pkg>=1.3.0"),
+  );
+});
 
 void test("uv shared workspace updates each member and the matching lock entries", async () => {
   const root = await mkdtemp(join(tmpdir(), "python-workspace-"));
@@ -49,10 +66,10 @@ void test("uv updates only sourced workspace requirements and preserves unrelate
     await mkdir(join(root, "packages/beta"), { recursive: true });
     await writeFile(
       join(root, "pyproject.toml"),
-      '[tool.uv.workspace]\nmembers = ["packages/*"]\n',
+      '[tool.uv.workspace]\nmembers = ["packages/*"]\n[tool.uv.sources]\nBETA = { workspace = true }\n',
     );
     const alpha =
-      '[project]\nname = "alpha"\nversion = "1.2.3" # keep 1.2.3 note\ndependencies = ["beta>=1.2.3", "other==1.2.3"]\n[tool.uv.sources]\nbeta = { workspace = true }\n';
+      '[project]\nname = "alpha"\nversion = "1.2.3" # keep 1.2.3 note\ndependencies = ["beta>=1.2.3", "other==1.2.3"]\n';
     await writeFile(join(root, "packages/alpha/pyproject.toml"), alpha);
     await writeFile(
       join(root, "packages/beta/pyproject.toml"),

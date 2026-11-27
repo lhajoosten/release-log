@@ -97,6 +97,34 @@ void test("plans Bun text lock workspaces while preserving external resolutions"
   }
 });
 
+void test("bootstrap omits unchanged Node workspace lockfiles", async (t) => {
+  for (const lockPath of [
+    "package-lock.json",
+    "npm-shrinkwrap.json",
+    "bun.lock",
+    "pnpm-lock.yaml",
+  ]) {
+    const root = await mkdtemp(join(tmpdir(), "release-node-bootstrap-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const manifest = '{"name":"root","version":"0.1.0","workspaces":["."]}\n';
+    await writeFile(join(root, "package.json"), manifest);
+    let lock: string;
+    if (lockPath === "bun.lock") {
+      lock =
+        '{\n  // preserve this comment\n  "lockfileVersion": 1,\n  "workspaces": {"": {"name":"root","version":"0.1.0"}},\n}\n';
+    } else if (lockPath === "pnpm-lock.yaml") {
+      await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - .\n");
+      lock = 'lockfileVersion: "9.0"\nimporters:\n  .: {}\n';
+    } else {
+      lock = `${JSON.stringify({ name: "root", version: "0.1.0", lockfileVersion: 3, packages: { "": { name: "root", version: "0.1.0" } } }, null, 2)}\n`;
+    }
+    await writeFile(join(root, lockPath), lock);
+    const changes = await planVersionFiles(root, null, "0.1.0");
+    assert.equal(changes.has(lockPath), false, lockPath);
+    assert.equal(await readFile(join(root, lockPath), "utf8"), lock, lockPath);
+  }
+});
+
 void test("rejects symlinked pnpm configuration and lockfiles before reading them", async () => {
   const root = await mkdtemp(join(tmpdir(), "release-pnpm-link-"));
   try {

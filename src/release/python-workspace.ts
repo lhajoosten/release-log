@@ -1,7 +1,11 @@
 import { glob, lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getStaticTOMLValue, parseTOML } from "toml-eslint-parser";
-import { updateUvLockRequirements, updateUvRequirements } from "./python-requirements.ts";
+import {
+  updateUvLockRequirements,
+  updateUvRequirements,
+  uvSources,
+} from "./python-requirements.ts";
 import { record, updatePyprojectVersion } from "./version-adapters.ts";
 
 const normalize = (name: string) => name.toLowerCase().replace(/[-_.]+/gu, "-");
@@ -71,6 +75,7 @@ export async function planPythonWorkspace(
     });
     if (updated.content !== text) output.set(path, updated.content);
   }
+  const rootSources = uvSources(rootText);
   for (const path of [...new Set([...paths, "pyproject.toml"])].toSorted()) {
     const original =
       path === "pyproject.toml" ? rootText : await readFile(join(root, path), "utf8");
@@ -82,6 +87,7 @@ export async function planPythonWorkspace(
       new Set(members.keys()),
       oldVersion,
       nextVersion,
+      path === "pyproject.toml" ? undefined : rootSources,
     );
     if (updated !== original) output.set(path, updated);
   }

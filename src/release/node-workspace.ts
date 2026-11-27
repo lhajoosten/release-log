@@ -214,6 +214,7 @@ export async function planNodeWorkspace(
   }
   if (bunLock) {
     const lock = bunJson(await readFile(join(root, "bun.lock"), "utf8"));
+    const originalLock = JSON.stringify(lock);
     if (![1, 2].includes(Number(lock.lockfileVersion)) || !record(lock.workspaces))
       throw new Error("Unsupported Bun lockfile.");
     for (const path of paths) {
@@ -240,10 +241,12 @@ export async function planNodeWorkspace(
         }
       }
     }
-    files.set("bun.lock", `${JSON.stringify(lock, null, 2)}\n`);
+    if (JSON.stringify(lock) !== originalLock)
+      files.set("bun.lock", `${JSON.stringify(lock, null, 2)}\n`);
   }
   if (npmLock !== null) {
     const lock = object(await readFile(join(root, npmLock), "utf8"), npmLock);
+    const originalLock = JSON.stringify(lock);
     if (
       ![2, 3].includes(Number(lock.lockfileVersion)) ||
       lock.version !== previous ||
@@ -293,7 +296,8 @@ export async function planNodeWorkspace(
         }
       }
     }
-    files.set(npmLock, `${JSON.stringify(lock, null, 2)}\n`);
+    if (JSON.stringify(lock) !== originalLock)
+      files.set(npmLock, `${JSON.stringify(lock, null, 2)}\n`);
   }
   if (pnpm !== null) {
     try {
