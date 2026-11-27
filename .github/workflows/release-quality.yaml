@@ -20,6 +20,22 @@ permissions:
   pull-requests: read
 
 jobs:
+  container:
+    if: github.repository_id == '1449550207'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build and smoke-test the local image
+        run: |
+          docker build --file container/Dockerfile --tag release-log-smoke .
+          docker run --rm --network none --read-only --cap-drop ALL release-log-smoke --help
+          version=$(node -p "require('./package.json').version")
+          [[ "$(docker run --rm --network none --read-only --cap-drop ALL release-log-smoke --version)" == "$version" ]]
+
   verify:
     if: github.repository_id == '1449550207'
     runs-on: ubuntu-24.04

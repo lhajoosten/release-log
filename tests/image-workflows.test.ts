@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { parse } from "yaml";
+import { parse, parseDocument } from "yaml";
 
 void test("release workflows use a reviewed runtime and immutable external actions", async () => {
   for (const name of [
@@ -86,4 +86,20 @@ void test("provider-only release and image gates use the exact landing while con
   );
   assert.match(publish, /ROLLING_RELEASE_SCAN_SCRIPT/u);
   assert.match(publish, /ROLLING_RELEASE_SCAN_OUTPUT/u);
+});
+
+void test("provider PR workflows report all three checks required by main", async () => {
+  for (const [file, trigger, names] of [
+    ["release-quality.yaml", "pull_request", ["verify", "container"]],
+    ["pr-metadata.yml", "pull_request_target", ["metadata"]],
+  ] as const) {
+    const source = await readFile(new URL(`../.github/workflows/${file}`, import.meta.url), "utf8");
+    const workflow = parseDocument(source);
+    assert.deepEqual(workflow.errors, []);
+    for (const name of names) {
+      assert.ok(workflow.hasIn(["jobs", name]), `Missing required job ${name}`);
+      assert.equal(workflow.getIn(["jobs", name, "name"]) ?? name, name);
+    }
+    assert.ok(workflow.hasIn(["on", trigger]), `Missing ${trigger} trigger`);
+  }
 });
