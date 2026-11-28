@@ -1,6 +1,6 @@
 {
   "name": "release-log",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "private": true,
   "description": "Deterministic PR-based releases for GitHub repositories",
   "license": "MIT",
