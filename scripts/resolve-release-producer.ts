@@ -21,7 +21,7 @@ export async function selectProducer(repository: string, workflow: string, produ
     const checkedOut = (await git("rev-parse", "HEAD")).stdout.trim();
     if (checkedOut !== workflow) throw new Error("Workflow checkout mismatch.");
     await git("merge-base", "--is-ancestor", workflow, "refs/remotes/origin/main");
-    await git("merge-base", "--is-ancestor", producer, workflow);
+    await git("merge-base", "--is-ancestor", producer, "refs/remotes/origin/main");
   } catch {
     throw new Error(
       "The reviewed producer is unavailable or outside protected provider history; restore it and rerun the original event.",

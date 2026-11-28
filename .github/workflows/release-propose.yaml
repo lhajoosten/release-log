@@ -20,6 +20,9 @@ on:
         type: string
         required: false
         default: ""
+      image-enabled:
+        type: string
+        default: "true"
       app-id:
         description: GitHub App ID for repository writes
         type: string
@@ -96,6 +99,7 @@ jobs:
           ROLLING_RELEASE_PRODUCER_SHA: ${{ job.workflow_sha }}
           ROLLING_RELEASE_BOT: ${{ inputs.bot }}
           ROLLING_RELEASE_START_SHA: ${{ inputs.start-sha }}
+          ROLLING_RELEASE_IMAGE_ENABLED: ${{ inputs.image-enabled }}
           RELEASE_REFRESH: ${{ inputs.refresh }}
           ROLLING_RELEASE_RETRY_PR: ${{ inputs.retry-pr }}
         run: |

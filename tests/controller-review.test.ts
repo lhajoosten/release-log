@@ -44,3 +44,18 @@ void test("pending changes and unsafe generated paths cannot authorize a review"
     /invalid file path/u,
   );
 });
+
+void test("image publication opt-out is captured and cannot be added or removed from reviewed evidence", () => {
+  const defaultRecord = createReview(input);
+  assert.equal(Object.hasOwn(defaultRecord, "publishImage"), false);
+  const noImage = { ...input, publishImage: false as const };
+  const record = createReview(noImage);
+  const evidence: unknown = JSON.parse(serializeReview(record));
+  assert.equal(record.publishImage, false);
+  assert.deepEqual(verifyReview(evidence, noImage), record);
+  assert.throws(() => verifyReview(evidence, input), /does not match/u);
+  assert.throws(
+    () => verifyReview(JSON.parse(serializeReview(defaultRecord)), noImage),
+    /does not match/u,
+  );
+});

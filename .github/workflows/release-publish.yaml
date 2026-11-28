@@ -106,7 +106,8 @@ jobs:
         with:
           app-id: ${{ inputs.app-id }}
           private-key: ${{ secrets.app-private-key }}
-          permission-contents: write
+          # The dedicated disposable rehearsal can downscope only its original publication.
+          permission-contents: ${{ github.repository_id == '1475512885' && vars.REHEARSAL_FAIL_RELEASE_WRITE == 'true' && github.event_name == 'pull_request_target' && 'read' || 'write' }}
           permission-pull-requests: read
 
       - name: Run publish against the consumer

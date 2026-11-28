@@ -56,12 +56,12 @@ void test("release events queue without replacing pending runs and use scoped ca
     assert.match(source, /\$GITHUB_WORKSPACE\/tool\/dist\/src\/cli\.js/u);
   }
   const caller = await readFile(
-    new URL("../.github/workflows/release-cycle-caller.yaml", import.meta.url),
+    new URL("../.github/workflows/release-cycle.yaml", import.meta.url),
     "utf8",
   );
   assert.match(caller, /needs: publish/u);
   assert.match(caller, /refresh: true/u);
-  assert.match(caller, /RELEASE_LOG_WRITE_ENABLED/u);
+  assert.match(caller, /inputs.write-enabled/u);
   assert.match(caller, /permissions:\n\s+contents: read\n\s+pull-requests: read/u);
 });
 
@@ -80,6 +80,12 @@ void test("provider-only release and image gates use the exact landing while con
   assert.match(quality, /job\.workflow_sha/u);
   assert.match(quality, /ROLLING_RELEASE_START_SHA/u);
   assert.match(quality, /check-proposal/u);
+  const proposal = parseDocument(quality);
+  assert.doesNotMatch(String(proposal.getIn(["jobs", "proposal", "if"])), /user\.login/u);
+  assert.match(
+    quality,
+    /ROLLING_RELEASE_BOT: \$\{\{ inputs\.bot \|\| vars\.ROLLING_RELEASE_BOT \}\}/u,
+  );
 });
 
 void test("provider PR workflows report all three checks required by main", async () => {
@@ -98,23 +104,61 @@ void test("provider PR workflows report all three checks required by main", asyn
   }
 });
 
-void test("manual retry is selected only on main and refreshes after publication", async () => {
-  for (const path of [
-    "../.github/workflows/release-cycle-caller.yaml",
-    "../examples/release-cycle.yaml",
-  ]) {
-    const workflow = parseDocument(await readFile(new URL(path, import.meta.url), "utf8"));
-    assert.deepEqual(workflow.errors, []);
-    assert.ok(workflow.hasIn(["on", "workflow_dispatch", "inputs", "retry-pr"]));
-    const propose = String(workflow.getIn(["jobs", "propose", "if"]));
-    const promote = String(workflow.getIn(["jobs", "promote", "if"]));
-    assert.match(propose, /inputs\.retry-pr == ''/u);
-    assert.match(promote, /github\.ref == 'refs\/heads\/main'/u);
-    for (const job of ["promote", "publish", "refresh"])
-      assert.equal(workflow.getIn(["jobs", job, "with", "retry-pr"]), "${{ inputs.retry-pr }}");
-    assert.match(
-      String(workflow.getIn(["jobs", "refresh", "if"])),
-      /needs\.publish\.result == 'success'/u,
-    );
-  }
+void test("consumer caller delegates routing and keeps proposal checks read-only", async () => {
+  const caller = parseDocument(
+    await readFile(new URL("../examples/release-cycle.yaml", import.meta.url), "utf8"),
+  );
+  assert.deepEqual(caller.errors, []);
+  assert.ok(caller.hasIn(["on", "workflow_dispatch", "inputs", "retry-pr"]));
+  assert.ok(caller.hasIn(["on", "pull_request"]));
+  assert.ok(caller.hasIn(["on", "pull_request_target"]));
+  assert.equal(caller.getIn(["jobs", "proposal-check", "permissions", "contents"]), "read");
+  assert.equal(caller.hasIn(["jobs", "proposal-check", "secrets"]), false);
+  assert.match(
+    String(caller.getIn(["jobs", "release", "uses"])),
+    /release-cycle\.yaml@consumer-v1$/u,
+  );
+  const provider = parseDocument(
+    await readFile(new URL("../.github/workflows/release-cycle.yaml", import.meta.url), "utf8"),
+  );
+  assert.deepEqual(provider.errors, []);
+  assert.match(String(provider.getIn(["jobs", "propose", "if"])), /inputs\.retry-pr == ''/u);
+  assert.match(
+    String(provider.getIn(["jobs", "promote", "if"])),
+    /github\.ref == 'refs\/heads\/main'/u,
+  );
+  for (const job of ["promote", "publish", "refresh"])
+    assert.equal(provider.getIn(["jobs", job, "with", "retry-pr"]), "${{ inputs.retry-pr }}");
+  assert.match(
+    String(provider.getIn(["jobs", "refresh", "if"])),
+    /needs\.publish\.result == 'success'/u,
+  );
+});
+
+void test("provider channel requires exact landing rehearsal before minting credentials", async () => {
+  const source = await readFile(
+    new URL("../.github/workflows/release-cycle-caller.yaml", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /rolling-release-compatibility\.yaml/u);
+  assert.match(source, /"full:" \+ \$sha/u);
+  assert.match(source, /needs\.release\.outputs\.published == 'true'/u);
+  assert.ok(
+    source.indexOf("Require successful full rehearsal") <
+      source.indexOf("Mint the provider channel token"),
+  );
+  assert.match(source, /force=false/u);
+});
+
+void test("preview rehearsal cannot satisfy the full compatibility gate", async () => {
+  const source = await readFile(
+    new URL("../examples/rolling-release-compatibility.yaml", import.meta.url),
+    "utf8",
+  );
+  const workflow = parseDocument(source);
+  assert.deepEqual(workflow.errors, []);
+  assert.equal(workflow.get("run-name"), "${{ inputs.mode }}:${{ inputs.provider-sha }}");
+  assert.match(String(workflow.getIn(["jobs", "full", "if"])), /inputs\.mode == 'full'/u);
+  assert.match(source, /actions\/workflows\/rolling-release\.yaml\/dispatches/u);
+  assert.match(source, /\[a-f0-9\]\{40\}/u);
 });

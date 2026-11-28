@@ -26,9 +26,9 @@ void test("only an immutable producer in the trusted provider ancestry can be se
     await git("update-ref", "refs/remotes/origin/main", current);
     assert.equal(await selectProducer(directory, current, first), first);
     assert.equal(await selectProducer(directory, current, current), current);
-    // A stale pull-request base cannot validate a producer added to main later.
+    // A rollback can replay a producer added to protected main after the pinned workflow.
     await git("checkout", "-q", "--detach", first);
-    await assert.rejects(selectProducer(directory, first, current), /outside protected/u);
+    assert.equal(await selectProducer(directory, first, current), current);
     await git("checkout", "-q", "--detach", current);
     assert.equal(await selectProducer(directory, await git("rev-parse", "HEAD"), current), current);
     await assert.rejects(selectProducer(directory, current, "main"), /full commit SHAs/u);

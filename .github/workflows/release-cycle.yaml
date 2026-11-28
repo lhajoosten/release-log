@@ -1,0 +1,116 @@
+name: Release cycle provider
+on:
+  workflow_call:
+    outputs:
+      published:
+        description: Whether publication completed successfully
+        value: ${{ jobs.publication-result.outputs.published }}
+    inputs:
+      retry-pr:
+        type: string
+        default: ""
+      write-enabled:
+        type: string
+        default: "true"
+      bot:
+        type: string
+        required: true
+      start-sha:
+        type: string
+        default: ""
+      image-enabled:
+        type: string
+        default: "true"
+      app-id:
+        type: string
+        required: true
+    secrets:
+      app-private-key:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  propose:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.retry-pr == '') ||
+      (github.event_name == 'pull_request_target' && github.event.pull_request.merged &&
+       github.event.pull_request.base.ref == github.event.repository.default_branch &&
+       (github.event.pull_request.head.ref != 'release/next' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login != inputs.bot) && inputs.write-enabled != 'false')
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/release-propose.yaml
+    with:
+      bot: ${{ inputs.bot }}
+      start-sha: ${{ inputs.start-sha }}
+      image-enabled: ${{ inputs.image-enabled }}
+      app-id: ${{ inputs.app-id }}
+    secrets:
+      app-private-key: ${{ secrets.app-private-key }}
+
+  promote:
+    if: >-
+      inputs.write-enabled != 'false' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.retry-pr != '' && github.ref == 'refs/heads/main' && github.ref_protected) ||
+       (github.event_name == 'pull_request_target' && github.event.pull_request.merged &&
+        github.event.pull_request.base.ref == github.event.repository.default_branch &&
+        github.event.pull_request.head.ref == 'release/next' && github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.user.login == inputs.bot))
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: read
+    uses: ./.github/workflows/release-promote.yaml
+    with:
+      retry-pr: ${{ inputs.retry-pr }}
+      bot: ${{ inputs.bot }}
+      start-sha: ${{ inputs.start-sha }}
+      app-id: ${{ inputs.app-id }}
+    secrets:
+      app-private-key: ${{ secrets.app-private-key }}
+
+  publish:
+    needs: promote
+    if: needs.promote.result == 'success'
+    permissions:
+      contents: write
+      pull-requests: read
+      packages: write
+    uses: ./.github/workflows/release-publish.yaml
+    with:
+      retry-pr: ${{ inputs.retry-pr }}
+      bot: ${{ inputs.bot }}
+      start-sha: ${{ inputs.start-sha }}
+      app-id: ${{ inputs.app-id }}
+    secrets:
+      app-private-key: ${{ secrets.app-private-key }}
+
+  refresh:
+    needs: publish
+    if: needs.publish.result == 'success' && inputs.write-enabled != 'false'
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/release-propose.yaml
+    with:
+      retry-pr: ${{ inputs.retry-pr }}
+      refresh: true
+      bot: ${{ inputs.bot }}
+      start-sha: ${{ inputs.start-sha }}
+      image-enabled: ${{ inputs.image-enabled }}
+      app-id: ${{ inputs.app-id }}
+    secrets:
+      app-private-key: ${{ secrets.app-private-key }}
+
+  publication-result:
+    if: always()
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions: {}
+    outputs:
+      published: ${{ needs.publish.result == 'success' }}
+    steps:
+      - run: "true"
