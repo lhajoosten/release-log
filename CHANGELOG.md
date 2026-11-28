@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.10.0
+
+### ✨ Features
+
+- centralize release routing and rehearse publication ([#196](https://github.com/lhajoosten/rolling-release/pull/196)) by [@lhajoosten](https://github.com/lhajoosten)
+
+[Full changelog v0.9.1...v0.10.0](https://github.com/lhajoosten/rolling-release/compare/v0.9.1...v0.10.0)
+
 ## v0.9.1
 
 ### 🐛 Fixes

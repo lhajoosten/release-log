@@ -1,28 +1,28 @@
 {
   "schema": 1,
-  "producer": "ff3d8ddf60a09a65783446ed3fe0b4ab9c97737b",
+  "producer": "f71fb3c0a9187d358f5a69cc48f9f5a4f00f9909",
   "repository": "lhajoosten/rolling-release",
   "branch": "main",
-  "baseline": "76cd40941ab00491832e702ff636bfbb31cfeae4",
-  "source": "ff3d8ddf60a09a65783446ed3fe0b4ab9c97737b",
-  "previousVersion": "0.9.0",
+  "baseline": "6ad9ef0df34c43bea9f698f41d6c9260ad5f2605",
+  "source": "f71fb3c0a9187d358f5a69cc48f9f5a4f00f9909",
+  "previousVersion": "0.9.1",
   "changes": [
     {
-      "number": 193,
-      "title": "fix(release): recover tagged publications and separate image scanning",
+      "number": 196,
+      "title": "feat(consumers): centralize release routing and rehearse publication",
       "author": "lhajoosten",
       "requiredAction": null
     }
   ],
-  "version": "0.9.1",
+  "version": "0.10.0",
   "files": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "67f37268a80e30b70db8ec95820773f5b143ff6189ce7c51f861a0ee7da56126"
+      "sha256": "cc86d03b74a2a42df61fd70aa9476516afeb92044617634e005a78abfe5f42cc"
     },
     {
       "path": "package.json",
-      "sha256": "f88eda075ebdc0830a9aed3a60e0303cf9581bcfcdf4a11f116e7de9d514259a"
+      "sha256": "8c203ad3454e6991297607ef4e25438afb123923a53f654902bd17bc78802063"
     }
   ]
 }
