@@ -1,0 +1,19 @@
+name: Source complexity
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: source-complexity-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  complexity:
+    uses: lhajoosten/lint-gate/.github/workflows/source-complexity.yml@97e2e519ec909fba3b4f32e9b53cd55a2592085a # v0.2.0
