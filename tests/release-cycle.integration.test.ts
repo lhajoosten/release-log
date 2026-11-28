@@ -28,6 +28,7 @@ for (const imageEnabled of [true, false])
     const variables = {
       GITHUB_TOKEN: "synthetic",
       GITHUB_REPOSITORY: repository,
+      GITHUB_REPOSITORY_ID: "1",
       ROLLING_RELEASE_ROOT: root,
       ROLLING_RELEASE_PRODUCER_SHA: "f".repeat(40),
       ROLLING_RELEASE_BOT: bot,
