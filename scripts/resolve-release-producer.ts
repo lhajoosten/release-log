@@ -1,3 +1,4 @@
+import { releaseEventNumber } from "../src/controller/event.ts";
 import { githubCommitSignature, verifiedAppCommit } from "../src/controller/commit-verification.ts";
 import { execFile } from "node:child_process";
 import { appendFile, readFile } from "node:fs/promises";
@@ -37,7 +38,9 @@ async function main() {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repo) || !bot || !token)
     throw new Error("Repository, bot and read token are required.");
   const event = object(JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH ?? "", "utf8")));
-  const number = object(event.pull_request).number;
+  const number = process.env.ROLLING_RELEASE_RETRY_PR
+    ? releaseEventNumber(event)
+    : object(event.pull_request).number;
   if (typeof number !== "number" || !Number.isSafeInteger(number) || number <= 0)
     throw new Error("Expected a pull request event.");
   async function get(path: string) {
@@ -56,6 +59,7 @@ async function main() {
   const headSha = head.sha;
   if (
     pull.number !== number ||
+    (process.env.ROLLING_RELEASE_RETRY_PR && (pull.merged !== true || pull.state !== "closed")) ||
     author.login !== bot ||
     author.type !== "Bot" ||
     head.ref !== "release/next" ||
@@ -91,7 +95,15 @@ async function main() {
     review.producer,
   );
   if (!process.env.GITHUB_OUTPUT) throw new Error("Missing workflow output destination.");
-  await appendFile(process.env.GITHUB_OUTPUT, `sha=${producer}\nhead=${headSha}\n`);
+  const landing =
+    typeof pull.merge_commit_sha === "string" && fullSha.test(pull.merge_commit_sha)
+      ? pull.merge_commit_sha
+      : "";
+  if (process.env.ROLLING_RELEASE_RETRY_PR && !landing) throw new Error("Missing release landing.");
+  await appendFile(
+    process.env.GITHUB_OUTPUT,
+    `sha=${producer}\nhead=${headSha}\nlanding=${landing}\n`,
+  );
 }
 
 if (import.meta.main)

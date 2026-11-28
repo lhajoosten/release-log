@@ -3,6 +3,10 @@ name: Release propose
 on:
   workflow_call:
     inputs:
+      retry-pr:
+        description: Merged release PR number for a manual retry
+        type: string
+        default: ""
       refresh:
         description: Refresh after a completed release
         type: boolean
@@ -75,7 +79,7 @@ jobs:
           pnpm build
 
       - name: Mint scoped repository token
-        if: github.event_name != 'workflow_dispatch'
+        if: github.event_name != 'workflow_dispatch' || inputs.refresh
         id: app
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
         with:
@@ -93,11 +97,12 @@ jobs:
           ROLLING_RELEASE_BOT: ${{ inputs.bot }}
           ROLLING_RELEASE_START_SHA: ${{ inputs.start-sha }}
           RELEASE_REFRESH: ${{ inputs.refresh }}
+          ROLLING_RELEASE_RETRY_PR: ${{ inputs.retry-pr }}
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
-            node "$GITHUB_WORKSPACE/tool/dist/src/cli.js" preview
-          elif [[ "$RELEASE_REFRESH" == true ]]; then
+          if [[ "$RELEASE_REFRESH" == true ]]; then
             node "$GITHUB_WORKSPACE/tool/dist/src/cli.js" refresh
+          elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            node "$GITHUB_WORKSPACE/tool/dist/src/cli.js" preview
           else
             node "$GITHUB_WORKSPACE/tool/dist/src/cli.js" propose
           fi

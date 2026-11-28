@@ -34,6 +34,9 @@ void test("consumer commands refresh a stacked release, verify its landing, reco
     GHCR_TOKEN: "synthetic",
     GITHUB_EVENT_PATH: event,
     ROLLING_RELEASE_START_SHA: "",
+    ROLLING_RELEASE_RETRY_PR: "",
+    GITHUB_EVENT_NAME: "pull_request_target",
+    GITHUB_REF: "refs/heads/main",
   };
   for (const [key, value] of Object.entries(variables)) {
     const previous = process.env[key];
@@ -432,13 +435,31 @@ void test("consumer commands refresh a stacked release, verify its landing, reco
   assert.equal(refs.get("tags/v1.3.0"), landing);
   await assert.rejects(run("publish"), /503/u);
   assert.equal(imageVersion, true);
+  // A manual retry selects the original merged proposal even after main advances.
+  writeFileSync(event, JSON.stringify({}));
+  process.env.GITHUB_EVENT_NAME = "workflow_dispatch";
+  process.env.ROLLING_RELEASE_RETRY_PR = String(pr.number);
+  process.env.GITHUB_REF = "refs/heads/other";
+  await assert.rejects(run("publish"), /manual dispatch from main/u);
+  process.env.GITHUB_REF = "refs/heads/main";
+  process.env.ROLLING_RELEASE_RETRY_PR = "44";
+  await assert.rejects(run("publish"), /merged release proposal/u);
+  process.env.ROLLING_RELEASE_RETRY_PR = String(pr.number);
+  refs.delete("tags/v1.3.0");
+  await assert.rejects(run("promote"), /requires the existing release tag/u);
+  refs.set("tags/v1.3.0", base);
+  await assert.rejects(run("publish"), /Conflicting tag/u);
+  refs.set("tags/v1.3.0", landing);
   await run("publish");
+  await run("refresh");
   assert.equal(writes.filter((w) => w === "image").length, 1);
   assert.equal(object(release).body, pr.body);
   const final = writes.length;
   await run("promote");
   await run("publish");
   assert.equal(writes.length, final);
+  process.env.ROLLING_RELEASE_RETRY_PR = "";
+  process.env.GITHUB_EVENT_NAME = "pull_request_target";
   trigger(44);
   await run("propose");
   assert.equal(writes.length, final);

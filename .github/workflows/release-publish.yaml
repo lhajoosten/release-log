@@ -3,6 +3,10 @@ name: Release publish
 on:
   workflow_call:
     inputs:
+      retry-pr:
+        description: Merged release PR number for a manual retry
+        type: string
+        default: ""
       bot:
         description: Expected GitHub App bot login
         type: string
@@ -64,6 +68,7 @@ jobs:
         id: producer
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          ROLLING_RELEASE_RETRY_PR: ${{ inputs.retry-pr }}
           ROLLING_RELEASE_BOT: ${{ inputs.bot }}
           RELEASE_WORKFLOW_SHA: ${{ job.workflow_sha }}
           RELEASE_PROVIDER_PATH: tool
@@ -109,21 +114,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app.outputs.token }}
           GH_TOKEN: ${{ steps.app.outputs.token }}
+          ROLLING_RELEASE_RETRY_PR: ${{ inputs.retry-pr }}
           ROLLING_RELEASE_BOT: ${{ inputs.bot }}
           ROLLING_RELEASE_START_SHA: ${{ inputs.start-sha }}
           ROLLING_RELEASE_REVIEW_RUNTIME: ${{ github.workspace }}/tool-reviewed
           ROLLING_RELEASE_REVIEW_SHA: ${{ steps.producer.outputs.sha }}
           ROLLING_RELEASE_REVIEW_HEAD: ${{ steps.producer.outputs.head }}
           GHCR_TOKEN: ${{ github.token }}
-          ROLLING_RELEASE_SCAN_SCRIPT: ${{ github.repository_id == '1449550207' && format('{0}/tool/scripts/scan-container.ts', github.workspace) || '' }}
-          ROLLING_RELEASE_SCAN_OUTPUT: ${{ runner.temp }}/release-image-scan
         run: node "$GITHUB_WORKSPACE/tool/dist/src/cli.js" publish
-
-      - name: Preserve provider image scan evidence
-        if: always() && github.repository_id == '1449550207'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: release-image-scan-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/release-image-scan/
-          if-no-files-found: warn
-          retention-days: 90

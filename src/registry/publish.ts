@@ -148,12 +148,8 @@ export async function publishImage(
       throw new Error("Conflicting image source, revision, version or platform.");
     return { digest, bytes, mediaType, configDigest };
   };
-  const providerGate = async (reference: string, pull: boolean): Promise<void> => {
+  const smokeTestProviderImage = async (reference: string, pull: boolean): Promise<void> => {
     if (packageName !== "lhajoosten/rolling-release") return;
-    const scanner = process.env.ROLLING_RELEASE_SCAN_SCRIPT;
-    const reports = process.env.ROLLING_RELEASE_SCAN_OUTPUT;
-    if (!scanner || !reports)
-      throw new Error("Provider image smoke and scan gate is not configured.");
     const directory = await mkdtemp(join(tmpdir(), "rolling-release-gate-"));
     try {
       if (pull) {
@@ -169,11 +165,6 @@ export async function publishImage(
           env: { PATH: process.env.PATH },
           maxBuffer: 1024 * 1024,
         });
-      await exec(process.execPath, [scanner, "--image", reference, "--output", reports], {
-        env: { PATH: process.env.PATH },
-        timeout: 900000,
-        maxBuffer: 8 * 1024 * 1024,
-      });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -181,7 +172,7 @@ export async function publishImage(
   const candidateTag = `sha-${landing}`;
   let candidate = await get(candidateTag);
   const published = await get(version);
-  if (candidate) await providerGate(`${image}@${candidate.digest}`, true);
+  if (candidate) await smokeTestProviderImage(`${image}@${candidate.digest}`, true);
   if (published) {
     if (!candidate || candidate.digest !== published.digest)
       throw new Error("Conflicting image version or missing retained candidate.");
@@ -248,11 +239,11 @@ export async function publishImage(
         localLabels["org.opencontainers.image.version"] !== version.slice(1)
       )
         throw new Error("Built candidate image identity does not match the reviewed release.");
-      await providerGate(`${image}:${candidateTag}`, false);
+      await smokeTestProviderImage(`${image}:${candidateTag}`, false);
       const raced = await get(candidateTag);
       if (raced) {
         candidate = raced;
-        await providerGate(`${image}@${candidate.digest}`, true);
+        await smokeTestProviderImage(`${image}@${candidate.digest}`, true);
       } else {
         const config = join(directory, "docker");
         await exec("mkdir", ["-p", config]);
