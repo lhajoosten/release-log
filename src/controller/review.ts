@@ -4,6 +4,7 @@ import type { Change } from "../release/core.ts";
 
 export interface ReviewInput {
   readonly producer: string;
+  readonly publishImage?: false;
   readonly repository: string;
   readonly branch: string;
   readonly baseline: string;
@@ -16,6 +17,7 @@ export interface ReviewInput {
 export interface ReviewRecord {
   readonly schema: 1;
   readonly producer: string;
+  readonly publishImage?: false;
   readonly repository: string;
   readonly branch: string;
   readonly baseline: string;
@@ -62,6 +64,7 @@ export function createReview(input: ReviewInput): ReviewRecord {
   return {
     schema: 1,
     producer: input.producer,
+    ...(input.publishImage === false ? { publishImage: false as const } : {}),
     repository: input.repository,
     branch: input.branch,
     baseline: input.baseline,

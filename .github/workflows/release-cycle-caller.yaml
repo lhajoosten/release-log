@@ -1,5 +1,6 @@
-# Copy into the consumer repository after reviewing the provider ref and settings.
-name: Release cycle
+# Copy into .github/workflows/rolling-release.yaml after reviewing settings and provider ref.
+name: Rolling Release
+run-name: release:${{ github.event.pull_request.number || inputs.retry-pr || 'preview' }}
 on:
   pull_request_target:
     types: [closed]
@@ -15,86 +16,44 @@ permissions:
   pull-requests: read
 
 jobs:
-  propose:
-    if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.retry-pr == '') ||
-      (github.event_name == 'pull_request_target' && github.event.pull_request.merged &&
-       github.event.pull_request.base.ref == github.event.repository.default_branch &&
-       (github.event.pull_request.head.ref != 'release/next' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login != vars.ROLLING_RELEASE_BOT) && vars.RELEASE_LOG_WRITE_ENABLED != 'false')
-    permissions:
-      contents: write
-      pull-requests: write
-    uses: ./.github/workflows/release-propose.yaml
-    with:
-      bot: ${{ vars.ROLLING_RELEASE_BOT }}
-      start-sha: ${{ vars.ROLLING_RELEASE_START_SHA }}
-      app-id: ${{ vars.RELEASE_APP_ID }}
-    secrets:
-      app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-
-  promote:
-    if: >-
-      vars.RELEASE_LOG_WRITE_ENABLED != 'false' &&
-      ((github.event_name == 'workflow_dispatch' && inputs.retry-pr != '' && github.ref == 'refs/heads/main') ||
-       (github.event_name == 'pull_request_target' && github.event.pull_request.merged &&
-        github.event.pull_request.base.ref == github.event.repository.default_branch &&
-        github.event.pull_request.head.ref == 'release/next' && github.event.pull_request.head.repo.full_name == github.repository &&
-        github.event.pull_request.user.login == vars.ROLLING_RELEASE_BOT))
+  release:
+    if: github.event_name != 'pull_request'
     permissions:
       actions: read
       contents: write
-      pull-requests: read
-    uses: ./.github/workflows/release-promote.yaml
-    with:
-      retry-pr: ${{ inputs.retry-pr }}
-      bot: ${{ vars.ROLLING_RELEASE_BOT }}
-      start-sha: ${{ vars.ROLLING_RELEASE_START_SHA }}
-      app-id: ${{ vars.RELEASE_APP_ID }}
-    secrets:
-      app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-
-  publish:
-    needs: promote
-    if: needs.promote.result == 'success'
-    permissions:
-      contents: write
-      pull-requests: read
-      packages: write
-    uses: ./.github/workflows/release-publish.yaml
-    with:
-      retry-pr: ${{ inputs.retry-pr }}
-      bot: ${{ vars.ROLLING_RELEASE_BOT }}
-      start-sha: ${{ vars.ROLLING_RELEASE_START_SHA }}
-      app-id: ${{ vars.RELEASE_APP_ID }}
-    secrets:
-      app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-
-  refresh:
-    needs: publish
-    if: needs.publish.result == 'success' && vars.RELEASE_LOG_WRITE_ENABLED != 'false'
-    permissions:
-      contents: write
       pull-requests: write
-    uses: ./.github/workflows/release-propose.yaml
+      packages: write
+    uses: ./.github/workflows/release-cycle.yaml
     with:
       retry-pr: ${{ inputs.retry-pr }}
-      refresh: true
+      write-enabled: ${{ vars.RELEASE_LOG_WRITE_ENABLED }}
       bot: ${{ vars.ROLLING_RELEASE_BOT }}
       start-sha: ${{ vars.ROLLING_RELEASE_START_SHA }}
+      image-enabled: ${{ vars.ROLLING_RELEASE_IMAGE_ENABLED }}
       app-id: ${{ vars.RELEASE_APP_ID }}
     secrets:
       app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
   consumer-channel:
-    needs: publish
-    if: needs.publish.result == 'success' && github.event_name == 'pull_request_target' && github.repository_id == '1449550207' && vars.CONSUMER_PROMOTION_ENABLED == 'true'
+    needs: release
+    if: always() && !cancelled() && needs.release.outputs.published == 'true' && github.event.pull_request.merged && github.event.pull_request.base.ref == github.event.repository.default_branch && github.event.pull_request.head.ref == 'release/next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == vars.ROLLING_RELEASE_BOT && vars.RELEASE_LOG_WRITE_ENABLED != 'false' && github.event_name == 'pull_request_target' && github.repository_id == '1449550207' && vars.CONSUMER_PROMOTION_ENABLED == 'true'
     permissions:
       contents: read
+      actions: read
     runs-on: ubuntu-24.04
     concurrency:
       group: rolling-release-provider-channel
       queue: max
     steps:
+      - name: Require successful full rehearsal for the exact landing
+        env:
+          GH_TOKEN: ${{ secrets.CONSUMER_REHEARSAL_READ_TOKEN || github.token }}
+          LANDING: ${{ github.event.pull_request.merge_commit_sha }}
+          REHEARSAL_REPOSITORY: ${{ vars.CONSUMER_REHEARSAL_REPOSITORY }}
+        run: |
+          [[ "$LANDING" =~ ^[a-f0-9]{40}$ && "$REHEARSAL_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || exit 1
+          gh api "repos/$REHEARSAL_REPOSITORY/actions/workflows/rolling-release-compatibility.yaml/runs?event=workflow_dispatch&branch=main&per_page=100" --paginate --slurp | \
+            jq -e --arg sha "$LANDING" '[.[].workflow_runs[] | select(.display_title == ("full:" + $sha))] | sort_by(.id) | last | .status == "completed" and .conclusion == "success"' >/dev/null
       - name: Mint the provider channel token
         id: app
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2

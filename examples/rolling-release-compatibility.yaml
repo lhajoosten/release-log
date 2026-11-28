@@ -1,0 +1,103 @@
+# Install only in a dedicated disposable public consumer with protected main.
+# Pin both refs in rolling-release.yaml to the candidate SHA before dispatch.
+name: Rolling Release compatibility
+run-name: ${{ inputs.mode }}:${{ inputs.provider-sha }}
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Preview or full evidence verification
+        type: choice
+        options: [preview, full]
+        required: true
+      provider-sha:
+        description: Full provider commit selected in the installed caller
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: write
+jobs:
+  preview:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the installed consumer caller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+      - name: Verify exact provider pin and dispatch preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROVIDER_SHA: ${{ inputs.provider-sha }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          [[ "$PROVIDER_SHA" =~ ^[a-f0-9]{40}$ ]] || exit 1
+          file=.github/workflows/rolling-release.yaml
+          ref="$PROVIDER_SHA"
+          if [[ "$MODE" == full ]]; then ref=consumer-rehearsal-v1; fi
+          for workflow in release-quality release-cycle; do
+            [[ $(grep -Fxc "    uses: lhajoosten/rolling-release/.github/workflows/$workflow.yaml@$ref" "$file") == 1 ]] || exit 1
+          done
+          caller_sha=$(git rev-parse HEAD)
+          id=$(gh api --method POST -H 'X-GitHub-Api-Version: 2026-03-10' "repos/$GITHUB_REPOSITORY/actions/workflows/rolling-release.yaml/dispatches" -f ref=main -f 'inputs[retry-pr]=' --jq .workflow_run_id)
+          [[ "$id" =~ ^[1-9][0-9]*$ ]] || exit 1
+          for attempt in {1..60}; do
+            run=$(gh run view "$id" --json status,conclusion,headSha)
+            if [[ $(jq -r .status <<< "$run") == completed ]]; then
+              gh run view "$id"
+              [[ $(jq -r .conclusion <<< "$run") == success && $(jq -r .headSha <<< "$run") == "$caller_sha" ]] || exit 1
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" | jq -e --arg sha "$PROVIDER_SHA" --arg ref "$ref" '[.referenced_workflows[]? | select(.path == ("lhajoosten/rolling-release/.github/workflows/release-cycle.yaml@" + $ref) and .sha == $sha)] | length == 1' >/dev/null
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100" --paginate --slurp | jq -e '[.[].jobs[] | select(.name == "release / propose / propose" and .conclusion == "success")] | length == 1' >/dev/null
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Preview did not finish' >&2
+          exit 1
+
+  full:
+    if: inputs.mode == 'full'
+    needs: preview
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      packages: read
+    steps:
+      - name: Check out reviewed consumer evidence
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: consumer
+          persist-credentials: false
+      - name: Check out exact provider candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: lhajoosten/rolling-release
+          ref: ${{ inputs.provider-sha }}
+          path: provider
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: provider/.node-version
+          package-manager-cache: false
+      - uses: pnpm/action-setup@9bbca1e9dc2902adb87e8780fe5c98796985a62d # v6.1.1
+        with:
+          package_json_file: provider/package.json
+          cache: false
+      - name: Install and run controlled fixtures
+        working-directory: provider
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          node --test tests/release-cycle.integration.test.ts tests/producer-selection.test.ts tests/image-registry.test.ts tests/image-workflows.test.ts tests/rehearsal.test.ts
+      - name: Verify live state and reviewed observations
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GHCR_READ_TOKEN: ${{ secrets.REHEARSAL_GHCR_READ_TOKEN || github.token }}
+          PROVIDER_SHA: ${{ inputs.provider-sha }}
+          REHEARSAL_EVIDENCE: ${{ github.workspace }}/consumer/.rolling-release/rehearsal.json
+        run: node "$GITHUB_WORKSPACE/provider/scripts/verify-rehearsal.ts"

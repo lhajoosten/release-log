@@ -115,6 +115,14 @@ async function verifyHead(root: string, remote: Remote, head: string, existingNo
   const text = await blob(root, head, recordPath);
   if (!text) throw new Error("Missing reviewed release inputs");
   const record = object(JSON.parse(text));
+  if (record.publishImage !== undefined && record.publishImage !== false)
+    throw new Error("Invalid reviewed image publication setting");
+  if (
+    record.publishImage === false &&
+    (remote.repository.toLowerCase() === "lhajoosten/rolling-release" ||
+      process.env.GITHUB_REPOSITORY_ID === "1449550207")
+  )
+    throw new Error("The provider must publish its release image");
   const { baseline, previousVersion } = await boundary(root, source, sha(record.baseline));
   const changes = captured(record.changes);
   if (!(await remote.verifiedAppCommit(head)))
@@ -176,6 +184,7 @@ async function verifyHead(root: string, remote: Remote, head: string, existingNo
     return {
       schema: 1 as const,
       producer: sha(record.producer),
+      ...(record.publishImage === false ? { publishImage: false as const } : {}),
       repository: remote.repository,
       branch: "main",
       baseline,
@@ -205,6 +214,7 @@ async function verifyHead(root: string, remote: Remote, head: string, existingNo
   );
   const review = runtime.verifyReview(record, {
     producer: sha(record.producer),
+    ...(record.publishImage === false ? { publishImage: false as const } : {}),
     repository: remote.repository,
     branch: "main",
     baseline,
@@ -459,7 +469,17 @@ export async function propose(
     }
   }
   const files = await generated(root, source, plan.version, previousVersion, plan.markdown);
+  const imageSetting = process.env.ROLLING_RELEASE_IMAGE_ENABLED ?? "";
+  if (!["", "true", "false"].includes(imageSetting))
+    throw new Error("ROLLING_RELEASE_IMAGE_ENABLED must be true or false");
+  if (
+    imageSetting === "false" &&
+    (remote.repository.toLowerCase() === "lhajoosten/rolling-release" ||
+      process.env.GITHUB_REPOSITORY_ID === "1449550207")
+  )
+    throw new Error("The provider must publish its release image");
   const record = createReview({
+    ...(imageSetting === "false" ? { publishImage: false as const } : {}),
     producer: sha(process.env.ROLLING_RELEASE_PRODUCER_SHA),
     repository: remote.repository,
     branch: "main",
@@ -475,6 +495,7 @@ export async function propose(
       version: plan.version,
       changes,
       markdown: plan.markdown,
+      publishImage: record.publishImage !== false,
       files: record.files,
     }),
   );
@@ -550,13 +571,14 @@ export async function finalize(root: string, remote: Remote, mode: "promote" | "
   const path = "releases/tags/" + tag;
   const existing = await remote.optional(path);
   if (existing !== null) matchingRelease(existing, tag, review.markdown);
-  await checkedOut(root, landing, (dir) =>
-    publishImage(dir, remote.repository, tag, landing, async () => {
-      await recheck();
-      if ((await remote.tag(tag)) !== landing)
-        throw new Error("Release tag changed before image publication");
-    }),
-  );
+  if (review.publishImage !== false)
+    await checkedOut(root, landing, (dir) =>
+      publishImage(dir, remote.repository, tag, landing, async () => {
+        await recheck();
+        if ((await remote.tag(tag)) !== landing)
+          throw new Error("Release tag changed before image publication");
+      }),
+    );
   if ((await remote.tag(tag)) !== landing)
     throw new Error("Tag changed before GitHub Release publication");
   const latest = await remote.optional(path);

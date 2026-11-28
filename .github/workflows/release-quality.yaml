@@ -63,8 +63,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.ref == 'release/next' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.user.login == (inputs.bot || vars.ROLLING_RELEASE_BOT)
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

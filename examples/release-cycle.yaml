@@ -1,6 +1,9 @@
-# Copy into the consumer repository after reviewing the provider ref and settings.
-name: Release cycle
+# Copy into .github/workflows/rolling-release.yaml after reviewing settings and provider ref.
+name: Rolling Release
+run-name: release:${{ github.event.pull_request.number || inputs.retry-pr || 'preview' }}
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
   pull_request_target:
     types: [closed]
   workflow_dispatch:
@@ -15,72 +18,30 @@ permissions:
   pull-requests: read
 
 jobs:
-  propose:
-    if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.retry-pr == '') ||
-      (github.event_name == 'pull_request_target' && github.event.pull_request.merged &&
-       github.event.pull_request.base.ref == github.event.repository.default_branch &&
-       (github.event.pull_request.head.ref != 'release/next' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login != vars.ROLLING_RELEASE_BOT) && vars.RELEASE_LOG_WRITE_ENABLED != 'false')
+  proposal-check:
+    if: github.event_name == 'pull_request'
     permissions:
-      contents: write
-      pull-requests: write
-    uses: lhajoosten/rolling-release/.github/workflows/release-propose.yaml@consumer-v1
+      contents: read
+      pull-requests: read
+    uses: lhajoosten/rolling-release/.github/workflows/release-quality.yaml@consumer-v1
     with:
       bot: ${{ vars.ROLLING_RELEASE_BOT }}
       start-sha: ${{ vars.ROLLING_RELEASE_START_SHA }}
-      app-id: ${{ vars.RELEASE_APP_ID }}
-    secrets:
-      app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
-  promote:
-    if: >-
-      vars.RELEASE_LOG_WRITE_ENABLED != 'false' &&
-      ((github.event_name == 'workflow_dispatch' && inputs.retry-pr != '' && github.ref == 'refs/heads/main') ||
-       (github.event_name == 'pull_request_target' && github.event.pull_request.merged &&
-        github.event.pull_request.base.ref == github.event.repository.default_branch &&
-        github.event.pull_request.head.ref == 'release/next' && github.event.pull_request.head.repo.full_name == github.repository &&
-        github.event.pull_request.user.login == vars.ROLLING_RELEASE_BOT))
+  release:
+    if: github.event_name != 'pull_request'
     permissions:
       actions: read
       contents: write
-      pull-requests: read
-    uses: lhajoosten/rolling-release/.github/workflows/release-promote.yaml@consumer-v1
-    with:
-      retry-pr: ${{ inputs.retry-pr }}
-      bot: ${{ vars.ROLLING_RELEASE_BOT }}
-      start-sha: ${{ vars.ROLLING_RELEASE_START_SHA }}
-      app-id: ${{ vars.RELEASE_APP_ID }}
-    secrets:
-      app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-
-  publish:
-    needs: promote
-    if: needs.promote.result == 'success'
-    permissions:
-      contents: write
-      pull-requests: read
-      packages: write
-    uses: lhajoosten/rolling-release/.github/workflows/release-publish.yaml@consumer-v1
-    with:
-      retry-pr: ${{ inputs.retry-pr }}
-      bot: ${{ vars.ROLLING_RELEASE_BOT }}
-      start-sha: ${{ vars.ROLLING_RELEASE_START_SHA }}
-      app-id: ${{ vars.RELEASE_APP_ID }}
-    secrets:
-      app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-
-  refresh:
-    needs: publish
-    if: needs.publish.result == 'success' && vars.RELEASE_LOG_WRITE_ENABLED != 'false'
-    permissions:
-      contents: write
       pull-requests: write
-    uses: lhajoosten/rolling-release/.github/workflows/release-propose.yaml@consumer-v1
+      packages: write
+    uses: lhajoosten/rolling-release/.github/workflows/release-cycle.yaml@consumer-v1
     with:
       retry-pr: ${{ inputs.retry-pr }}
-      refresh: true
+      write-enabled: ${{ vars.RELEASE_LOG_WRITE_ENABLED }}
       bot: ${{ vars.ROLLING_RELEASE_BOT }}
       start-sha: ${{ vars.ROLLING_RELEASE_START_SHA }}
+      image-enabled: ${{ vars.ROLLING_RELEASE_IMAGE_ENABLED }}
       app-id: ${{ vars.RELEASE_APP_ID }}
     secrets:
       app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
