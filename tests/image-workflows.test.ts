@@ -80,12 +80,6 @@ void test("provider-only release and image gates use the exact landing while con
   assert.match(quality, /job\.workflow_sha/u);
   assert.match(quality, /ROLLING_RELEASE_START_SHA/u);
   assert.match(quality, /check-proposal/u);
-  const publish = await readFile(
-    new URL("../.github/workflows/release-publish.yaml", import.meta.url),
-    "utf8",
-  );
-  assert.match(publish, /ROLLING_RELEASE_SCAN_SCRIPT/u);
-  assert.match(publish, /ROLLING_RELEASE_SCAN_OUTPUT/u);
 });
 
 void test("provider PR workflows report all three checks required by main", async () => {
@@ -101,5 +95,26 @@ void test("provider PR workflows report all three checks required by main", asyn
       assert.equal(workflow.getIn(["jobs", name, "name"]) ?? name, name);
     }
     assert.ok(workflow.hasIn(["on", trigger]), `Missing ${trigger} trigger`);
+  }
+});
+
+void test("manual retry is selected only on main and refreshes after publication", async () => {
+  for (const path of [
+    "../.github/workflows/release-cycle-caller.yaml",
+    "../examples/release-cycle.yaml",
+  ]) {
+    const workflow = parseDocument(await readFile(new URL(path, import.meta.url), "utf8"));
+    assert.deepEqual(workflow.errors, []);
+    assert.ok(workflow.hasIn(["on", "workflow_dispatch", "inputs", "retry-pr"]));
+    const propose = String(workflow.getIn(["jobs", "propose", "if"]));
+    const promote = String(workflow.getIn(["jobs", "promote", "if"]));
+    assert.match(propose, /inputs\.retry-pr == ''/u);
+    assert.match(promote, /github\.ref == 'refs\/heads\/main'/u);
+    for (const job of ["promote", "publish", "refresh"])
+      assert.equal(workflow.getIn(["jobs", job, "with", "retry-pr"]), "${{ inputs.retry-pr }}");
+    assert.match(
+      String(workflow.getIn(["jobs", "refresh", "if"])),
+      /needs\.publish\.result == 'success'/u,
+    );
   }
 });

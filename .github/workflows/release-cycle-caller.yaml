@@ -4,6 +4,11 @@ on:
   pull_request_target:
     types: [closed]
   workflow_dispatch:
+    inputs:
+      retry-pr:
+        description: Merged release PR number to retry (leave empty for preview)
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -12,7 +17,7 @@ permissions:
 jobs:
   propose:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.retry-pr == '') ||
       (github.event_name == 'pull_request_target' && github.event.pull_request.merged &&
        github.event.pull_request.base.ref == github.event.repository.default_branch &&
        (github.event.pull_request.head.ref != 'release/next' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.user.login != vars.ROLLING_RELEASE_BOT) && vars.RELEASE_LOG_WRITE_ENABLED != 'false')
@@ -29,17 +34,19 @@ jobs:
 
   promote:
     if: >-
-      github.event_name == 'pull_request_target' && github.event.pull_request.merged &&
-      github.event.pull_request.base.ref == github.event.repository.default_branch &&
-      github.event.pull_request.head.ref == 'release/next' && github.event.pull_request.head.repo.full_name == github.repository &&
       vars.RELEASE_LOG_WRITE_ENABLED != 'false' &&
-      github.event.pull_request.user.login == vars.ROLLING_RELEASE_BOT
+      ((github.event_name == 'workflow_dispatch' && inputs.retry-pr != '' && github.ref == 'refs/heads/main') ||
+       (github.event_name == 'pull_request_target' && github.event.pull_request.merged &&
+        github.event.pull_request.base.ref == github.event.repository.default_branch &&
+        github.event.pull_request.head.ref == 'release/next' && github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.user.login == vars.ROLLING_RELEASE_BOT))
     permissions:
       actions: read
       contents: write
       pull-requests: read
     uses: ./.github/workflows/release-promote.yaml
     with:
+      retry-pr: ${{ inputs.retry-pr }}
       bot: ${{ vars.ROLLING_RELEASE_BOT }}
       start-sha: ${{ vars.ROLLING_RELEASE_START_SHA }}
       app-id: ${{ vars.RELEASE_APP_ID }}
@@ -55,6 +62,7 @@ jobs:
       packages: write
     uses: ./.github/workflows/release-publish.yaml
     with:
+      retry-pr: ${{ inputs.retry-pr }}
       bot: ${{ vars.ROLLING_RELEASE_BOT }}
       start-sha: ${{ vars.ROLLING_RELEASE_START_SHA }}
       app-id: ${{ vars.RELEASE_APP_ID }}
@@ -69,6 +77,7 @@ jobs:
       pull-requests: write
     uses: ./.github/workflows/release-propose.yaml
     with:
+      retry-pr: ${{ inputs.retry-pr }}
       refresh: true
       bot: ${{ vars.ROLLING_RELEASE_BOT }}
       start-sha: ${{ vars.ROLLING_RELEASE_START_SHA }}
@@ -78,7 +87,7 @@ jobs:
 
   consumer-channel:
     needs: publish
-    if: needs.publish.result == 'success' && github.repository_id == '1449550207' && vars.CONSUMER_PROMOTION_ENABLED == 'true'
+    if: needs.publish.result == 'success' && github.event_name == 'pull_request_target' && github.repository_id == '1449550207' && vars.CONSUMER_PROMOTION_ENABLED == 'true'
     permissions:
       contents: read
     runs-on: ubuntu-24.04

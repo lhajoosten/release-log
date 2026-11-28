@@ -1,3 +1,4 @@
+import { releaseEventNumber } from "./event.ts";
 import { gitEnvironment } from "../git.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -368,14 +369,7 @@ export async function verifyLanded(
 
 async function eventPull(remote: Remote) {
   const event = object(JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH ?? "", "utf8")));
-  const number = object(event.pull_request).number;
-  if (
-    typeof number !== "number" ||
-    !Number.isSafeInteger(number) ||
-    number <= 0 ||
-    event.action !== "closed"
-  )
-    throw new Error("Expected a closed pull request event");
+  const number = releaseEventNumber(event);
   const pull = object(await remote.request("pulls/" + number));
   if (
     pull.number !== number ||
@@ -520,7 +514,11 @@ function matchingRelease(raw: unknown, tag: string, markdown: string) {
 }
 export async function finalize(root: string, remote: Remote, mode: "promote" | "publish") {
   const pull = await eventPull(remote);
-  if (object(pull.head).ref !== branch) return;
+  if (object(pull.head).ref !== branch) {
+    if (process.env.ROLLING_RELEASE_RETRY_PR)
+      throw new Error("Expected a merged release proposal from the configured App");
+    return;
+  }
   const { review, landing } = await verifyLanded(root, remote, pull);
   const tag = "v" + review.version;
   const recheck = async () => {
@@ -538,6 +536,8 @@ export async function finalize(root: string, remote: Remote, mode: "promote" | "
   if (target && target !== landing) throw new Error("Conflicting tag " + tag);
   if (mode === "promote") {
     if (target) return;
+    if (process.env.ROLLING_RELEASE_RETRY_PR)
+      throw new Error("Manual publication retry requires the existing release tag " + tag);
     const again = await verifyLanded(root, remote, await eventPull(remote));
     if (again.landing !== landing || again.review.source !== review.source)
       throw new Error("Release changed before tagging");

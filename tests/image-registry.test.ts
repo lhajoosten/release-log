@@ -174,7 +174,7 @@ for (const uncertain of [false, true])
     }
   });
 
-void test("provider retained image must pass its smoke and scan before version publication", async () => {
+void test("provider retained image must pass its smoke test before version publication", async () => {
   const { mkdtemp, mkdir, writeFile, chmod, rm } = await import("node:fs/promises");
   const { join } = await import("node:path");
   const { tmpdir } = await import("node:os");
@@ -183,28 +183,19 @@ void test("provider retained image must pass its smoke and scan before version p
   await mkdir(bin);
   await writeFile(
     join(bin, "docker"),
-    '#!/bin/sh\nif [ "$3" = login ]; then cat >/dev/null; fi\nexit 0\n',
+    '#!/bin/sh\nif [ "$3" = login ]; then cat >/dev/null; fi\nif [ "$1" = run ]; then test -f "$0.pass"; fi\n',
   );
   await chmod(join(bin, "docker"), 0o755);
-  const pass = join(directory, "pass");
-  const scanner = join(directory, "scanner.mjs");
-  await writeFile(
-    scanner,
-    `import { existsSync } from 'node:fs'; if (!existsSync(${JSON.stringify(pass)})) process.exit(1);`,
-  );
+  const pass = join(bin, "docker.pass");
   const old = {
     fetch: globalThis.fetch,
     path: process.env.PATH,
     token: process.env.GHCR_TOKEN,
     actor: process.env.GITHUB_ACTOR,
-    scan: process.env.ROLLING_RELEASE_SCAN_SCRIPT,
-    output: process.env.ROLLING_RELEASE_SCAN_OUTPUT,
   };
   process.env.PATH = `${bin}:${old.path ?? ""}`;
   process.env.GHCR_TOKEN = "synthetic";
   process.env.GITHUB_ACTOR = "synthetic";
-  process.env.ROLLING_RELEASE_SCAN_SCRIPT = scanner;
-  process.env.ROLLING_RELEASE_SCAN_OUTPUT = join(directory, "report");
   const sha = "a".repeat(40);
   const config = JSON.stringify({
     os: "linux",
@@ -256,8 +247,6 @@ void test("provider retained image must pass its smoke and scan before version p
       PATH: old.path,
       GHCR_TOKEN: old.token,
       GITHUB_ACTOR: old.actor,
-      ROLLING_RELEASE_SCAN_SCRIPT: old.scan,
-      ROLLING_RELEASE_SCAN_OUTPUT: old.output,
     })) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;

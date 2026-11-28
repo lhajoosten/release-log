@@ -3,6 +3,10 @@ name: Release promote
 on:
   workflow_call:
     inputs:
+      retry-pr:
+        description: Merged release PR number for a manual retry
+        type: string
+        default: ""
       bot:
         description: Expected GitHub App bot login
         type: string
@@ -64,6 +68,7 @@ jobs:
         id: producer
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          ROLLING_RELEASE_RETRY_PR: ${{ inputs.retry-pr }}
           ROLLING_RELEASE_BOT: ${{ inputs.bot }}
           RELEASE_WORKFLOW_SHA: ${{ job.workflow_sha }}
           RELEASE_PROVIDER_PATH: tool
@@ -93,7 +98,7 @@ jobs:
         if: github.repository_id == '1449550207'
         env:
           GH_TOKEN: ${{ github.token }}
-          LANDING_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          LANDING_SHA: ${{ steps.producer.outputs.landing }}
         run: |
           [[ "$LANDING_SHA" =~ ^[a-f0-9]{40}$ ]] || exit 1
           for attempt in {1..24}; do
@@ -125,6 +130,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app.outputs.token }}
           GH_TOKEN: ${{ steps.app.outputs.token }}
+          ROLLING_RELEASE_RETRY_PR: ${{ inputs.retry-pr }}
           ROLLING_RELEASE_BOT: ${{ inputs.bot }}
           ROLLING_RELEASE_START_SHA: ${{ inputs.start-sha }}
           ROLLING_RELEASE_REVIEW_RUNTIME: ${{ github.workspace }}/tool-reviewed
