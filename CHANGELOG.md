@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.1
+
+### 🐛 Fixes
+
+- recover tagged publications and separate image scanning ([#193](https://github.com/lhajoosten/rolling-release/pull/193)) by [@lhajoosten](https://github.com/lhajoosten)
+
+[Full changelog v0.9.0...v0.9.1](https://github.com/lhajoosten/rolling-release/compare/v0.9.0...v0.9.1)
+
 ## v0.9.0
 
 ### ✨ Features
